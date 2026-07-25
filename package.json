@@ -1,0 +1,61 @@
+{
+  "name": "easy-candle-electron",
+  "version": "2.0.0",
+  "description": "Easy Candle — Binance candle replay desktop app",
+  "main": "./out/main/index.js",
+  "author": "Easy Candle",
+  "license": "MIT",
+  "homepage": "https://github.com/easy-candle/easy-candle-electron",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "yarn typecheck:node && yarn typecheck:web",
+    "build": "yarn typecheck && electron-vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "electron-builder install-app-deps",
+    "dist": "yarn build && electron-builder --publish never",
+    "dist:win": "yarn build && electron-builder --win --publish never",
+    "dist:mac": "yarn build && electron-builder --mac --publish never",
+    "dist:linux": "yarn build && electron-builder --linux --publish never",
+    "release": "yarn build && electron-builder --publish always"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "electron-updater": "^6.6.2",
+    "lightweight-charts": "^4.2.3",
+    "lucide-react": "^1.25.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "zustand": "^5.0.6"
+  },
+  "devDependencies": {
+    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
+    "@electron-toolkit/eslint-config-ts": "^3.1.0",
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@types/node": "^22.19.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.21",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "postcss": "^8.5.6",
+    "prettier": "^3.7.4",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.6",
+    "vitest": "^3.2.4"
+  },
+  "resolutions": {
+    "vite": "^7.2.6"
+  }
+}

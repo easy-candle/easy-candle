@@ -1,0 +1,129 @@
+import { FormEvent, useState } from 'react'
+import {
+  ChevronsLeft,
+  ChevronsRight,
+  Gauge,
+  LogOut,
+  Pause,
+  Play,
+  SkipForward
+} from 'lucide-react'
+import IconButton from '@/components/IconButton'
+import { REPLAY_SPEEDS } from '@/lib/replayEngine'
+import { defaultUtcParts, parseUtcParts, toUtcParts } from '@/lib/utcDateTime'
+import { useReplayStore } from '@/store/replayStore'
+
+export default function ReplayControls() {
+  const replayStatus = useReplayStore((s) => s.replayStatus)
+  const isPlaying = useReplayStore((s) => s.isPlaying)
+  const speed = useReplayStore((s) => s.speed)
+  const replayIndex = useReplayStore((s) => s.replayIndex)
+  const replayLoading = useReplayStore((s) => s.replayLoading)
+  const currentCandle = useReplayStore((s) => s.currentCandle)
+  const play = useReplayStore((s) => s.play)
+  const pause = useReplayStore((s) => s.pause)
+  const stepForward = useReplayStore((s) => s.stepForward)
+  const stepBackward = useReplayStore((s) => s.stepBackward)
+  const setSpeed = useReplayStore((s) => s.setSpeed)
+  const jumpToTime = useReplayStore((s) => s.jumpToTime)
+  const exitReplay = useReplayStore((s) => s.exitReplay)
+
+  const seed = currentCandle ? toUtcParts(currentCandle.time) : defaultUtcParts(7)
+  const [jumpDate, setJumpDate] = useState(seed.date)
+  const [jumpTime, setJumpTime] = useState(seed.time)
+  const [jumpError, setJumpError] = useState<string | null>(null)
+
+  const busy = replayLoading
+  const ended = replayStatus === 'ended'
+
+  async function onJump(event: FormEvent): Promise<void> {
+    event.preventDefault()
+    setJumpError(null)
+
+    const seconds = parseUtcParts(jumpDate, jumpTime)
+    if (seconds == null) {
+      setJumpError('Enter a valid UTC date and time.')
+      return
+    }
+
+    await jumpToTime(seconds)
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex items-center gap-1">
+        {!isPlaying ? (
+          <IconButton label="Play" disabled={busy || ended} onClick={play} tone="accent">
+            <Play className="h-4 w-4 fill-current" />
+          </IconButton>
+        ) : (
+          <IconButton label="Pause" disabled={busy} onClick={pause} tone="accent">
+            <Pause className="h-4 w-4 fill-current" />
+          </IconButton>
+        )}
+
+        <IconButton
+          label="Step backward"
+          disabled={busy || replayIndex <= 0}
+          onClick={stepBackward}
+        >
+          <ChevronsLeft className="h-4 w-4" />
+        </IconButton>
+
+        <IconButton label="Step forward" disabled={busy || ended} onClick={stepForward}>
+          <ChevronsRight className="h-4 w-4" />
+        </IconButton>
+      </div>
+
+      <label className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400">
+        <Gauge className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+        <span className="sr-only">Speed</span>
+        <select
+          value={String(speed)}
+          disabled={busy}
+          aria-label="Playback speed"
+          onChange={(e) => setSpeed(Number(e.target.value))}
+          className="rounded bg-zinc-900 text-zinc-100 outline-none disabled:opacity-60"
+        >
+          {REPLAY_SPEEDS.map((value) => (
+            <option key={value} value={String(value)} className="bg-zinc-900 text-zinc-100">
+              {value}x
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <form
+        onSubmit={onJump}
+        className="flex flex-wrap items-center gap-1 border-l border-zinc-800 pl-2"
+      >
+        <SkipForward className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
+        <span className="sr-only">Jump UTC</span>
+        <input
+          type="date"
+          value={jumpDate}
+          disabled={busy}
+          aria-label="Jump date UTC"
+          onChange={(e) => setJumpDate(e.target.value)}
+          className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
+        />
+        <input
+          type="time"
+          value={jumpTime}
+          disabled={busy}
+          aria-label="Jump time UTC"
+          onChange={(e) => setJumpTime(e.target.value)}
+          className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
+        />
+        <IconButton label="Jump to UTC time" type="submit" disabled={busy}>
+          <SkipForward className="h-4 w-4" />
+        </IconButton>
+        {jumpError && <span className="text-xs text-red-400">{jumpError}</span>}
+      </form>
+
+      <IconButton label="Exit replay" onClick={exitReplay} className="ml-0.5">
+        <LogOut className="h-4 w-4" />
+      </IconButton>
+    </div>
+  )
+}

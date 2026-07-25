@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  color-scheme: dark;
+  background: #09090b;
+}
+
+select,
+select option {
+  background-color: #18181b;
+  color: #f4f4f5;
+}
