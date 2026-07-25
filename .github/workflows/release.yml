@@ -9,20 +9,22 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             builder_args: --win
+            artifact: windows
           - os: macos-latest
             builder_args: --mac
+            artifact: macos
           - os: ubuntu-latest
             builder_args: --linux
+            artifact: linux
 
     runs-on: ${{ matrix.os }}
-    # Mac packaging is still the slowest leg; give it enough headroom after reducing targets.
     timeout-minutes: 60
 
     steps:
@@ -38,7 +40,44 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Build and publish
+      - name: Build (no publish)
+        run: yarn build && yarn electron-builder ${{ matrix.builder_args }} --publish never
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.zip
+            release/*.AppImage
+            release/*.dmg
+            release/*.blockmap
+            release/*.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Download all dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+          pattern: dist-*
+
+      - name: List release files
+        run: ls -la dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: dist/*
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: yarn build && yarn electron-builder ${{ matrix.builder_args }} --publish always
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

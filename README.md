@@ -35,13 +35,14 @@ Artifacts land in `release/`.
 
 ## Release (auto-build + auto-update)
 
-Publishes to [easy-candle/easy-candle](https://github.com/easy-candle/easy-candle) GitHub Releases (`electron-builder.yml` → `publish`).
+Publishes to [easy-candle/easy-candle](https://github.com/easy-candle/easy-candle) GitHub Releases.
 
 1. Bump `version` in `package.json`
-2. Commit and tag: `git tag v2.0.1 && git push origin v2.0.1`
-3. GitHub Actions builds Windows (NSIS x64), macOS (zip arm64), Linux (AppImage x64) and publishes a GitHub Release with `latest*.yml` update metadata
-4. Packaged apps call `electron-updater` on startup and notify when an update is ready
+2. Commit and tag: `git tag v2.0.2 && git push origin v2.0.2`
+3. GitHub Actions builds Windows (NSIS x64), macOS (zip arm64), and Linux (AppImage x64) **in parallel with `--publish never`**
+4. A single `publish` job then creates one GitHub Release and uploads all installers + `latest*.yml` update metadata (avoids multi-job release races)
+5. Packaged apps call `electron-updater` on startup and notify when an update is ready
 
 Requires `contents: write` on the workflow (already set) so `GITHUB_TOKEN` can create the release.
 
-If a release publish fails mid-way, delete that GitHub Release (assets) before re-running the same tag, or bump the version and tag again.
+If a previous tag’s release is incomplete, delete that GitHub Release before tagging a new version.
