@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, ipcMain, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -6,15 +6,15 @@ import { registerKlinesIpc } from './klines'
 import { setupAutoUpdater } from './updater'
 
 function createWindow(): void {
+  const version = app.getVersion()
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     show: false,
-    fullscreen: true,
     autoHideMenuBar: true,
-    title: 'Easy Candle',
+    title: `Easy Candle v${version}`,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -24,7 +24,13 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault()
+  })
+
   mainWindow.on('ready-to-show', () => {
+    mainWindow.setTitle(`Easy Candle v${version}`)
+    mainWindow.maximize()
     mainWindow.show()
   })
 
@@ -47,6 +53,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  ipcMain.handle('app:getVersion', () => app.getVersion())
   registerKlinesIpc()
   setupAutoUpdater()
   createWindow()

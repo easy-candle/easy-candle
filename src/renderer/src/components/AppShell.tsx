@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Activity } from 'lucide-react'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import IndicatorToggles from '@/components/IndicatorToggles'
@@ -21,12 +21,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const candles = useReplayStore((s) => s.candles)
   const pause = useReplayStore((s) => s.pause)
   const loadCandles = useReplayStore((s) => s.loadCandles)
+  const [appVersion, setAppVersion] = useState('')
 
   const inReplay = mode === 'replay'
   const showEmptyLive = !inReplay && status === 'ready' && candles.length === 0
   const showEndedBanner = inReplay && replayStatus === 'ended'
 
   useReplayHotkeys()
+
+  useEffect(() => {
+    void window.api.getAppVersion().then(setAppVersion)
+  }, [])
 
   useEffect(() => {
     function onVisibility(): void {
@@ -51,7 +56,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <Activity className="h-4 w-4" aria-hidden />
             </span>
             <div className="leading-tight">
-              <h1 className="text-sm font-semibold tracking-tight text-amber-400">Easy Candle</h1>
+              <h1 className="text-sm font-semibold tracking-tight text-amber-400">
+                Easy Candle{appVersion ? ` v${appVersion}` : ''}
+              </h1>
               <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-600">
                 {inReplay ? 'Replay · UTC' : 'Live · UTC'}
               </p>

@@ -3,6 +3,7 @@ import type { KlinesFetchParams, KlinesFetchResult } from '../shared/klinesTypes
 
 interface EasyCandleApi {
   fetchKlines: (params: KlinesFetchParams) => Promise<KlinesFetchResult>
+  getAppVersion: () => Promise<string>
 }
 
 declare global {

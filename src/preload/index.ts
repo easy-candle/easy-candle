@@ -4,7 +4,8 @@ import type { KlinesFetchParams, KlinesFetchResult } from '../shared/klinesTypes
 
 const api = {
   fetchKlines: (params: KlinesFetchParams): Promise<KlinesFetchResult> =>
-    ipcRenderer.invoke('klines:fetch', params)
+    ipcRenderer.invoke('klines:fetch', params),
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion')
 }
 
 if (process.contextIsolated) {
