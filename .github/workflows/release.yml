@@ -13,9 +13,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            builder_args: --win
+          - os: macos-latest
+            builder_args: --mac
+          - os: ubuntu-latest
+            builder_args: --linux
 
     runs-on: ${{ matrix.os }}
+    # Mac packaging is still the slowest leg; give it enough headroom after reducing targets.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -33,4 +41,4 @@ jobs:
       - name: Build and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: yarn release
+        run: yarn build && yarn electron-builder ${{ matrix.builder_args }} --publish always

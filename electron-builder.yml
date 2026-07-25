@@ -27,20 +27,17 @@ nsis:
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   notarize: false
+  # zip only — required by electron-updater; arm64 covers current macos-latest runners
   target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
     - target: zip
       arch:
-        - x64
         - arm64
-dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}-mac.${ext}
 linux:
   target:
-    - AppImage
+    - target: AppImage
+      arch:
+        - x64
   maintainer: Easy Candle
   category: Finance
 appImage:
