@@ -49,4 +49,5 @@ npmRebuild: false
 publish:
   provider: github
   owner: easy-candle
-  repo: easy-candle-electron
+  repo: easy-candle
+  releaseType: release

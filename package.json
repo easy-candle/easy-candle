@@ -5,7 +5,14 @@
   "main": "./out/main/index.js",
   "author": "Easy Candle",
   "license": "MIT",
-  "homepage": "https://github.com/easy-candle/easy-candle-electron",
+  "homepage": "https://github.com/easy-candle/easy-candle",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/easy-candle/easy-candle.git"
+  },
+  "bugs": {
+    "url": "https://github.com/easy-candle/easy-candle/issues"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
