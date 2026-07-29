@@ -9,6 +9,51 @@ export const SYMBOLS: SymbolConfig[] = [
     id: 'btcusdt',
     label: 'BTC/USDT',
     binanceSymbol: 'BTCUSDT'
+  },
+  {
+    id: 'ethusdt',
+    label: 'ETH/USDT',
+    binanceSymbol: 'ETHUSDT'
+  },
+  {
+    id: 'bnbusdt',
+    label: 'BNB/USDT',
+    binanceSymbol: 'BNBUSDT'
+  },
+  {
+    id: 'solusdt',
+    label: 'SOL/USDT',
+    binanceSymbol: 'SOLUSDT'
+  },
+  {
+    id: 'xrpusdt',
+    label: 'XRP/USDT',
+    binanceSymbol: 'XRPUSDT'
+  },
+  {
+    id: 'adausdt',
+    label: 'ADA/USDT',
+    binanceSymbol: 'ADAUSDT'
+  },
+  {
+    id: 'dogeusdt',
+    label: 'DOGE/USDT',
+    binanceSymbol: 'DOGEUSDT'
+  },
+  {
+    id: 'avaxusdt',
+    label: 'AVAX/USDT',
+    binanceSymbol: 'AVAXUSDT'
+  },
+  {
+    id: 'linkusdt',
+    label: 'LINK/USDT',
+    binanceSymbol: 'LINKUSDT'
+  },
+  {
+    id: 'ltcusdt',
+    label: 'LTC/USDT',
+    binanceSymbol: 'LTCUSDT'
   }
 ]
 

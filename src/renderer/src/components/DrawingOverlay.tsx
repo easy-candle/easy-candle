@@ -1,12 +1,22 @@
-import { MouseEvent, useCallback, useEffect, useState } from 'react'
-import type { IChartApi, ISeriesApi } from 'lightweight-charts'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent
+} from 'react'
+import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts'
+import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import { useReplayStore } from '@/store/replayStore'
 
-function arrowHeadPoints(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  size = 7
-): string {
+type Point = { x: number; y: number }
+
+const DRAW_STROKE = '#f23645'
+const DRAW_WIDTH = 2.5
+const HANDLE_FILL = '#2962ff'
+const HANDLE_STROKE = '#ffffff'
+
+function arrowHeadPoints(from: Point, to: Point, size = 7): string {
   const dx = to.x - from.x
   const dy = to.y - from.y
   const len = Math.hypot(dx, dy) || 1
@@ -19,53 +29,120 @@ function arrowHeadPoints(
   return `${to.x},${to.y} ${bx + px},${by + py} ${bx - px},${by - py}`
 }
 
+type DragState =
+  | { kind: 'hline'; id: string; moved: boolean }
+  | { kind: 'trend'; id: string; end: 'start' | 'end'; moved: boolean }
+
 type DrawingOverlayProps = {
   chart: IChartApi | null
   series: ISeriesApi<'Candlestick'> | null
 }
 
+/** SVG drawing layer synced to lightweight-charts pan/zoom. */
 export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const drawings = useReplayStore((s) => s.drawings)
   const drawTool = useReplayStore((s) => s.drawTool)
   const pendingTrend = useReplayStore((s) => s.pendingTrend)
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
+  const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
   const addTrendPoint = useReplayStore((s) => s.addTrendPoint)
+  const updateTrendLineEndpoint = useReplayStore((s) => s.updateTrendLineEndpoint)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
 
   const [version, setVersion] = useState(0)
-  const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
+  const [hover, setHover] = useState<Point | null>(null)
+  const [draggingKey, setDraggingKey] = useState<string | null>(null)
+  const dragRef = useRef<DragState | null>(null)
+  const suppressClickRef = useRef(false)
 
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
   useEffect(() => {
-    if (!chart) return undefined
+    if (!chart || !series) return undefined
 
-    const timeScale = chart.timeScale()
-    timeScale.subscribeVisibleLogicalRangeChange(bump)
-    timeScale.subscribeVisibleTimeRangeChange(bump)
-    chart.subscribeCrosshairMove(bump)
+    // Coalesce LWC paints (price-scale drag fires many updateAllViews per frame)
+    // into one React remount of SVG coords.
+    let raf = 0
+    const scheduleBump = (): void => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        bump()
+      })
+    }
 
-    const ro = new ResizeObserver(bump)
+    const primitive = new ViewportBumpPrimitive(scheduleBump)
+    series.attachPrimitive(primitive)
+
+    const ro = new ResizeObserver(scheduleBump)
     const el = chart.chartElement()
     if (el) ro.observe(el)
 
     return () => {
-      timeScale.unsubscribeVisibleLogicalRangeChange(bump)
-      timeScale.unsubscribeVisibleTimeRangeChange(bump)
-      chart.unsubscribeCrosshairMove(bump)
+      cancelAnimationFrame(raf)
+      series.detachPrimitive(primitive)
       ro.disconnect()
     }
-  }, [chart, bump])
+  }, [chart, series, bump])
 
-  const interactive =
-    mode === 'replay' &&
-    replayStatus !== 'ended' &&
-    (drawTool === 'hline' || drawTool === 'trendline')
+  const canEdit = mode === 'replay' && replayStatus !== 'ended'
 
-  function onClick(event: MouseEvent<SVGSVGElement>): void {
-    if (!interactive || !chart || !series) return
+  const placing = canEdit && (drawTool === 'hline' || drawTool === 'trendline')
+
+  // Document-level drag so handles stay under the cursor outside the SVG.
+  useEffect(() => {
+    if (!draggingKey || !series || !chart) return undefined
+
+    function onMove(event: MouseEvent): void {
+      const drag = dragRef.current
+      if (!drag || !series || !chart) return
+      const el = chart.chartElement()
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const x = event.clientX - rect.left
+      const y = event.clientY - rect.top
+      const price = series.coordinateToPrice(y)
+      if (price == null || !Number.isFinite(price)) return
+
+      if (drag.kind === 'hline') {
+        drag.moved = true
+        updateHorizontalLine(drag.id, price)
+        return
+      }
+
+      const time = chart.timeScale().coordinateToTime(x)
+      if (time == null) return
+      const timeSec = typeof time === 'number' ? time : Number(time)
+      if (!Number.isFinite(timeSec)) return
+      drag.moved = true
+      updateTrendLineEndpoint(drag.id, drag.end, {
+        time: timeSec,
+        price
+      })
+    }
+
+    function onUp(): void {
+      if (dragRef.current?.moved) suppressClickRef.current = true
+      dragRef.current = null
+      setDraggingKey(null)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [draggingKey, chart, series, updateHorizontalLine, updateTrendLineEndpoint])
+
+  function onClick(event: ReactMouseEvent<SVGSVGElement>): void {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    if (!placing || !chart || !series) return
 
     const rect = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - rect.left
@@ -88,8 +165,8 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     }
   }
 
-  function onMove(event: MouseEvent<SVGSVGElement>): void {
-    if (!interactive) {
+  function onMove(event: ReactMouseEvent<SVGSVGElement>): void {
+    if (!placing) {
       setHover(null)
       return
     }
@@ -100,14 +177,26 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     })
   }
 
+  function startDrag(event: ReactMouseEvent, next: DragState): void {
+    if (!canEdit) return
+    event.preventDefault()
+    event.stopPropagation()
+    dragRef.current = next
+    setDraggingKey(
+      next.kind === 'hline' ? `hline:${next.id}` : `trend:${next.id}:${next.end}`
+    )
+  }
+
+  // Touch version so React doesn't drop redraw deps for lint.
   void version
 
   const width = chart?.chartElement()?.clientWidth ?? 0
   const height = chart?.chartElement()?.clientHeight ?? 0
+  const midX = (width || 0) / 2
 
-  function toXY(time: number, price: number): { x: number; y: number } | null {
+  function toXY(time: number, price: number): Point | null {
     if (!chart || !series) return null
-    const x = chart.timeScale().timeToCoordinate(time as never)
+    const x = chart.timeScale().timeToCoordinate(time as Time)
     const y = series.priceToCoordinate(price)
     if (x == null || y == null) return null
     return { x, y }
@@ -116,7 +205,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   return (
     <svg
       className={`absolute inset-0 z-[2] h-full w-full ${
-        interactive ? 'cursor-crosshair' : 'pointer-events-none'
+        placing ? 'cursor-crosshair' : 'pointer-events-none'
       }`}
       width={width || '100%'}
       height={height || '100%'}
@@ -150,7 +239,14 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
               </>
             )}
             {samePoint && (
-              <circle cx={to.x} cy={to.y} r={4.5} fill="none" stroke={color} strokeWidth={1.5} />
+              <circle
+                cx={to.x}
+                cy={to.y}
+                r={4.5}
+                fill="none"
+                stroke={color}
+                strokeWidth={1.5}
+              />
             )}
           </g>
         )
@@ -161,16 +257,33 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           const y = series?.priceToCoordinate(drawing.price)
           if (y == null) return null
           return (
-            <line
-              key={drawing.id}
-              x1={0}
-              x2={width || '100%'}
-              y1={y}
-              y2={y}
-              stroke="#fbbf24"
-              strokeWidth={1.25}
-              strokeDasharray="6 4"
-            />
+            <g key={drawing.id}>
+              <line
+                x1={0}
+                x2={width || '100%'}
+                y1={y}
+                y2={y}
+                stroke={DRAW_STROKE}
+                strokeWidth={DRAW_WIDTH}
+              />
+              {canEdit && midX > 0 && (
+                <rect
+                  x={midX - 4.5}
+                  y={y - 4.5}
+                  width={9}
+                  height={9}
+                  rx={2}
+                  ry={2}
+                  fill={HANDLE_FILL}
+                  stroke={HANDLE_STROKE}
+                  strokeWidth={1.25}
+                  className="pointer-events-auto cursor-ns-resize"
+                  onMouseDown={(e) =>
+                    startDrag(e, { kind: 'hline', id: drawing.id, moved: false })
+                  }
+                />
+              )}
+            </g>
           )
         }
 
@@ -179,15 +292,54 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           const b = toXY(drawing.t2, drawing.p2)
           if (!a || !b) return null
           return (
-            <line
-              key={drawing.id}
-              x1={a.x}
-              y1={a.y}
-              x2={b.x}
-              y2={b.y}
-              stroke="#a78bfa"
-              strokeWidth={1.5}
-            />
+            <g key={drawing.id}>
+              <line
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
+                stroke={DRAW_STROKE}
+                strokeWidth={DRAW_WIDTH}
+              />
+              {canEdit && (
+                <>
+                  <circle
+                    cx={a.x}
+                    cy={a.y}
+                    r={4.5}
+                    fill={HANDLE_FILL}
+                    stroke={HANDLE_STROKE}
+                    strokeWidth={1.25}
+                    className="pointer-events-auto cursor-move"
+                    onMouseDown={(e) =>
+                      startDrag(e, {
+                        kind: 'trend',
+                        id: drawing.id,
+                        end: 'start',
+                        moved: false
+                      })
+                    }
+                  />
+                  <circle
+                    cx={b.x}
+                    cy={b.y}
+                    r={4.5}
+                    fill={HANDLE_FILL}
+                    stroke={HANDLE_STROKE}
+                    strokeWidth={1.25}
+                    className="pointer-events-auto cursor-move"
+                    onMouseDown={(e) =>
+                      startDrag(e, {
+                        kind: 'trend',
+                        id: drawing.id,
+                        end: 'end',
+                        moved: false
+                      })
+                    }
+                  />
+                </>
+              )}
+            </g>
           )
         }
 
@@ -200,15 +352,22 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           if (!a) return null
           return (
             <g key="pending">
-              <circle cx={a.x} cy={a.y} r={3.5} fill="#a78bfa" />
+              <circle
+                cx={a.x}
+                cy={a.y}
+                r={4.5}
+                fill={HANDLE_FILL}
+                stroke={HANDLE_STROKE}
+                strokeWidth={1.25}
+              />
               {hover && (
                 <line
                   x1={a.x}
                   y1={a.y}
                   x2={hover.x}
                   y2={hover.y}
-                  stroke="#a78bfa"
-                  strokeWidth={1.25}
+                  stroke={DRAW_STROKE}
+                  strokeWidth={DRAW_WIDTH}
                   strokeDasharray="4 3"
                 />
               )}

@@ -147,7 +147,13 @@ type ReplayStore = {
   toggleIndicator: (id: string) => void
   setDrawTool: (tool: DrawTool) => void
   addHorizontalLine: (price: number) => void
+  updateHorizontalLine: (id: string, price: number) => void
   addTrendPoint: (point: TrendPoint) => void
+  updateTrendLineEndpoint: (
+    id: string,
+    end: 'start' | 'end',
+    point: TrendPoint
+  ) => void
   clearDrawings: () => void
   paperBuy: () => void
   paperSell: () => void
@@ -476,16 +482,34 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const nextIntervalSec = intervalSecondsFor(nextTimeframe)
     const seekTime = alignTimeToInterval(anchorOpen, nextIntervalSec)
 
+    // Keep the open position, session PnL, and drawings. Remap trade markers
+    // and trendline endpoints onto the new candle open grid so LWC can resolve
+    // their times after the series changes.
     const remappedMarkers = get().tradeMarkers.map((marker) => ({
       ...marker,
       time: alignTimeToInterval(marker.time, nextIntervalSec)
     }))
+    const remappedDrawings = get().drawings.map((drawing) => {
+      if (drawing.type === 'hline') return drawing
+      return {
+        ...drawing,
+        t1: alignTimeToInterval(drawing.t1, nextIntervalSec),
+        t2: alignTimeToInterval(drawing.t2, nextIntervalSec)
+      }
+    })
+    const pending = get().pendingTrend
+    const remappedPending =
+      pending == null
+        ? null
+        : {
+            time: alignTimeToInterval(pending.time, nextIntervalSec),
+            price: pending.price
+          }
 
     set({
       timeframe: nextTimeframe,
-      drawings: [],
-      pendingTrend: null,
-      drawTool: 'select',
+      drawings: remappedDrawings,
+      pendingTrend: remappedPending,
       tradeMarkers: remappedMarkers
     })
 
@@ -548,7 +572,19 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (get().replayStatus === 'ended') return
       if (!Number.isFinite(price)) return
       set((s) => ({
+        drawTool: 'select',
         drawings: [...s.drawings, { id: nextDrawingId(), type: 'hline', price }]
+      }))
+    },
+
+    updateHorizontalLine(id, price) {
+      if (get().mode !== 'replay') return
+      if (get().replayStatus === 'ended') return
+      if (!id || !Number.isFinite(price)) return
+      set((s) => ({
+        drawings: s.drawings.map((d) =>
+          d.type === 'hline' && d.id === id ? { ...d, price } : d
+        )
       }))
     },
 
@@ -567,6 +603,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
       set((s) => ({
         pendingTrend: null,
+        drawTool: 'select',
         drawings: [
           ...s.drawings,
           {
@@ -578,6 +615,21 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             p2: point.price
           }
         ]
+      }))
+    },
+
+    updateTrendLineEndpoint(id, end, point) {
+      if (get().mode !== 'replay') return
+      if (get().replayStatus === 'ended') return
+      if (!id || !point) return
+      if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) return
+      set((s) => ({
+        drawings: s.drawings.map((d) => {
+          if (d.type !== 'trendline' || d.id !== id) return d
+          return end === 'start'
+            ? { ...d, t1: point.time, p1: point.price }
+            : { ...d, t2: point.time, p2: point.price }
+        })
       }))
     },
 
@@ -603,6 +655,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     setSymbol(symbol) {
       if (symbol === get().symbol) return
+      // Replay sessions are locked to the symbol they started on.
+      if (get().mode === 'replay') return
       resetReplayState()
       set({ symbol })
       void get().loadCandles()

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   createChart,
+  CrosshairMode,
   type IChartApi,
   type ISeriesApi,
   type SeriesMarker,
@@ -126,6 +127,9 @@ export default function CandleChart({
       layout: {
         background: { color: '#09090b' },
         textColor: '#a1a1aa'
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal
       },
       grid: {
         vertLines: { color: '#27272a' },
