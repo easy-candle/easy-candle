@@ -4,6 +4,7 @@ import IndicatorToggles from '@/components/IndicatorToggles'
 import ReplayControls from '@/components/ReplayControls'
 import ReplayStartPicker from '@/components/ReplayStartPicker'
 import SessionReportModal from '@/components/SessionReportModal'
+import UpdateModal from '@/components/UpdateModal'
 import StatusBar from '@/components/StatusBar'
 import SymbolSelect from '@/components/SymbolSelect'
 import TimeframeSelect from '@/components/TimeframeSelect'
@@ -129,6 +130,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </main>
 
       <SessionReportModal />
+      <UpdateModal />
     </div>
   )
 }
