@@ -35,13 +35,27 @@ function notesToString(notes: string | null | undefined | Array<unknown>): strin
   return null
 }
 
+function registerNoOpUpdater(reason: string): void {
+  ipcMain.handle('update:check', async () => ({ ok: true, skipped: true, reason }))
+  ipcMain.handle('update:download', async () => ({
+    ok: false,
+    error: `Updates disabled (${reason})`
+  }))
+  ipcMain.handle('update:install', async () => ({
+    ok: false,
+    error: `Updates disabled (${reason})`
+  }))
+}
+
 /** Wire electron-updater: confirm-before-download, progress, and restart install. */
 export function setupAutoUpdater(): void {
+  // Dev, and Microsoft Store / AppX builds — Store handles updates for packaged Store apps.
   if (!app.isPackaged) {
-    // Still expose no-op handlers so the renderer API is stable in dev.
-    ipcMain.handle('update:check', async () => ({ ok: true, skipped: true }))
-    ipcMain.handle('update:download', async () => ({ ok: false, error: 'Updates disabled in dev' }))
-    ipcMain.handle('update:install', async () => ({ ok: false, error: 'Updates disabled in dev' }))
+    registerNoOpUpdater('dev')
+    return
+  }
+  if (process.windowsStore) {
+    registerNoOpUpdater('windows-store')
     return
   }
 

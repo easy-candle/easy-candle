@@ -24,7 +24,8 @@
     "test:watch": "vitest",
     "postinstall": "electron-builder install-app-deps",
     "dist": "yarn build && electron-builder --publish never",
-    "dist:win": "yarn build && electron-builder --win --publish never",
+    "dist:win": "yarn build && electron-builder --win nsis --publish never",
+    "dist:win:appx": "yarn build && electron-builder --win appx --x64 --publish never",
     "dist:mac": "yarn build && electron-builder --mac --publish never",
     "dist:linux": "yarn build && electron-builder --linux --publish never",
     "release": "yarn build && electron-builder --publish always"

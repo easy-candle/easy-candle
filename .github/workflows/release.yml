@@ -15,7 +15,8 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            builder_args: --win
+            # NSIS only — AppX/MSIX is built locally for Microsoft Store (yarn dist:win:appx).
+            builder_args: --win nsis
             artifact: windows
           - os: macos-latest
             builder_args: --mac

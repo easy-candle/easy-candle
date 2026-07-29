@@ -15,6 +15,8 @@ asarUnpack:
   - resources/**
 win:
   executableName: EasyCandle
+  # Default Windows target for CI / GitHub Releases — NSIS only.
+  # Build AppX locally with: yarn dist:win:appx (do not add appx here).
   target:
     - target: nsis
       arch:
@@ -24,6 +26,21 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+# Local Microsoft Store package only (yarn dist:win:appx).
+# Identity from Partner Center (Store ID 9N91GNR9SJ14).
+appx:
+  artifactName: ${name}-${version}-${arch}.${ext}
+  applicationId: EasyCandle
+  identityName: sepocim.EasyCandle
+  publisher: CN=29159D27-EC61-45F2-861A-38FB99ACA328
+  publisherDisplayName: sepocim
+  displayName: Easy Candle
+  languages:
+    - en-US
+  backgroundColor: '#18181b'
+  capabilities:
+    - runFullTrust
+    - internetClient
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   notarize: false
