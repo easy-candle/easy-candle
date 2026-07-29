@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" role="img" aria-labelledby="title desc">
+  <title id="title">EasyCandle wordmark</title>
+  <desc id="desc">EasyCandle wordmark in white and orange.</desc>
+  <text x="20" y="150"
+        font-family="Inter, Segoe UI, Arial, sans-serif"
+        font-size="128"
+        font-weight="500"
+        letter-spacing="-5">
+    <tspan fill="#F7F7F5">Easy</tspan><tspan fill="#F39A16">Candle</tspan>
+  </text>
+</svg>

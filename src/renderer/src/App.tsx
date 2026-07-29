@@ -7,6 +7,7 @@ import { useReplayStore } from '@/store/replayStore'
 export default function App() {
   const candles = useReplayStore((s) => s.candles)
   const mode = useReplayStore((s) => s.mode)
+  const symbol = useReplayStore((s) => s.symbol)
   const visibleCandles = useReplayStore((s) => s.visibleCandles)
   const currentCandle = useReplayStore((s) => s.currentCandle)
   const chartSync = useReplayStore((s) => s.chartSync)
@@ -29,6 +30,7 @@ export default function App() {
     <AppShell>
       <CandleChart
         mode={mode}
+        symbol={symbol}
         candles={candles}
         visibleCandles={visibleCandles}
         currentCandle={currentCandle}

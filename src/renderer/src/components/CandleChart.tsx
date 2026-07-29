@@ -8,6 +8,7 @@ import {
   type Time
 } from 'lightweight-charts'
 import DrawingOverlay from '@/components/DrawingOverlay'
+import wordmarkUrl from '@/assets/easycandle-wordmark.svg'
 import type { ChartOverlay } from '@/lib/indicators'
 import type { Candle } from '@shared/candleUtils'
 import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
@@ -32,6 +33,7 @@ function focusLatestCandle(
 
 type CandleChartProps = {
   mode?: ViewMode
+  symbol?: string
   candles?: Candle[] | null
   visibleCandles?: Candle[] | null
   currentCandle?: Candle | null
@@ -42,6 +44,7 @@ type CandleChartProps = {
 
 export default function CandleChart({
   mode = 'live',
+  symbol = '',
   candles = null,
   visibleCandles = null,
   currentCandle = null,
@@ -131,6 +134,16 @@ export default function CandleChart({
       crosshair: {
         mode: CrosshairMode.Normal
       },
+      watermark: {
+        visible: false,
+        text: '',
+        fontSize: 72,
+        fontFamily: 'Segoe UI, sans-serif',
+        fontStyle: '600',
+        color: 'rgba(255, 255, 255, 0.05)',
+        horzAlign: 'center',
+        vertAlign: 'center'
+      },
       grid: {
         vertLines: { color: '#27272a' },
         horzLines: { color: '#27272a' }
@@ -178,6 +191,18 @@ export default function CandleChart({
     }
   }, [])
 
+  // Keep the built-in text watermark in sync with the selected symbol.
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    chart.applyOptions({
+      watermark: {
+        visible: Boolean(symbol),
+        text: symbol
+      }
+    })
+  }, [symbol])
+
   useEffect(() => {
     if (mode !== 'live') return
     reset(candles ?? [], { fitContent: true })
@@ -216,6 +241,12 @@ export default function CandleChart({
   return (
     <div className="absolute inset-0 h-full w-full">
       <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+      <img
+        src={wordmarkUrl}
+        alt=""
+        className="pointer-events-none absolute left-1/2 top-[58%] z-[1] h-auto w-[min(48%,380px)] -translate-x-1/2 -translate-y-1/2 opacity-[0.08] select-none"
+        aria-hidden
+      />
       {chartReady && <DrawingOverlay chart={chartReady.chart} series={chartReady.series} />}
       {empty && (
         <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-zinc-950/40 px-4 text-center text-sm text-zinc-500">

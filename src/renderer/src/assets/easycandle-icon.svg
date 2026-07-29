@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>EasyCandle Icon</title>
+  <rect width="512" height="512" rx="82" fill="#F8F8F6"/>
+
+  <!-- C / replay arc with clear separation from the play button -->
+  <path d="M390 135 A178 178 0 1 0 390 377"
+        fill="none" stroke="#0B2239" stroke-width="34"
+        stroke-linecap="round"/>
+
+  <!-- Left candlestick -->
+  <line x1="190" y1="176" x2="190" y2="342"
+        stroke="#0B2239" stroke-width="10" stroke-linecap="round"/>
+  <rect x="166" y="214" width="48" height="92" rx="9" fill="#0B2239"/>
+
+  <!-- Center candlestick -->
+  <line x1="256" y1="150" x2="256" y2="362"
+        stroke="#F59A0B" stroke-width="10" stroke-linecap="round"/>
+  <rect x="228" y="191" width="56" height="130" rx="10" fill="#F59A0B"/>
+
+  <!-- Right candlestick -->
+  <line x1="322" y1="142" x2="322" y2="350"
+        stroke="#0B2239" stroke-width="10" stroke-linecap="round"/>
+  <rect x="297" y="181" width="50" height="112" rx="9" fill="#0B2239"/>
+
+  <!-- Play button: clearly detached from the C, with visible whitespace gap -->
+  <path d="M420 336 L420 418
+           Q420 431 431 424
+           L490 384
+           Q503 376 490 367
+           L431 327
+           Q420 320 420 336 Z"
+        fill="#F59A0B"/>
+</svg>

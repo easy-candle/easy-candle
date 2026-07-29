@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Activity } from 'lucide-react'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import IndicatorToggles from '@/components/IndicatorToggles'
 import ReplayControls from '@/components/ReplayControls'
@@ -9,6 +8,7 @@ import StatusBar from '@/components/StatusBar'
 import SymbolSelect from '@/components/SymbolSelect'
 import TimeframeSelect from '@/components/TimeframeSelect'
 import TradePanel from '@/components/TradePanel'
+import iconUrl from '@/assets/easycandle-icon.svg'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
 import { useReplayStore } from '@/store/replayStore'
 
@@ -52,9 +52,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <header className="shrink-0 border-b border-zinc-800/90 bg-gradient-to-b from-zinc-900/80 to-zinc-950 px-3 py-2.5 sm:px-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded border border-amber-500/30 bg-amber-950/40 text-amber-400">
-              <Activity className="h-4 w-4" aria-hidden />
-            </span>
+            <img
+              src={iconUrl}
+              alt=""
+              width={28}
+              height={28}
+              className="h-7 w-7 rounded border border-amber-500/30"
+              aria-hidden
+            />
             <div className="leading-tight">
               <h1 className="text-sm font-semibold tracking-tight text-amber-400">
                 Easy Candle{appVersion ? ` v${appVersion}` : ''}

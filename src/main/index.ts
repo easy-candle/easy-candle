@@ -15,7 +15,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: `Easy Candle v${version}`,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
