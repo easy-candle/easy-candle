@@ -24,6 +24,7 @@ export default function StatusBar() {
   const error = useReplayStore((s) => s.error)
   const candles = useReplayStore((s) => s.candles)
   const mode = useReplayStore((s) => s.mode)
+  const dataSource = useReplayStore((s) => s.dataSource)
   const replayStatus = useReplayStore((s) => s.replayStatus)
   const isPlaying = useReplayStore((s) => s.isPlaying)
   const speed = useReplayStore((s) => s.speed)
@@ -33,10 +34,12 @@ export default function StatusBar() {
   const isPrefetching = useReplayStore((s) => s.isPrefetching)
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const replayMessage = useReplayStore((s) => s.replayMessage)
+  const imported = dataSource === 'imported'
 
   if (mode === 'replay') {
     const ended = replayStatus === 'ended'
     const parts = [
+      imported ? 'Imported' : null,
       replayLabel(replayStatus),
       isPlaying ? `${speed}x` : null,
       formatUtcCandleTime(currentCandle?.time),
@@ -63,7 +66,9 @@ export default function StatusBar() {
         </span>
         {ended && !replayMessage && (
           <span className="text-amber-400/80">
-            End of buffer — jump, step back, or wait for prefetch.
+            {imported
+              ? 'End of imported file — jump within range or step back.'
+              : 'End of buffer — jump, step back, or wait for prefetch.'}
           </span>
         )}
         {replayMessage && <span className="text-amber-400/90">{replayMessage}</span>}
@@ -84,7 +89,10 @@ export default function StatusBar() {
         <span className="text-zinc-400">No candles returned</span>
       )}
       {status === 'ready' && candles.length > 0 && (
-        <span>{candles.length.toLocaleString()} candles</span>
+        <span className={imported ? 'text-amber-400/90' : undefined}>
+          {replayMessage ||
+            `${imported ? 'Imported · ' : ''}${candles.length.toLocaleString()} candles`}
+        </span>
       )}
       {status === 'error' && <span className="text-red-400">{error || 'Load failed'}</span>}
       {status === 'idle' && <span>Waiting to load…</span>}

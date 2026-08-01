@@ -2,6 +2,7 @@ import { app, ipcMain, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { registerImportIpc } from './importStore'
 import { registerKlinesIpc } from './klines'
 import { setupAutoUpdater } from './updater'
 
@@ -55,6 +56,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   registerKlinesIpc()
+  registerImportIpc()
   setupAutoUpdater()
   createWindow()
 

@@ -5,9 +5,11 @@ import { useReplayStore } from '@/store/replayStore'
 export default function TimeframeSelect() {
   const timeframe = useReplayStore((s) => s.timeframe)
   const status = useReplayStore((s) => s.status)
+  const dataSource = useReplayStore((s) => s.dataSource)
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const setTimeframe = useReplayStore((s) => s.setTimeframe)
-  const disabled = status === 'loading' || replayLoading
+  const imported = dataSource === 'imported'
+  const disabled = status === 'loading' || replayLoading || imported
 
   return (
     <label className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400">
@@ -17,6 +19,7 @@ export default function TimeframeSelect() {
         className="rounded bg-zinc-900 text-zinc-100 outline-none disabled:opacity-60"
         value={timeframe}
         disabled={disabled}
+        title={imported ? 'Timeframe comes from the imported file' : undefined}
         aria-label="Timeframe"
         onChange={(event) => setTimeframe(event.target.value)}
       >

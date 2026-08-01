@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { X } from 'lucide-react'
+import CsvImportControls, { type ImportFeedback } from '@/components/CsvImportControls'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import IndicatorToggles from '@/components/IndicatorToggles'
 import ReplayControls from '@/components/ReplayControls'
@@ -17,16 +19,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const status = useReplayStore((s) => s.status)
   const error = useReplayStore((s) => s.error)
   const mode = useReplayStore((s) => s.mode)
+  const dataSource = useReplayStore((s) => s.dataSource)
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const replayStatus = useReplayStore((s) => s.replayStatus)
   const candles = useReplayStore((s) => s.candles)
   const pause = useReplayStore((s) => s.pause)
   const loadCandles = useReplayStore((s) => s.loadCandles)
   const [appVersion, setAppVersion] = useState('')
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
 
   const inReplay = mode === 'replay'
+  const imported = dataSource === 'imported'
   const showEmptyLive = !inReplay && status === 'ready' && candles.length === 0
   const showEndedBanner = inReplay && replayStatus === 'ended'
+
+  useEffect(() => {
+    if (inReplay) setImportFeedback(null)
+  }, [inReplay])
 
   useReplayHotkeys()
 
@@ -66,7 +75,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 Easy Candle{appVersion ? ` v${appVersion}` : ''}
               </h1>
               <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-600">
-                {inReplay ? 'Replay · UTC' : 'Live · UTC'}
+                {imported
+                  ? inReplay
+                    ? 'Imported replay · UTC'
+                    : 'Imported · UTC'
+                  : inReplay
+                    ? 'Replay · UTC'
+                    : 'Live · UTC'}
               </p>
             </div>
           </div>
@@ -77,14 +92,35 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <SymbolSelect />
         <TimeframeSelect />
         <IndicatorToggles />
+        {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
         {!inReplay ? <ReplayStartPicker /> : <ReplayControls />}
         <DrawingToolbar />
         <StatusBar />
       </div>
 
+      {importFeedback && (
+        <div
+          className={`flex shrink-0 items-start justify-between gap-3 border-b px-3 py-1.5 text-xs leading-relaxed sm:px-4 ${
+            importFeedback.tone === 'error'
+              ? 'border-red-900/50 bg-red-950/40 text-red-300'
+              : 'border-amber-900/40 bg-amber-950/30 text-amber-200/90'
+          }`}
+        >
+          <p className="min-w-0 flex-1 break-words">{importFeedback.message}</p>
+          <button
+            type="button"
+            aria-label="Dismiss message"
+            onClick={() => setImportFeedback(null)}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-current/30 opacity-80 hover:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {status === 'error' && error && (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-red-900/50 bg-red-950/40 px-3 py-1.5 text-sm text-red-300 sm:px-4">
-          <span>{error}</span>
+          <span className="min-w-0 flex-1 break-words">{error}</span>
           {!inReplay && (
             <button
               type="button"
@@ -99,8 +135,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       {showEndedBanner && (
         <div className="shrink-0 border-b border-amber-900/40 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-200/90 sm:px-4">
-          Replay reached the end of the loaded buffer. Jump to another UTC time, step back, or exit
-          to live.
+          {imported
+            ? 'Replay reached the end of the imported file. Step back, jump within the file, or exit replay.'
+            : 'Replay reached the end of the loaded buffer. Jump to another UTC time, step back, or exit to live.'}
         </div>
       )}
 
@@ -110,19 +147,27 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {(status === 'loading' || replayLoading) && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/75 text-sm text-zinc-400">
               <span>{replayLoading ? 'Loading replay window…' : 'Loading candles…'}</span>
-              <span className="text-xs text-zinc-600">UTC · Binance klines</span>
+              <span className="text-xs text-zinc-600">
+                {imported ? 'UTC · Imported CSV' : 'UTC · Binance klines'}
+              </span>
             </div>
           )}
           {showEmptyLive && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/60 px-4 text-center text-sm text-zinc-400">
-              <span>No candles for this symbol / timeframe.</span>
-              <button
-                type="button"
-                onClick={() => void loadCandles()}
-                className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
-              >
-                Reload
-              </button>
+              <span>
+                {imported
+                  ? 'No candles in the imported file.'
+                  : 'No candles for this symbol / timeframe.'}
+              </span>
+              {!imported && (
+                <button
+                  type="button"
+                  onClick={() => void loadCandles()}
+                  className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                >
+                  Reload
+                </button>
+              )}
             </div>
           )}
         </div>

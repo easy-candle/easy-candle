@@ -71,9 +71,11 @@ export default function CandleChart({
 
     if (opts.fitContent !== false && data.length) {
       requestAnimationFrame(() => {
-        if (chartRef.current === chart) {
-          focusLatestCandle(chart, data.length)
-        }
+        if (chartRef.current !== chart || seriesRef.current !== series) return
+        // Re-enable autoscaling after symbol/price-range changes (e.g. BNB → XAU).
+        series.priceScale().applyOptions({ autoScale: true })
+        chart.priceScale('right').applyOptions({ autoScale: true })
+        focusLatestCandle(chart, data.length)
       })
     }
   }
@@ -206,7 +208,7 @@ export default function CandleChart({
   useEffect(() => {
     if (mode !== 'live') return
     reset(candles ?? [], { fitContent: true })
-  }, [mode, candles])
+  }, [mode, candles, symbol])
 
   useEffect(() => {
     if (mode !== 'replay' || !chartSync) return
@@ -217,7 +219,7 @@ export default function CandleChart({
     }
 
     reset(visibleCandles ?? [], { fitContent: chartSync.fitContent })
-  }, [mode, chartSync?.revision])
+  }, [mode, chartSync?.revision, symbol])
 
   useEffect(() => {
     syncOverlays(overlays)

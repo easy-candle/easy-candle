@@ -6,7 +6,8 @@ import {
   prefetchForward,
   PREFETCH_BATCH_SIZE
 } from '@/lib/binance'
-import { findIndexAtOrBefore, type Candle } from '@shared/candleUtils'
+import { dedupeCandlesByTime, findIndexAtOrBefore, type Candle } from '@shared/candleUtils'
+import type { DataSource, ImportedDatasetMeta } from '@shared/importTypes'
 import { getIndicator } from '@/lib/indicators'
 import {
   closePosition,
@@ -24,6 +25,7 @@ export type ChartStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type ViewMode = 'live' | 'replay'
 export type ChartSyncKind = 'replace' | 'append'
 export type DrawTool = 'select' | 'hline' | 'trendline'
+export type { DataSource, ImportedDatasetMeta }
 
 export type ChartSync = {
   kind: ChartSyncKind
@@ -125,6 +127,9 @@ type ReplayStore = {
   status: ChartStatus
   error: string | null
   mode: ViewMode
+  dataSource: DataSource
+  importMeta: ImportedDatasetMeta | null
+  importedCandles: Candle[]
   replayStatus: ReplayStatus
   isPlaying: boolean
   speed: number
@@ -162,6 +167,9 @@ type ReplayStore = {
   setSymbol: (symbol: string) => void
   setTimeframe: (timeframe: string) => void
   loadCandles: () => Promise<void>
+  activateImportedDataset: (candles: Candle[], meta: ImportedDatasetMeta) => void
+  clearImportedDataset: () => void
+  startImportedReplay: () => void
   startReplayAt: (startTimeSeconds: number) => Promise<void>
   jumpToTime: (timeSeconds: number) => Promise<void>
   exitReplay: () => void
@@ -205,6 +213,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   async function maybePrefetch(): Promise<void> {
     if (prefetchInFlight) return
     if (get().mode !== 'replay') return
+    // Imported datasets are fully local — never call Binance.
+    if (get().dataSource === 'imported') return
     if (!engine.needsPrefetch()) return
 
     const buffer = engine.getState().candles
@@ -246,6 +256,48 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
   }
 
+  function publishImportedPreview(candles: Candle[], meta: ImportedDatasetMeta): void {
+    stopClock()
+    prefetchInFlight = false
+    replayRequestId += 1
+    engine.load([])
+    set((s) => ({
+      dataSource: 'imported',
+      importMeta: meta,
+      importedCandles: candles,
+      symbol: meta.symbol,
+      timeframe: meta.timeframe,
+      candles,
+      status: 'ready',
+      error: null,
+      mode: 'live',
+      replayStatus: 'idle',
+      isPlaying: false,
+      speed: 1,
+      replayIndex: 0,
+      visibleCandles: [],
+      currentCandle: null,
+      bufferLength: 0,
+      isPrefetching: false,
+      replayLoading: false,
+      replayMessage:
+        meta.candleCount > 0
+          ? `Imported ${meta.symbol} ${meta.timeframe} · ${meta.candleCount.toLocaleString()} candles`
+          : null,
+      drawTool: 'select',
+      drawings: [],
+      pendingTrend: null,
+      position: null,
+      closedTrades: [],
+      tradeMarkers: [],
+      chartSync: {
+        kind: 'replace',
+        fitContent: true,
+        revision: s.chartSync.revision + 1
+      }
+    }))
+  }
+
   function startClock(): void {
     stopClock()
 
@@ -274,7 +326,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }, tickMs())
   }
 
-  function resetReplayState(): void {
+  function resetReplayState(opts: { keepImport?: boolean } = {}): void {
     stopClock()
     prefetchInFlight = false
     replayRequestId += 1
@@ -297,6 +349,13 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: null,
       closedTrades: [],
       tradeMarkers: [],
+      ...(opts.keepImport
+        ? {}
+        : {
+            dataSource: 'binance' as const,
+            importMeta: null,
+            importedCandles: [] as Candle[]
+          }),
       chartSync: {
         kind: 'replace',
         fitContent: true,
@@ -445,6 +504,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         error: null,
         speed: engine.getState().speed
       })
+      // Force a full viewport/price-scale reset whenever a replay window is loaded.
       publishReplay('replace', { fitContent: true })
       void maybePrefetch()
       return true
@@ -464,6 +524,12 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (!TIMEFRAMES[nextTimeframe]) return
     if (nextTimeframe === get().timeframe) return
     if (get().mode !== 'replay') return
+    if (get().dataSource === 'imported') {
+      set({
+        replayMessage: 'Imported replays are locked to the file timeframe. Import another CSV to change it.'
+      })
+      return
+    }
 
     const current = engine.getCurrentCandle() || get().currentCandle
     const anchorOpen = current?.time
@@ -530,6 +596,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     status: 'idle',
     error: null,
     mode: 'live',
+    dataSource: 'binance',
+    importMeta: null,
+    importedCandles: [],
     replayStatus: 'idle',
     isPlaying: false,
     speed: 1,
@@ -657,6 +726,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (symbol === get().symbol) return
       // Replay sessions are locked to the symbol they started on.
       if (get().mode === 'replay') return
+      if (get().dataSource === 'imported') return
       resetReplayState()
       set({ symbol })
       void get().loadCandles()
@@ -665,6 +735,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     setTimeframe(timeframe) {
       if (timeframe === get().timeframe) return
       if (!TIMEFRAMES[timeframe]) return
+      if (get().dataSource === 'imported' && get().mode !== 'replay') return
 
       if (get().mode === 'replay') {
         void switchReplayTimeframe(timeframe)
@@ -678,6 +749,30 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     async loadCandles() {
       const generation = (loadGeneration += 1)
+
+      if (get().dataSource === 'imported') {
+        const candles = get().importedCandles
+        const meta = get().importMeta
+        if (!candles.length || !meta) {
+          set({
+            candles: [],
+            status: 'error',
+            error: 'Imported dataset is empty. Import a CSV or return to live Binance data.'
+          })
+          return
+        }
+
+        set({
+          candles,
+          status: 'ready',
+          error: null,
+          symbol: meta.symbol,
+          timeframe: meta.timeframe,
+          replayMessage: `Imported ${meta.symbol} ${meta.timeframe} · ${candles.length.toLocaleString()} candles`
+        })
+        return
+      }
+
       const { symbol, timeframe } = get()
 
       set({ status: 'loading', error: null })
@@ -708,7 +803,63 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }
     },
 
+    activateImportedDataset(candles, meta) {
+      const normalized = dedupeCandlesByTime(candles)
+      if (!normalized.length) {
+        set({ status: 'error', error: 'Imported file has no valid candles.' })
+        return
+      }
+      publishImportedPreview(normalized, meta)
+    },
+
+    clearImportedDataset() {
+      if (get().mode === 'replay') return
+      resetReplayState()
+      set({
+        symbol: DEFAULT_SYMBOL.binanceSymbol,
+        timeframe: DEFAULT_TIMEFRAME,
+        candles: []
+      })
+      void get().loadCandles()
+    },
+
+    startImportedReplay() {
+      if (get().dataSource !== 'imported') return
+      if (get().mode === 'replay') return
+
+      const candles = get().importedCandles
+      if (!candles.length) {
+        set({ replayMessage: 'No imported candles to replay.' })
+        return
+      }
+
+      stopClock()
+      const keptSpeed = engine.getState().speed
+      engine.load(candles)
+      engine.setSpeed(keptSpeed)
+      // Start on the 5th candle (index 4) so the first bars are visible as context.
+      const startIndex = Math.min(4, Math.max(candles.length - 1, 0))
+      engine.seekToIndex(startIndex)
+
+      set({
+        candles,
+        status: 'ready',
+        replayLoading: false,
+        replayMessage:
+          startIndex > 0
+            ? `Replay from candle ${startIndex + 1} of imported file.`
+            : 'Replay from start of imported file.',
+        error: null,
+        speed: engine.getState().speed
+      })
+      publishReplay('replace', { fitContent: true })
+    },
+
     async startReplayAt(startTimeSeconds) {
+      if (get().dataSource === 'imported') {
+        get().startImportedReplay()
+        return
+      }
       await loadReplayWindow(startTimeSeconds)
     },
 
@@ -718,12 +869,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const target = Math.floor(Number(timeSeconds))
       if (!Number.isFinite(target)) {
         set({ replayMessage: 'Invalid jump time.' })
-        return
-      }
-
-      const nowSec = Math.floor(Date.now() / 1000)
-      if (target >= nowSec) {
-        set({ replayMessage: 'Jump time must be in the past (UTC).' })
         return
       }
 
@@ -746,11 +891,25 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         }
       }
 
+      if (get().dataSource === 'imported') {
+        set({
+          replayMessage: 'Jump time is outside the imported file range.'
+        })
+        return
+      }
+
+      const nowSec = Math.floor(Date.now() / 1000)
+      if (target >= nowSec) {
+        set({ replayMessage: 'Jump time must be in the past (UTC).' })
+        return
+      }
+
       await loadReplayWindow(target)
     },
 
     exitReplay() {
-      const { position, closedTrades, symbol, timeframe, currentCandle } = get()
+      const { position, closedTrades, symbol, timeframe, currentCandle, dataSource, importedCandles, importMeta } =
+        get()
 
       let trades = [...closedTrades]
       let closedOpenOnExit = false
@@ -773,6 +932,12 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
               closedOpenOnExit
             }
           : null
+
+      if (dataSource === 'imported' && importMeta && importedCandles.length) {
+        publishImportedPreview(importedCandles, importMeta)
+        set({ sessionReport })
+        return
+      }
 
       resetReplayState()
       set({ sessionReport })

@@ -1,4 +1,13 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type {
+  ImportDeleteResult,
+  ImportDialogResult,
+  ImportListResult,
+  ImportLoadResult,
+  ImportReadResult,
+  ImportSaveParams,
+  ImportSaveResult
+} from '../shared/importTypes'
 import type { KlinesFetchParams, KlinesFetchResult } from '../shared/klinesTypes'
 import type {
   UpdateAvailableInfo,
@@ -10,6 +19,12 @@ import type {
 interface EasyCandleApi {
   fetchKlines: (params: KlinesFetchParams) => Promise<KlinesFetchResult>
   getAppVersion: () => Promise<string>
+  openImportDialog: () => Promise<ImportDialogResult>
+  readImportFile: (path: string) => Promise<ImportReadResult>
+  saveImport: (params: ImportSaveParams) => Promise<ImportSaveResult>
+  listImports: () => Promise<ImportListResult>
+  loadImport: (id: string) => Promise<ImportLoadResult>
+  deleteImport: (id: string) => Promise<ImportDeleteResult>
   checkForUpdates: () => Promise<{
     ok: boolean
     skipped?: boolean
