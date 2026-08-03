@@ -1,6 +1,6 @@
 import { ArrowDownCircle, ArrowUpCircle, CircleX } from 'lucide-react'
 import IconButton from '@/components/IconButton'
-import { formatPnl, sessionPerformance, unrealizedPnl } from '@/lib/paperTrade'
+import { formatExitReason, formatPnl, sessionPerformance, unrealizedPnl } from '@/lib/paperTrade'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import { useReplayStore } from '@/store/replayStore'
 
@@ -119,6 +119,12 @@ export default function TradePanel() {
                 <span className="text-zinc-400">
                   Entry {position.entryPrice.toFixed(2)} · {formatUtcCandleTime(position.entryTime)}
                 </span>
+                {position.takeProfit != null && (
+                  <span className="text-teal-400/90">TP {position.takeProfit.toFixed(2)}</span>
+                )}
+                {position.stopLoss != null && (
+                  <span className="text-orange-400/90">SL {position.stopLoss.toFixed(2)}</span>
+                )}
                 <span
                   className={`ml-auto font-medium ${
                     openPnl != null && openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'
@@ -145,6 +151,9 @@ export default function TradePanel() {
                   }
                 >
                   {trade.side.toUpperCase()}
+                </span>
+                <span className="rounded bg-zinc-900/80 px-1 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
+                  {formatExitReason(trade.exitReason)}
                 </span>
                 <span>
                   {trade.entryPrice.toFixed(2)} → {trade.exitPrice.toFixed(2)}

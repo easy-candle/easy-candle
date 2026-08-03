@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Download, X } from 'lucide-react'
-import { formatPnl, formatWinRate, tradesToCsv, type SideReport } from '@/lib/paperTrade'
+import { formatExitReason, formatPnl, formatWinRate, tradesToCsv, type SideReport } from '@/lib/paperTrade'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import { useReplayStore } from '@/store/replayStore'
 
@@ -136,6 +136,9 @@ export default function SessionReportModal() {
                   }
                 >
                   {trade.side.toUpperCase()}
+                </span>
+                <span className="rounded bg-zinc-900/80 px-1 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
+                  {formatExitReason(trade.exitReason)}
                 </span>
                 <span>
                   {trade.entryPrice.toFixed(2)} → {trade.exitPrice.toFixed(2)}

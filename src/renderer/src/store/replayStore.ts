@@ -11,8 +11,12 @@ import type { DataSource, ImportedDatasetMeta } from '@shared/importTypes'
 import { getIndicator } from '@/lib/indicators'
 import {
   closePosition,
+  evaluateStopTakeProfit,
   openPosition,
+  rewindTradesAfterStepBack,
   summarizeSession,
+  withStopLoss,
+  withTakeProfit,
   type ClosedTrade,
   type Position,
   type SessionSummary
@@ -163,6 +167,8 @@ type ReplayStore = {
   paperBuy: () => void
   paperSell: () => void
   paperClose: () => void
+  setTakeProfit: (price: number | null) => void
+  setStopLoss: (price: number | null) => void
   dismissSessionReport: () => void
   setSymbol: (symbol: string) => void
   setTimeframe: (timeframe: string) => void
@@ -195,6 +201,29 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         fitContent: kind === 'append' ? false : fitContent,
         revision: s.chartSync.revision + 1
       }
+    }))
+  }
+
+  /** Close open position if current candle OHLC touches TP/SL (fill at level price). */
+  function maybeAutoCloseOnLevels(): void {
+    if (get().mode !== 'replay') return
+    if (get().replayLoading) return
+
+    const open = get().position
+    if (!open) return
+    if (open.takeProfit == null && open.stopLoss == null) return
+
+    const candle = engine.getCurrentCandle() || get().currentCandle
+    if (!candle) return
+
+    const hit = evaluateStopTakeProfit(open, candle)
+    if (!hit) return
+
+    const closed = closePosition(open, hit.price, candle.time, hit.hit)
+    set((s) => ({
+      position: null,
+      closedTrades: [...s.closedTrades, closed],
+      replayMessage: null
     }))
   }
 
@@ -314,6 +343,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
       if (after > before) {
         publishReplay('append')
+        maybeAutoCloseOnLevels()
         void maybePrefetch()
       } else {
         publishReplay('replace', { fitContent: false })
@@ -404,13 +434,45 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const candle = engine.getCurrentCandle() || get().currentCandle
     if (!candle) return
 
-    const closed = closePosition(open, candle.close, candle.time)
+    const closed = closePosition(open, candle.close, candle.time, 'manual')
 
     set((s) => ({
       position: null,
       closedTrades: [...s.closedTrades, closed],
       replayMessage: null
     }))
+  }
+
+  function setTakeProfit(price: number | null): void {
+    if (get().mode !== 'replay') return
+    if (get().replayStatus === 'ended') return
+    const open = get().position
+    if (!open) return
+
+    const result = withTakeProfit(open, price)
+    if (!result.ok) {
+      set({ replayMessage: result.reason })
+      return
+    }
+    // Do not evaluate TP/SL against the candle that is current while placing —
+    // levels only arm for subsequent candle advances.
+    set({ position: result.position, replayMessage: null })
+  }
+
+  function setStopLoss(price: number | null): void {
+    if (get().mode !== 'replay') return
+    if (get().replayStatus === 'ended') return
+    const open = get().position
+    if (!open) return
+
+    const result = withStopLoss(open, price)
+    if (!result.ok) {
+      set({ replayMessage: result.reason })
+      return
+    }
+    // Do not evaluate TP/SL against the candle that is current while placing —
+    // levels only arm for subsequent candle advances.
+    set({ position: result.position, replayMessage: null })
   }
 
   async function loadReplayWindow(
@@ -550,7 +612,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     // Keep the open position, session PnL, and drawings. Remap trade markers
     // and trendline endpoints onto the new candle open grid so LWC can resolve
-    // their times after the series changes.
+    // their times after the series changes. Position TP/SL stay as absolute prices.
     const remappedMarkers = get().tradeMarkers.map((marker) => ({
       ...marker,
       time: alignTimeToInterval(marker.time, nextIntervalSec)
@@ -572,11 +634,28 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             price: pending.price
           }
 
+    const open = get().position
+    const remappedPosition =
+      open == null
+        ? null
+        : {
+            ...open,
+            entryTime: alignTimeToInterval(open.entryTime, nextIntervalSec)
+          }
+
+    const remappedClosed = get().closedTrades.map((trade) => ({
+      ...trade,
+      entryTime: alignTimeToInterval(trade.entryTime, nextIntervalSec),
+      exitTime: alignTimeToInterval(trade.exitTime, nextIntervalSec)
+    }))
+
     set({
       timeframe: nextTimeframe,
       drawings: remappedDrawings,
       pendingTrend: remappedPending,
-      tradeMarkers: remappedMarkers
+      tradeMarkers: remappedMarkers,
+      position: remappedPosition,
+      closedTrades: remappedClosed
     })
 
     const ok = await loadReplayWindow(seekTime, {
@@ -716,6 +795,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     paperClose() {
       tryClose()
+    },
+
+    setTakeProfit(price) {
+      setTakeProfit(price)
+    },
+
+    setStopLoss(price) {
+      setStopLoss(price)
     },
 
     dismissSessionReport() {
@@ -917,7 +1004,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (position) {
         const candle = engine.getCurrentCandle() || currentCandle
         if (candle) {
-          trades = [...trades, closePosition(position, candle.close, candle.time)]
+          trades = [...trades, closePosition(position, candle.close, candle.time, 'session_exit')]
           closedOpenOnExit = true
         }
       }
@@ -977,6 +1064,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       publishReplay(after > before ? 'append' : 'replace', {
         fitContent: false
       })
+      if (after > before) {
+        maybeAutoCloseOnLevels()
+      }
       void maybePrefetch()
     },
 
@@ -985,8 +1075,35 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (get().replayLoading) return
 
       stopClock()
+
+      const leftCandle = engine.getCurrentCandle() || get().currentCandle
+      const before = engine.getState().index
       engine.stepBackward()
+      const after = engine.getState().index
+
       publishReplay('replace', { fitContent: false })
+
+      if (after < before && leftCandle) {
+        const rewound = rewindTradesAfterStepBack({
+          position: get().position,
+          closedTrades: get().closedTrades,
+          leftCandleTime: leftCandle.time,
+          currentCandleTime: (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time
+        })
+
+        const discardSet = new Set(rewound.discardedEntryTimes)
+        const tradeMarkers =
+          discardSet.size === 0
+            ? get().tradeMarkers
+            : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
+
+        set({
+          position: rewound.position,
+          closedTrades: rewound.closedTrades,
+          tradeMarkers,
+          replayMessage: null
+        })
+      }
     },
 
     setSpeed(speed) {

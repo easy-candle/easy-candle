@@ -7,6 +7,8 @@ import {
 } from 'react'
 import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
+import { formatPnl, isValidStopLoss, isValidTakeProfit, unrealizedPnl } from '@/lib/paperTrade'
+import { TRADE_OVERLAY } from '@/lib/tradeOverlayStyles'
 import { useReplayStore } from '@/store/replayStore'
 
 type Point = { x: number; y: number }
@@ -15,6 +17,12 @@ const DRAW_STROKE = '#f23645'
 const DRAW_WIDTH = 2.5
 const HANDLE_FILL = '#2962ff'
 const HANDLE_STROKE = '#ffffff'
+
+const POSITION_HANDLE_W = 72
+const POSITION_HANDLE_H = 22
+const LEVEL_GRIP_W = 28
+const LEVEL_GRIP_H = 16
+const RIGHT_PAD = 8
 
 function arrowHeadPoints(from: Point, to: Point, size = 7): string {
   const dx = to.x - from.x
@@ -32,6 +40,7 @@ function arrowHeadPoints(from: Point, to: Point, size = 7): string {
 type DragState =
   | { kind: 'hline'; id: string; moved: boolean }
   | { kind: 'trend'; id: string; end: 'start' | 'end'; moved: boolean }
+  | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
 
 type DrawingOverlayProps = {
   chart: IChartApi | null
@@ -44,18 +53,29 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const drawTool = useReplayStore((s) => s.drawTool)
   const pendingTrend = useReplayStore((s) => s.pendingTrend)
   const closedTrades = useReplayStore((s) => s.closedTrades)
+  const position = useReplayStore((s) => s.position)
+  const currentCandle = useReplayStore((s) => s.currentCandle)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
   const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
   const addTrendPoint = useReplayStore((s) => s.addTrendPoint)
   const updateTrendLineEndpoint = useReplayStore((s) => s.updateTrendLineEndpoint)
+  const setTakeProfit = useReplayStore((s) => s.setTakeProfit)
+  const setStopLoss = useReplayStore((s) => s.setStopLoss)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
 
   const [version, setVersion] = useState(0)
   const [hover, setHover] = useState<Point | null>(null)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
+  const [levelPreview, setLevelPreview] = useState<{
+    kind: 'tp' | 'sl'
+    price: number
+    y: number
+  } | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const suppressClickRef = useRef(false)
+  const levelPreviewRef = useRef(levelPreview)
+  levelPreviewRef.current = levelPreview
 
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
@@ -112,6 +132,25 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         return
       }
 
+      if (drag.kind === 'tp' || drag.kind === 'sl') {
+        drag.moved = true
+        setLevelPreview({ kind: drag.kind, price, y })
+        if (drag.mode === 'move') {
+          const open = useReplayStore.getState().position
+          if (!open) return
+          if (drag.kind === 'tp') {
+            if (isValidTakeProfit(open.side, open.entryPrice, price)) {
+              setTakeProfit(price)
+            }
+          } else if (isValidStopLoss(open.side, open.entryPrice, price)) {
+            setStopLoss(price)
+          }
+        }
+        return
+      }
+
+      if (drag.kind !== 'trend') return
+
       const time = chart.timeScale().coordinateToTime(x)
       if (time == null) return
       const timeSec = typeof time === 'number' ? time : Number(time)
@@ -124,9 +163,20 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     }
 
     function onUp(): void {
-      if (dragRef.current?.moved) suppressClickRef.current = true
+      const drag = dragRef.current
+      if (drag?.moved) suppressClickRef.current = true
+
+      if (drag && (drag.kind === 'tp' || drag.kind === 'sl') && drag.mode === 'place') {
+        const preview = levelPreviewRef.current
+        if (preview && preview.kind === drag.kind) {
+          if (drag.kind === 'tp') setTakeProfit(preview.price)
+          else setStopLoss(preview.price)
+        }
+      }
+
       dragRef.current = null
       setDraggingKey(null)
+      setLevelPreview(null)
     }
 
     window.addEventListener('mousemove', onMove)
@@ -135,7 +185,15 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [draggingKey, chart, series, updateHorizontalLine, updateTrendLineEndpoint])
+  }, [
+    draggingKey,
+    chart,
+    series,
+    updateHorizontalLine,
+    updateTrendLineEndpoint,
+    setTakeProfit,
+    setStopLoss
+  ])
 
   function onClick(event: ReactMouseEvent<SVGSVGElement>): void {
     if (suppressClickRef.current) {
@@ -182,9 +240,24 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     event.preventDefault()
     event.stopPropagation()
     dragRef.current = next
-    setDraggingKey(
-      next.kind === 'hline' ? `hline:${next.id}` : `trend:${next.id}:${next.end}`
-    )
+    if (next.kind === 'hline') {
+      setDraggingKey(`hline:${next.id}`)
+    } else if (next.kind === 'trend') {
+      setDraggingKey(`trend:${next.id}:${next.end}`)
+    } else {
+      setDraggingKey(`${next.kind}:${next.mode}`)
+      // Seed preview immediately at the entry handle Y so the line appears on drag start.
+      if (series && position) {
+        const seedY = series.priceToCoordinate(position.entryPrice)
+        if (seedY != null) {
+          setLevelPreview({
+            kind: next.kind,
+            price: position.entryPrice,
+            y: seedY
+          })
+        }
+      }
+    }
   }
 
   // Touch version so React doesn't drop redraw deps for lint.
@@ -193,6 +266,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const width = chart?.chartElement()?.clientWidth ?? 0
   const height = chart?.chartElement()?.clientHeight ?? 0
   const midX = (width || 0) / 2
+  const rightHandleX = Math.max(0, (width || 0) - RIGHT_PAD - POSITION_HANDLE_W)
 
   function toXY(time: number, price: number): Point | null {
     if (!chart || !series) return null
@@ -201,6 +275,41 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     if (x == null || y == null) return null
     return { x, y }
   }
+
+  const openPnl =
+    position != null ? unrealizedPnl(position, currentCandle?.close) : null
+  const sideColor =
+    position?.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
+  const pnlColor =
+    openPnl == null
+      ? TRADE_OVERLAY.handleTextMuted
+      : openPnl >= 0
+        ? TRADE_OVERLAY.pnlProfit
+        : TRADE_OVERLAY.pnlLoss
+
+  const previewKind = levelPreview?.kind
+  const showTpLine =
+    position != null &&
+    (position.takeProfit != null ||
+      (levelPreview != null && previewKind === 'tp'))
+  const showSlLine =
+    position != null &&
+    (position.stopLoss != null ||
+      (levelPreview != null && previewKind === 'sl'))
+
+  const tpPrice =
+    levelPreview?.kind === 'tp'
+      ? levelPreview.price
+      : (position?.takeProfit ?? null)
+  const slPrice =
+    levelPreview?.kind === 'sl'
+      ? levelPreview.price
+      : (position?.stopLoss ?? null)
+
+  const entryY =
+    position != null ? series?.priceToCoordinate(position.entryPrice) : null
+  const tpY = tpPrice != null ? series?.priceToCoordinate(tpPrice) : null
+  const slY = slPrice != null ? series?.priceToCoordinate(slPrice) : null
 
   return (
     <svg
@@ -251,6 +360,220 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           </g>
         )
       })}
+
+      {position && entryY != null && (
+        <g key={`open-pos-${position.id}`}>
+          <line
+            x1={0}
+            x2={width || '100%'}
+            y1={entryY}
+            y2={entryY}
+            stroke={sideColor}
+            strokeWidth={TRADE_OVERLAY.entryWidth}
+            strokeDasharray={TRADE_OVERLAY.entryDash}
+          />
+
+          {showTpLine && tpY != null && (
+            <g>
+              <line
+                x1={0}
+                x2={width || '100%'}
+                y1={tpY}
+                y2={tpY}
+                stroke={TRADE_OVERLAY.tpLine}
+                strokeWidth={TRADE_OVERLAY.levelWidth}
+                strokeDasharray={TRADE_OVERLAY.levelDash}
+              />
+              {canEdit && position.takeProfit != null && (
+                <g
+                  className="pointer-events-auto cursor-ns-resize"
+                  onMouseDown={(e) =>
+                    startDrag(e, { kind: 'tp', mode: 'move', moved: false })
+                  }
+                >
+                  <rect
+                    x={rightHandleX}
+                    y={tpY - LEVEL_GRIP_H / 2}
+                    width={LEVEL_GRIP_W}
+                    height={LEVEL_GRIP_H}
+                    rx={2}
+                    ry={2}
+                    fill={TRADE_OVERLAY.handleFill}
+                    stroke={TRADE_OVERLAY.tpLine}
+                    strokeWidth={1.25}
+                  />
+                  <text
+                    x={rightHandleX + LEVEL_GRIP_W / 2}
+                    y={tpY + 3.5}
+                    textAnchor="middle"
+                    fill={TRADE_OVERLAY.tpLine}
+                    fontSize={9}
+                    fontFamily="Tahoma, Arial, sans-serif"
+                    fontWeight={700}
+                    className="pointer-events-none select-none"
+                  >
+                    tp
+                  </text>
+                </g>
+              )}
+            </g>
+          )}
+
+          {showSlLine && slY != null && (
+            <g>
+              <line
+                x1={0}
+                x2={width || '100%'}
+                y1={slY}
+                y2={slY}
+                stroke={TRADE_OVERLAY.slLine}
+                strokeWidth={TRADE_OVERLAY.levelWidth}
+                strokeDasharray={TRADE_OVERLAY.levelDash}
+              />
+              {canEdit && position.stopLoss != null && (
+                <g
+                  className="pointer-events-auto cursor-ns-resize"
+                  onMouseDown={(e) =>
+                    startDrag(e, { kind: 'sl', mode: 'move', moved: false })
+                  }
+                >
+                  <rect
+                    x={rightHandleX}
+                    y={slY - LEVEL_GRIP_H / 2}
+                    width={LEVEL_GRIP_W}
+                    height={LEVEL_GRIP_H}
+                    rx={2}
+                    ry={2}
+                    fill={TRADE_OVERLAY.handleFill}
+                    stroke={TRADE_OVERLAY.slLine}
+                    strokeWidth={1.25}
+                  />
+                  <text
+                    x={rightHandleX + LEVEL_GRIP_W / 2}
+                    y={slY + 3.5}
+                    textAnchor="middle"
+                    fill={TRADE_OVERLAY.slLine}
+                    fontSize={9}
+                    fontFamily="Tahoma, Arial, sans-serif"
+                    fontWeight={700}
+                    className="pointer-events-none select-none"
+                  >
+                    sl
+                  </text>
+                </g>
+              )}
+            </g>
+          )}
+
+          {/* Entry PNL handle + nested TP/SL place grips (right blank area). */}
+          <g>
+            <rect
+              x={rightHandleX}
+              y={entryY - POSITION_HANDLE_H / 2}
+              width={POSITION_HANDLE_W}
+              height={POSITION_HANDLE_H}
+              rx={2}
+              ry={2}
+              fill={TRADE_OVERLAY.handleFill}
+              stroke={sideColor}
+              strokeWidth={1.5}
+            />
+            <text
+              x={rightHandleX + POSITION_HANDLE_W / 2}
+              y={entryY + 3.5}
+              textAnchor="middle"
+              fill={pnlColor}
+              fontSize={10}
+              fontFamily="Tahoma, Arial, sans-serif"
+              fontWeight={700}
+              className="pointer-events-none select-none"
+            >
+              {formatPnl(openPnl)}
+            </text>
+
+            {canEdit &&
+              (() => {
+                const isLong = position.side === 'long'
+                const aboveRectY = entryY - LEVEL_GRIP_H - 2
+                const belowRectY = entryY + 2
+                const tpRectY = isLong ? aboveRectY : belowRectY
+                const slRectY = isLong ? belowRectY : aboveRectY
+                const gripX = rightHandleX - LEVEL_GRIP_W - 4
+                const gripTextX = rightHandleX - LEVEL_GRIP_W / 2 - 4
+
+                return (
+                  <>
+                    {position.takeProfit == null && (
+                      <g
+                        className="pointer-events-auto cursor-ns-resize"
+                        onMouseDown={(e) =>
+                          startDrag(e, { kind: 'tp', mode: 'place', moved: false })
+                        }
+                      >
+                        <rect
+                          x={gripX}
+                          y={tpRectY}
+                          width={LEVEL_GRIP_W}
+                          height={LEVEL_GRIP_H}
+                          rx={2}
+                          ry={2}
+                          fill={TRADE_OVERLAY.handleFill}
+                          stroke={TRADE_OVERLAY.tpLine}
+                          strokeWidth={1.1}
+                        />
+                        <text
+                          x={gripTextX}
+                          y={tpRectY + LEVEL_GRIP_H / 2 + 3.5}
+                          textAnchor="middle"
+                          fill={TRADE_OVERLAY.tpLine}
+                          fontSize={9}
+                          fontFamily="Tahoma, Arial, sans-serif"
+                          fontWeight={700}
+                          className="pointer-events-none select-none"
+                        >
+                          tp
+                        </text>
+                      </g>
+                    )}
+
+                    {position.stopLoss == null && (
+                      <g
+                        className="pointer-events-auto cursor-ns-resize"
+                        onMouseDown={(e) =>
+                          startDrag(e, { kind: 'sl', mode: 'place', moved: false })
+                        }
+                      >
+                        <rect
+                          x={gripX}
+                          y={slRectY}
+                          width={LEVEL_GRIP_W}
+                          height={LEVEL_GRIP_H}
+                          rx={2}
+                          ry={2}
+                          fill={TRADE_OVERLAY.handleFill}
+                          stroke={TRADE_OVERLAY.slLine}
+                          strokeWidth={1.1}
+                        />
+                        <text
+                          x={gripTextX}
+                          y={slRectY + LEVEL_GRIP_H / 2 + 3.5}
+                          textAnchor="middle"
+                          fill={TRADE_OVERLAY.slLine}
+                          fontSize={9}
+                          fontFamily="Tahoma, Arial, sans-serif"
+                          fontWeight={700}
+                          className="pointer-events-none select-none"
+                        >
+                          sl
+                        </text>
+                      </g>
+                    )}
+                  </>
+                )
+              })()}
+          </g>
+        </g>
+      )}
 
       {drawings.map((drawing) => {
         if (drawing.type === 'hline') {

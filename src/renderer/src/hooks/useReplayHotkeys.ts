@@ -15,12 +15,14 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * Replay keyboard shortcuts:
  * - Space while playing → pause
  * - Space while paused/ready → step forward one candle
+ * - Backspace → step backward one candle (rewinds trades)
  * - Escape → cancel pending trend line / return to select tool
  */
 export function useReplayHotkeys(): void {
   const mode = useReplayStore((s) => s.mode)
   const pause = useReplayStore((s) => s.pause)
   const stepForward = useReplayStore((s) => s.stepForward)
+  const stepBackward = useReplayStore((s) => s.stepBackward)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
 
   useEffect(() => {
@@ -37,6 +39,16 @@ export function useReplayHotkeys(): void {
           event.preventDefault()
           setDrawTool('select')
         }
+        return
+      }
+
+      if (event.key === 'Backspace') {
+        if (event.repeat) return
+        if (state.replayLoading) return
+        if (state.replayIndex <= 0) return
+
+        event.preventDefault()
+        stepBackward()
         return
       }
 
@@ -57,5 +69,5 @@ export function useReplayHotkeys(): void {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, pause, stepForward, setDrawTool])
+  }, [mode, pause, stepForward, stepBackward, setDrawTool])
 }
