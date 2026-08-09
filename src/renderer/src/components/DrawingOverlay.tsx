@@ -7,7 +7,16 @@ import {
 } from 'react'
 import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
-import { formatPnl, isValidStopLoss, isValidTakeProfit, unrealizedPnl } from '@/lib/paperTrade'
+import {
+  formatPnl,
+  formatRiskReward,
+  isValidStopLoss,
+  isValidTakeProfit,
+  realizedRiskReward,
+  stopLossFromTakeProfit,
+  takeProfitFromStopLoss,
+  unrealizedPnl
+} from '@/lib/paperTrade'
 import { TRADE_OVERLAY } from '@/lib/tradeOverlayStyles'
 import { useReplayStore } from '@/store/replayStore'
 
@@ -21,6 +30,7 @@ const HANDLE_STROKE = '#ffffff'
 const POSITION_HANDLE_W = 72
 const POSITION_HANDLE_H = 22
 const LEVEL_GRIP_W = 28
+const TP_LEVEL_GRIP_W = 52
 const LEVEL_GRIP_H = 16
 const RIGHT_PAD = 8
 
@@ -42,9 +52,37 @@ type DragState =
   | { kind: 'trend'; id: string; end: 'start' | 'end'; moved: boolean }
   | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
 
+type LevelPreview = {
+  kind: 'tp' | 'sl'
+  price: number
+  y: number
+  linkedPrice: number | null
+  linkedY: number | null
+}
+
 type DrawingOverlayProps = {
   chart: IChartApi | null
   series: ISeriesApi<'Candlestick'> | null
+}
+
+function linkedLevelForDrag(
+  kind: 'tp' | 'sl',
+  price: number,
+  side: 'long' | 'short',
+  entryPrice: number,
+  riskReward: number,
+  series: ISeriesApi<'Candlestick'>
+): Pick<LevelPreview, 'linkedPrice' | 'linkedY'> {
+  const linkedPrice =
+    kind === 'sl'
+      ? takeProfitFromStopLoss(side, entryPrice, price, riskReward)
+      : stopLossFromTakeProfit(side, entryPrice, price, riskReward)
+  if (linkedPrice == null) return { linkedPrice: null, linkedY: null }
+  const linkedY = series.priceToCoordinate(linkedPrice)
+  return {
+    linkedPrice,
+    linkedY: linkedY == null ? null : linkedY
+  }
 }
 
 /** SVG drawing layer synced to lightweight-charts pan/zoom. */
@@ -55,6 +93,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const position = useReplayStore((s) => s.position)
   const currentCandle = useReplayStore((s) => s.currentCandle)
+  const riskReward = useReplayStore((s) => s.riskReward)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
   const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
   const addTrendPoint = useReplayStore((s) => s.addTrendPoint)
@@ -67,11 +106,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const [version, setVersion] = useState(0)
   const [hover, setHover] = useState<Point | null>(null)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
-  const [levelPreview, setLevelPreview] = useState<{
-    kind: 'tp' | 'sl'
-    price: number
-    y: number
-  } | null>(null)
+  const [levelPreview, setLevelPreview] = useState<LevelPreview | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const suppressClickRef = useRef(false)
   const levelPreviewRef = useRef(levelPreview)
@@ -134,10 +169,28 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
 
       if (drag.kind === 'tp' || drag.kind === 'sl') {
         drag.moved = true
-        setLevelPreview({ kind: drag.kind, price, y })
+        const state = useReplayStore.getState()
+        const open = state.position
+        // Guide preview only while placing the first level; later moves are free.
+        const linked =
+          drag.mode === 'place' && open != null
+            ? linkedLevelForDrag(
+                drag.kind,
+                price,
+                open.side,
+                open.entryPrice,
+                state.riskReward,
+                series
+              )
+            : { linkedPrice: null, linkedY: null }
+        setLevelPreview({
+          kind: drag.kind,
+          price,
+          y,
+          linkedPrice: linked.linkedPrice,
+          linkedY: linked.linkedY
+        })
         if (drag.mode === 'move') {
-          const state = useReplayStore.getState()
-          const open = state.position
           if (!open) return
           if (drag.kind === 'tp') {
             if (isValidTakeProfit(open.side, open.entryPrice, price)) {
@@ -173,8 +226,8 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       if (drag && (drag.kind === 'tp' || drag.kind === 'sl') && drag.mode === 'place') {
         const preview = levelPreviewRef.current
         if (preview && preview.kind === drag.kind) {
-          if (drag.kind === 'tp') setTakeProfit(preview.price)
-          else setStopLoss(preview.price)
+          if (drag.kind === 'tp') setTakeProfit(preview.price, { linkRr: true })
+          else setStopLoss(preview.price, { linkRr: true })
         }
       }
 
@@ -254,10 +307,23 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       if (series && position) {
         const seedY = series.priceToCoordinate(position.entryPrice)
         if (seedY != null) {
+          const linked =
+            next.mode === 'place'
+              ? linkedLevelForDrag(
+                  next.kind,
+                  position.entryPrice,
+                  position.side,
+                  position.entryPrice,
+                  riskReward,
+                  series
+                )
+              : { linkedPrice: null, linkedY: null }
           setLevelPreview({
             kind: next.kind,
             price: position.entryPrice,
-            y: seedY
+            y: seedY,
+            linkedPrice: linked.linkedPrice,
+            linkedY: linked.linkedY
           })
         }
       }
@@ -271,6 +337,18 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const height = chart?.chartElement()?.clientHeight ?? 0
   const midX = (width || 0) / 2
   const rightHandleX = Math.max(0, (width || 0) - RIGHT_PAD - POSITION_HANDLE_W)
+  const tpHandleX = Math.max(0, (width || 0) - RIGHT_PAD - TP_LEVEL_GRIP_W)
+  // Label shows actual R:R after manual moves; falls back to the guide setting.
+  const rrLabel = formatRiskReward(
+    position != null
+      ? (realizedRiskReward(
+          position.side,
+          position.entryPrice,
+          position.stopLoss,
+          position.takeProfit
+        ) ?? riskReward)
+      : riskReward
+  )
 
   function toXY(time: number, price: number): Point | null {
     if (!chart || !series) return null
@@ -291,24 +369,20 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         ? TRADE_OVERLAY.pnlProfit
         : TRADE_OVERLAY.pnlLoss
 
-  const previewKind = levelPreview?.kind
-  const showTpLine =
-    position != null &&
-    (position.takeProfit != null ||
-      (levelPreview != null && previewKind === 'tp'))
-  const showSlLine =
-    position != null &&
-    (position.stopLoss != null ||
-      (levelPreview != null && previewKind === 'sl'))
-
   const tpPrice =
     levelPreview?.kind === 'tp'
       ? levelPreview.price
-      : (position?.takeProfit ?? null)
+      : levelPreview?.kind === 'sl' && levelPreview.linkedPrice != null
+        ? levelPreview.linkedPrice
+        : (position?.takeProfit ?? null)
   const slPrice =
     levelPreview?.kind === 'sl'
       ? levelPreview.price
-      : (position?.stopLoss ?? null)
+      : levelPreview?.kind === 'tp' && levelPreview.linkedPrice != null
+        ? levelPreview.linkedPrice
+        : (position?.stopLoss ?? null)
+  const showTpLine = position != null && tpPrice != null
+  const showSlLine = position != null && slPrice != null
 
   const entryY =
     position != null ? series?.priceToCoordinate(position.entryPrice) : null
@@ -396,9 +470,9 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
                   }
                 >
                   <rect
-                    x={rightHandleX}
+                    x={tpHandleX}
                     y={tpY - LEVEL_GRIP_H / 2}
-                    width={LEVEL_GRIP_W}
+                    width={TP_LEVEL_GRIP_W}
                     height={LEVEL_GRIP_H}
                     rx={2}
                     ry={2}
@@ -407,7 +481,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
                     strokeWidth={1.25}
                   />
                   <text
-                    x={rightHandleX + LEVEL_GRIP_W / 2}
+                    x={tpHandleX + TP_LEVEL_GRIP_W / 2}
                     y={tpY + 3.5}
                     textAnchor="middle"
                     fill={TRADE_OVERLAY.tpLine}
@@ -416,7 +490,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
                     fontWeight={700}
                     className="pointer-events-none select-none"
                   >
-                    tp
+                    {`tp ${rrLabel}`}
                   </text>
                 </g>
               )}

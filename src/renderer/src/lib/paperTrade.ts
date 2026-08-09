@@ -48,9 +48,96 @@ export type LevelHit = {
   price: number
 }
 
+/** Default reward multiple of risk (R:R = 1:DEFAULT_RISK_REWARD). */
+export const DEFAULT_RISK_REWARD = 2
+
 export function pnlForSide(side: PositionSide, entryPrice: number, markPrice: number): number {
   if (side === 'long') return markPrice - entryPrice
   return entryPrice - markPrice
+}
+
+/** Normalize a user R:R multiple (reward per 1R). */
+export function clampRiskReward(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_RISK_REWARD
+  return Math.min(20, Math.max(0.5, Math.round(value * 10) / 10))
+}
+
+/** Format as `1:2` / `1:1.5`. */
+export function formatRiskReward(riskReward: number): string {
+  if (!Number.isFinite(riskReward) || riskReward <= 0) return '—'
+  const rounded = Math.round(riskReward * 10) / 10
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  return `1:${text}`
+}
+
+/**
+ * TP from SL using entry risk × R:R.
+ * Returns null when SL is not on the risk side of entry (e.g. lock-profit trail).
+ */
+export function takeProfitFromStopLoss(
+  side: PositionSide,
+  entryPrice: number,
+  stopLoss: number,
+  riskReward: number
+): number | null {
+  if (
+    !Number.isFinite(entryPrice) ||
+    !Number.isFinite(stopLoss) ||
+    !Number.isFinite(riskReward) ||
+    riskReward <= 0
+  ) {
+    return null
+  }
+  const risk = side === 'long' ? entryPrice - stopLoss : stopLoss - entryPrice
+  if (!(risk > 0)) return null
+  const reward = risk * riskReward
+  return side === 'long' ? entryPrice + reward : entryPrice - reward
+}
+
+/**
+ * SL from TP using entry reward ÷ R:R.
+ * Returns null when TP is not on the profit side of entry.
+ */
+export function stopLossFromTakeProfit(
+  side: PositionSide,
+  entryPrice: number,
+  takeProfit: number,
+  riskReward: number
+): number | null {
+  if (
+    !Number.isFinite(entryPrice) ||
+    !Number.isFinite(takeProfit) ||
+    !Number.isFinite(riskReward) ||
+    riskReward <= 0
+  ) {
+    return null
+  }
+  const reward = side === 'long' ? takeProfit - entryPrice : entryPrice - takeProfit
+  if (!(reward > 0)) return null
+  const risk = reward / riskReward
+  return side === 'long' ? entryPrice - risk : entryPrice + risk
+}
+
+/** Realized R:R from current levels, or null if not a classic risk setup. */
+export function realizedRiskReward(
+  side: PositionSide,
+  entryPrice: number,
+  stopLoss: number | null | undefined,
+  takeProfit: number | null | undefined
+): number | null {
+  if (
+    stopLoss == null ||
+    takeProfit == null ||
+    !Number.isFinite(entryPrice) ||
+    !Number.isFinite(stopLoss) ||
+    !Number.isFinite(takeProfit)
+  ) {
+    return null
+  }
+  const risk = side === 'long' ? entryPrice - stopLoss : stopLoss - entryPrice
+  const reward = side === 'long' ? takeProfit - entryPrice : entryPrice - takeProfit
+  if (!(risk > 0) || !(reward > 0)) return null
+  return reward / risk
 }
 
 export function isValidTakeProfit(

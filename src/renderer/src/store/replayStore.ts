@@ -10,17 +10,29 @@ import { dedupeCandlesByTime, findIndexAtOrBefore, type Candle } from '@shared/c
 import type { DataSource, ImportedDatasetMeta } from '@shared/importTypes'
 import { getIndicator } from '@/lib/indicators'
 import {
+  clampRiskReward,
   closePosition,
+  DEFAULT_RISK_REWARD,
   evaluateStopTakeProfit,
   openPosition,
   rewindTradesAfterStepBack,
+  stopLossFromTakeProfit,
   summarizeSession,
+  takeProfitFromStopLoss,
   withStopLoss,
   withTakeProfit,
   type ClosedTrade,
   type Position,
   type SessionSummary
 } from '@/lib/paperTrade'
+
+export type LevelSetOptions = {
+  /**
+   * Guide only: when placing the first level, fill the missing opposite at the
+   * configured R:R. Never used for later manual moves.
+   */
+  linkRr?: boolean
+}
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
 import { DEFAULT_SYMBOL } from '@shared/symbols'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
@@ -153,6 +165,8 @@ type ReplayStore = {
   closedTrades: ClosedTrade[]
   tradeMarkers: TradeMarker[]
   sessionReport: SessionReport | null
+  /** Reward multiple of risk for linked SL/TP (default 2 → 1:2). */
+  riskReward: number
   toggleIndicator: (id: string) => void
   setDrawTool: (tool: DrawTool) => void
   addHorizontalLine: (price: number) => void
@@ -167,8 +181,9 @@ type ReplayStore = {
   paperBuy: () => void
   paperSell: () => void
   paperClose: () => void
-  setTakeProfit: (price: number | null) => void
-  setStopLoss: (price: number | null) => void
+  setRiskReward: (value: number) => void
+  setTakeProfit: (price: number | null, opts?: LevelSetOptions) => void
+  setStopLoss: (price: number | null, opts?: LevelSetOptions) => void
   dismissSessionReport: () => void
   setSymbol: (symbol: string) => void
   setTimeframe: (timeframe: string) => void
@@ -443,23 +458,39 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }))
   }
 
-  function setTakeProfit(price: number | null): void {
+  function setTakeProfit(price: number | null, opts?: LevelSetOptions): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
     const open = get().position
     if (!open) return
 
-    const result = withTakeProfit(open, price)
+    let result = withTakeProfit(open, price)
     if (!result.ok) {
       set({ replayMessage: result.reason })
       return
     }
+
+    // First-place guide: seed missing SL only — never overwrite an existing one.
+    if (opts?.linkRr && price != null && open.stopLoss == null) {
+      const linkedSl = stopLossFromTakeProfit(
+        open.side,
+        open.entryPrice,
+        price,
+        get().riskReward
+      )
+      if (linkedSl != null) {
+        const candle = engine.getCurrentCandle() || get().currentCandle
+        const withSl = withStopLoss(result.position, linkedSl, candle?.close)
+        if (withSl.ok) result = withSl
+      }
+    }
+
     // Do not evaluate TP/SL against the candle that is current while placing —
     // levels only arm for subsequent candle advances.
     set({ position: result.position, replayMessage: null })
   }
 
-  function setStopLoss(price: number | null): void {
+  function setStopLoss(price: number | null, opts?: LevelSetOptions): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
     const open = get().position
@@ -467,14 +498,66 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     const candle = engine.getCurrentCandle() || get().currentCandle
     const markPrice = candle?.close
-    const result = withStopLoss(open, price, markPrice)
+    let result = withStopLoss(open, price, markPrice)
     if (!result.ok) {
       set({ replayMessage: result.reason })
       return
     }
+
+    // First-place guide: seed missing TP only — never overwrite an existing one.
+    if (opts?.linkRr && price != null && open.takeProfit == null) {
+      const linkedTp = takeProfitFromStopLoss(
+        open.side,
+        open.entryPrice,
+        price,
+        get().riskReward
+      )
+      if (linkedTp != null) {
+        const withTp = withTakeProfit(result.position, linkedTp)
+        if (withTp.ok) result = withTp
+      }
+    }
+
     // Do not evaluate TP/SL against the candle that is current while placing —
     // levels only arm for subsequent candle advances.
     set({ position: result.position, replayMessage: null })
+  }
+
+  /** Re-apply R:R guide to open levels when the user changes the R:R control. */
+  function applyRiskRewardGuide(riskReward: number): void {
+    const open = get().position
+    if (!open) return
+    if (get().mode !== 'replay' || get().replayStatus === 'ended') return
+
+    let next = open
+    if (open.stopLoss != null) {
+      const linkedTp = takeProfitFromStopLoss(
+        open.side,
+        open.entryPrice,
+        open.stopLoss,
+        riskReward
+      )
+      if (linkedTp != null) {
+        const withTp = withTakeProfit(next, linkedTp)
+        if (withTp.ok) next = withTp.position
+      }
+    } else if (open.takeProfit != null) {
+      const linkedSl = stopLossFromTakeProfit(
+        open.side,
+        open.entryPrice,
+        open.takeProfit,
+        riskReward
+      )
+      if (linkedSl != null) {
+        const candle = engine.getCurrentCandle() || get().currentCandle
+        const withSl = withStopLoss(next, linkedSl, candle?.close)
+        if (withSl.ok) next = withSl.position
+      }
+    }
+
+    if (next !== open) {
+      set({ position: next, replayMessage: null })
+    }
   }
 
   async function loadReplayWindow(
@@ -699,6 +782,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     closedTrades: [],
     tradeMarkers: [],
     sessionReport: null,
+    riskReward: DEFAULT_RISK_REWARD,
 
     toggleIndicator(id) {
       if (!getIndicator(id)) return
@@ -799,12 +883,18 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       tryClose()
     },
 
-    setTakeProfit(price) {
-      setTakeProfit(price)
+    setRiskReward(value) {
+      const riskReward = clampRiskReward(value)
+      set({ riskReward })
+      applyRiskRewardGuide(riskReward)
     },
 
-    setStopLoss(price) {
-      setStopLoss(price)
+    setTakeProfit(price, opts) {
+      setTakeProfit(price, opts)
+    },
+
+    setStopLoss(price, opts) {
+      setStopLoss(price, opts)
     },
 
     dismissSessionReport() {

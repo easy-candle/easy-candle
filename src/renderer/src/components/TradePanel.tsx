@@ -1,8 +1,17 @@
-import { ArrowDownCircle, ArrowUpCircle, CircleX } from 'lucide-react'
+import { ArrowDownCircle, ArrowUpCircle, CircleX, Minus, Plus } from 'lucide-react'
 import IconButton from '@/components/IconButton'
-import { formatExitReason, formatPnl, sessionPerformance, unrealizedPnl } from '@/lib/paperTrade'
+import {
+  formatExitReason,
+  formatPnl,
+  formatRiskReward,
+  realizedRiskReward,
+  sessionPerformance,
+  unrealizedPnl
+} from '@/lib/paperTrade'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import { useReplayStore } from '@/store/replayStore'
+
+const RR_PRESETS = [1, 1.5, 2, 3] as const
 
 export default function TradePanel() {
   const mode = useReplayStore((s) => s.mode)
@@ -11,9 +20,11 @@ export default function TradePanel() {
   const position = useReplayStore((s) => s.position)
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const currentCandle = useReplayStore((s) => s.currentCandle)
+  const riskReward = useReplayStore((s) => s.riskReward)
   const paperBuy = useReplayStore((s) => s.paperBuy)
   const paperSell = useReplayStore((s) => s.paperSell)
   const paperClose = useReplayStore((s) => s.paperClose)
+  const setRiskReward = useReplayStore((s) => s.setRiskReward)
 
   if (mode !== 'replay') return null
 
@@ -23,6 +34,20 @@ export default function TradePanel() {
   const perf = sessionPerformance(closedTrades, position, mark)
   const canOpen = !busy && !position
   const canClose = !busy && Boolean(position)
+  const rrLabel = formatRiskReward(riskReward)
+  const openRr =
+    position != null
+      ? realizedRiskReward(
+          position.side,
+          position.entryPrice,
+          position.stopLoss,
+          position.takeProfit
+        )
+      : null
+
+  function nudgeRr(delta: number): void {
+    setRiskReward(riskReward + delta)
+  }
 
   return (
     <div className="mt-1.5 shrink-0 rounded-sm border border-zinc-800 bg-zinc-950/90">
@@ -64,6 +89,54 @@ export default function TradePanel() {
           </IconButton>
         </div>
 
+        <div
+          className="flex items-center gap-1.5 rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-0.5"
+          title="R:R guide for first SL/TP placement and when you change this value. After that you can drag levels freely."
+        >
+          <span className="px-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500">
+            R:R
+          </span>
+          <IconButton
+            label="Decrease risk:reward"
+            onClick={() => nudgeRr(-0.5)}
+            className="!h-6 !w-6"
+          >
+            <Minus className="h-3 w-3" />
+          </IconButton>
+          <span className="min-w-[2.75rem] text-center text-xs font-semibold tabular-nums text-zinc-200">
+            {rrLabel}
+          </span>
+          <IconButton
+            label="Increase risk:reward"
+            onClick={() => nudgeRr(0.5)}
+            className="!h-6 !w-6"
+          >
+            <Plus className="h-3 w-3" />
+          </IconButton>
+          <div className="ml-0.5 flex items-center gap-0.5 border-l border-zinc-800 pl-1.5">
+            {RR_PRESETS.map((preset) => {
+              const active = riskReward === preset
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  title={`Set R:R to 1:${preset}`}
+                  aria-label={`Set R:R to 1:${preset}`}
+                  aria-pressed={active}
+                  onClick={() => setRiskReward(preset)}
+                  className={`h-6 min-w-6 rounded px-1 text-[10px] font-semibold tabular-nums transition-colors ${
+                    active
+                      ? 'bg-amber-950/60 text-amber-300'
+                      : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200'
+                  }`}
+                >
+                  {preset}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <div className="ml-auto flex flex-wrap items-center gap-3 text-[11px] tabular-nums">
           <span className="text-zinc-500">
             Realized{' '}
@@ -97,8 +170,8 @@ export default function TradePanel() {
       <div className="max-h-36 overflow-y-auto px-3 py-1.5">
         {!position && closedTrades.length === 0 ? (
           <p className="py-1.5 text-[11px] text-zinc-600">
-            No trades this replay. Open LONG or SHORT at the current candle close (1 unit). Close to
-            realize PnL. Resets on exit / refresh.
+            Open LONG or SHORT at the current close (1 unit). First SL/TP drag seeds the other at{' '}
+            {rrLabel} as a guide — then move either level freely. Candle advances leave levels put.
           </p>
         ) : (
           <ul className="divide-y divide-zinc-800/80 text-[11px]">
@@ -120,7 +193,10 @@ export default function TradePanel() {
                   Entry {position.entryPrice.toFixed(2)} · {formatUtcCandleTime(position.entryTime)}
                 </span>
                 {position.takeProfit != null && (
-                  <span className="text-teal-400/90">TP {position.takeProfit.toFixed(2)}</span>
+                  <span className="text-teal-400/90">
+                    TP {position.takeProfit.toFixed(2)}
+                    {openRr != null ? ` · ${formatRiskReward(openRr)}` : ` · ${rrLabel}`}
+                  </span>
                 )}
                 {position.stopLoss != null && (
                   <span className="text-orange-400/90">SL {position.stopLoss.toFixed(2)}</span>

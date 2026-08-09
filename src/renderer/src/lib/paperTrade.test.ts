@@ -1,17 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
+  clampRiskReward,
   closePosition,
   cumulativeRealizedPnl,
   evaluateStopTakeProfit,
   formatPnl,
+  formatRiskReward,
   formatWinRate,
   isValidStopLoss,
   isValidTakeProfit,
   openPosition,
+  realizedRiskReward,
   rewindTradesAfterStepBack,
   sessionPerformance,
   sideReport,
+  stopLossFromTakeProfit,
   summarizeSession,
+  takeProfitFromStopLoss,
   tradesToCsv,
   unrealizedPnl,
   withStopLoss,
@@ -85,6 +90,30 @@ describe('closePosition', () => {
     const closed = closePosition(open.position, 90, 20)
     expect(closed.pnl).toBeCloseTo(10)
     expect(closed.exitReason).toBe('manual')
+  })
+})
+
+describe('risk:reward helpers', () => {
+  it('formats and clamps R:R', () => {
+    expect(formatRiskReward(2)).toBe('1:2')
+    expect(formatRiskReward(1.5)).toBe('1:1.5')
+    expect(clampRiskReward(0)).toBe(0.5)
+    expect(clampRiskReward(99)).toBe(20)
+    expect(clampRiskReward(1.26)).toBe(1.3)
+  })
+
+  it('derives TP from SL and SL from TP at R:R 2', () => {
+    expect(takeProfitFromStopLoss('long', 100, 90, 2)).toBe(120)
+    expect(stopLossFromTakeProfit('long', 100, 120, 2)).toBe(90)
+    expect(takeProfitFromStopLoss('short', 100, 110, 2)).toBe(80)
+    expect(stopLossFromTakeProfit('short', 100, 80, 2)).toBe(110)
+    expect(realizedRiskReward('long', 100, 90, 120)).toBe(2)
+  })
+
+  it('skips lock-profit / invalid risk setups', () => {
+    expect(takeProfitFromStopLoss('long', 100, 105, 2)).toBeNull()
+    expect(stopLossFromTakeProfit('long', 100, 95, 2)).toBeNull()
+    expect(realizedRiskReward('long', 100, 105, 120)).toBeNull()
   })
 })
 
