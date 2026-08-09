@@ -63,14 +63,18 @@ export function isValidTakeProfit(
   return price < entryPrice
 }
 
+/**
+ * Stop loss may sit anywhere on the protective side of the current mark,
+ * including above entry for longs (or below for shorts) to lock profit.
+ */
 export function isValidStopLoss(
   side: PositionSide,
-  entryPrice: number,
+  markPrice: number,
   price: number
 ): boolean {
-  if (!Number.isFinite(price)) return false
-  if (side === 'long') return price < entryPrice
-  return price > entryPrice
+  if (!Number.isFinite(price) || !Number.isFinite(markPrice)) return false
+  if (side === 'long') return price < markPrice
+  return price > markPrice
 }
 
 /** Apply take-profit when valid; pass null to clear. */
@@ -96,18 +100,22 @@ export function withTakeProfit(
 /** Apply stop-loss when valid; pass null to clear. */
 export function withStopLoss(
   position: Position,
-  price: number | null
+  price: number | null,
+  markPrice?: number | null
 ): { ok: true; position: Position } | { ok: false; reason: string } {
   if (price == null) {
     return { ok: true, position: { ...position, stopLoss: null } }
   }
-  if (!isValidStopLoss(position.side, position.entryPrice, price)) {
+  if (markPrice == null || !Number.isFinite(markPrice)) {
+    return { ok: false, reason: 'No market price' }
+  }
+  if (!isValidStopLoss(position.side, markPrice, price)) {
     return {
       ok: false,
       reason:
         position.side === 'long'
-          ? 'Stop loss must be below entry'
-          : 'Stop loss must be above entry'
+          ? 'Stop loss must be below current price'
+          : 'Stop loss must be above current price'
     }
   }
   return { ok: true, position: { ...position, stopLoss: price } }

@@ -465,7 +465,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const open = get().position
     if (!open) return
 
-    const result = withStopLoss(open, price)
+    const candle = engine.getCurrentCandle() || get().currentCandle
+    const markPrice = candle?.close
+    const result = withStopLoss(open, price, markPrice)
     if (!result.ok) {
       set({ replayMessage: result.reason })
       return

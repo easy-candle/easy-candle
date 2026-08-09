@@ -66,7 +66,7 @@ describe('closePosition', () => {
     const withLevels = withTakeProfit(open.position, 120)
     expect(withLevels.ok).toBe(true)
     if (!withLevels.ok) return
-    const withBoth = withStopLoss(withLevels.position, 90)
+    const withBoth = withStopLoss(withLevels.position, 90, 100)
     expect(withBoth.ok).toBe(true)
     if (!withBoth.ok) return
 
@@ -92,13 +92,20 @@ describe('TP/SL validation', () => {
   it('validates long and short sides', () => {
     expect(isValidTakeProfit('long', 100, 110)).toBe(true)
     expect(isValidTakeProfit('long', 100, 90)).toBe(false)
+    // SL is validated against mark (current price), not entry
     expect(isValidStopLoss('long', 100, 90)).toBe(true)
     expect(isValidStopLoss('long', 100, 110)).toBe(false)
+    // Long can trail SL above entry while mark is higher
+    expect(isValidStopLoss('long', 120, 105)).toBe(true)
+    expect(isValidStopLoss('long', 120, 120)).toBe(false)
 
     expect(isValidTakeProfit('short', 100, 90)).toBe(true)
     expect(isValidTakeProfit('short', 100, 110)).toBe(false)
     expect(isValidStopLoss('short', 100, 110)).toBe(true)
     expect(isValidStopLoss('short', 100, 90)).toBe(false)
+    // Short can trail SL below entry while mark is lower
+    expect(isValidStopLoss('short', 80, 95)).toBe(true)
+    expect(isValidStopLoss('short', 80, 80)).toBe(false)
   })
 
   it('withTakeProfit / withStopLoss reject invalid prices', () => {
@@ -111,10 +118,37 @@ describe('TP/SL validation', () => {
       stopLoss: null
     }
     expect(withTakeProfit(base, 90).ok).toBe(false)
-    expect(withStopLoss(base, 110).ok).toBe(false)
+    expect(withStopLoss(base, 110, 100).ok).toBe(false)
+    expect(withStopLoss(base, 90, null).ok).toBe(false)
     const okTp = withTakeProfit(base, 110)
     expect(okTp.ok).toBe(true)
     if (okTp.ok) expect(okTp.position.takeProfit).toBe(110)
+  })
+
+  it('allows stop loss past entry to lock profit', () => {
+    const longPos: Position = {
+      id: '1',
+      side: 'long',
+      entryPrice: 100,
+      entryTime: 1,
+      takeProfit: null,
+      stopLoss: 90
+    }
+    const longOk = withStopLoss(longPos, 105, 120)
+    expect(longOk.ok).toBe(true)
+    if (longOk.ok) expect(longOk.position.stopLoss).toBe(105)
+
+    const shortPos: Position = {
+      id: '2',
+      side: 'short',
+      entryPrice: 100,
+      entryTime: 1,
+      takeProfit: null,
+      stopLoss: 110
+    }
+    const shortOk = withStopLoss(shortPos, 95, 80)
+    expect(shortOk.ok).toBe(true)
+    if (shortOk.ok) expect(shortOk.position.stopLoss).toBe(95)
   })
 })
 
@@ -153,6 +187,14 @@ describe('evaluateStopTakeProfit', () => {
       close: 102
     })
     expect(hit).toEqual({ hit: 'sl', price: 90 })
+  })
+
+  it('hits long SL above entry when locking profit', () => {
+    const hit = evaluateStopTakeProfit(
+      { ...longBase, stopLoss: 105, takeProfit: 130 },
+      { high: 108, low: 104, close: 106 }
+    )
+    expect(hit).toEqual({ hit: 'sl', price: 105 })
   })
 
   it('hits long SL on close cross without wick preference', () => {

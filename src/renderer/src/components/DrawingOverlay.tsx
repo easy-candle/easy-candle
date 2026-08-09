@@ -136,14 +136,18 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         drag.moved = true
         setLevelPreview({ kind: drag.kind, price, y })
         if (drag.mode === 'move') {
-          const open = useReplayStore.getState().position
+          const state = useReplayStore.getState()
+          const open = state.position
           if (!open) return
           if (drag.kind === 'tp') {
             if (isValidTakeProfit(open.side, open.entryPrice, price)) {
               setTakeProfit(price)
             }
-          } else if (isValidStopLoss(open.side, open.entryPrice, price)) {
-            setStopLoss(price)
+          } else {
+            const mark = state.currentCandle?.close
+            if (mark != null && isValidStopLoss(open.side, mark, price)) {
+              setStopLoss(price)
+            }
           }
         }
         return
