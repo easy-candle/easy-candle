@@ -37,3 +37,21 @@ export function alignTimeToInterval(timeSeconds: number, intervalSeconds: number
   if (!Number.isFinite(t)) return 0
   return Math.floor(t / step) * step
 }
+
+/**
+ * Last UTC second covered by the candle that opens at `openTimeSeconds`.
+ * Used to sync a follower pane so that e.g. one 5m step reveals five 1m bars.
+ */
+export function playheadCoverEnd(openTimeSeconds: number, intervalSeconds: number): number {
+  const open = Math.floor(Number(openTimeSeconds))
+  const step = Math.max(1, Math.floor(Number(intervalSeconds)) || 1)
+  if (!Number.isFinite(open)) return 0
+  return open + step - 1
+}
+
+/** Prefer a different TF so split view is useful out of the box. */
+export function defaultSecondaryTimeframe(primaryTimeframe: string): string {
+  if (primaryTimeframe === '1m') return '5m'
+  if (TIMEFRAMES['1m']) return '1m'
+  return DEFAULT_TIMEFRAME
+}

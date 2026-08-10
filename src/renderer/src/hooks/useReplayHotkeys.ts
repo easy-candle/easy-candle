@@ -16,6 +16,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * - Space while playing → pause
  * - Space while paused/ready → step forward one candle
  * - Backspace → step backward one candle (rewinds trades)
+ * - Tab (split only) → toggle next-candle pane (left ↔ right)
  * - Escape → cancel pending trend line / return to select tool
  */
 export function useReplayHotkeys(): void {
@@ -24,6 +25,7 @@ export function useReplayHotkeys(): void {
   const stepForward = useReplayStore((s) => s.stepForward)
   const stepBackward = useReplayStore((s) => s.stepBackward)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
+  const setDriverPane = useReplayStore((s) => s.setDriverPane)
 
   useEffect(() => {
     if (mode !== 'replay') return undefined
@@ -42,10 +44,21 @@ export function useReplayHotkeys(): void {
         return
       }
 
+      if (event.key === 'Tab' && state.chartSplit) {
+        if (event.repeat) return
+        event.preventDefault()
+        setDriverPane(state.driverPane === 'primary' ? 'secondary' : 'primary')
+        return
+      }
+
       if (event.key === 'Backspace') {
         if (event.repeat) return
-        if (state.replayLoading) return
-        if (state.replayIndex <= 0) return
+        if (state.replayLoading || state.secondaryLoading) return
+        const driverIndex =
+          state.chartSplit && state.driverPane === 'secondary'
+            ? state.secondaryReplayIndex
+            : state.replayIndex
+        if (driverIndex <= 0) return
 
         event.preventDefault()
         stepBackward()
@@ -54,7 +67,7 @@ export function useReplayHotkeys(): void {
 
       if (event.code !== 'Space' && event.key !== ' ') return
       if (event.repeat) return
-      if (state.replayLoading) return
+      if (state.replayLoading || state.secondaryLoading) return
 
       event.preventDefault()
 
@@ -69,5 +82,5 @@ export function useReplayHotkeys(): void {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, pause, stepForward, stepBackward, setDrawTool])
+  }, [mode, pause, stepForward, stepBackward, setDrawTool, setDriverPane])
 }

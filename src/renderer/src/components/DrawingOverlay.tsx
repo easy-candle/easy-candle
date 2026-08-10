@@ -19,6 +19,8 @@ import {
   unrealizedPnl
 } from '@/lib/paperTrade'
 import { OVERLAY_LAYOUT, TRADE_OVERLAY } from '@/lib/tradeOverlayStyles'
+import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
+import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
 
 type Point = { x: number; y: number }
@@ -44,6 +46,10 @@ type LevelPreview = {
 type DrawingOverlayProps = {
   chart: IChartApi | null
   series: ISeriesApi<'Candlestick'> | null
+  /** Pane timeframe — used to map shared drawing/trade times onto this chart. */
+  paneTimeframe?: string
+  /** This pane's playhead candle (for X placement on this time scale). */
+  paneCurrentCandle?: Candle | null
 }
 
 function linkedLevelForDrag(
@@ -103,13 +109,18 @@ function CloseGlyph({
 }
 
 /** SVG drawing layer synced to lightweight-charts pan/zoom. */
-export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
+export default function DrawingOverlay({
+  chart,
+  series,
+  paneTimeframe,
+  paneCurrentCandle = null
+}: DrawingOverlayProps) {
   const drawings = useReplayStore((s) => s.drawings)
   const drawTool = useReplayStore((s) => s.drawTool)
   const pendingTrend = useReplayStore((s) => s.pendingTrend)
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const position = useReplayStore((s) => s.position)
-  const currentCandle = useReplayStore((s) => s.currentCandle)
+  const markCandle = useReplayStore((s) => s.currentCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
   const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
@@ -120,6 +131,21 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const paperClose = useReplayStore((s) => s.paperClose)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
+
+  const intervalSeconds =
+    TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
+
+  function mapTimeToPane(time: number): number {
+    return alignTimeToInterval(time, intervalSeconds)
+  }
+
+  function timeToX(time: number): number | null {
+    if (!chart) return null
+    const aligned = mapTimeToPane(time)
+    const direct = chart.timeScale().timeToCoordinate(aligned as Time)
+    if (direct != null) return direct
+    return chart.timeScale().timeToCoordinate(time as Time)
+  }
 
   const [version, setVersion] = useState(0)
   const [hover, setHover] = useState<Point | null>(null)
@@ -375,14 +401,14 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
 
   function toXY(time: number, price: number): Point | null {
     if (!chart || !series) return null
-    const x = chart.timeScale().timeToCoordinate(time as Time)
+    const x = timeToX(time)
     const y = series.priceToCoordinate(price)
     if (x == null || y == null) return null
     return { x, y }
   }
 
   const openPnl =
-    position != null ? unrealizedPnl(position, currentCandle?.close) : null
+    position != null ? unrealizedPnl(position, markCandle?.close) : null
   const sideColor =
     position?.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
   const openPnlColor =
@@ -433,10 +459,8 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const entryPillW =
     OVERLAY_LAYOUT.qtyW + estimatePnlWidth(openPnlLabel) + OVERLAY_LAYOUT.closeW
   const clusterNeedW = placeExtra + entryPillW
-  const lastCandleX =
-    currentCandle && chart
-      ? chart.timeScale().timeToCoordinate(currentCandle.time as Time)
-      : null
+  const playheadCandle = paneCurrentCandle ?? markCandle
+  const lastCandleX = playheadCandle ? timeToX(playheadCandle.time) : null
   const afterLast =
     lastCandleX != null && Number.isFinite(lastCandleX) ? lastCandleX + 14 : paneRight - clusterNeedW
   const clusterX = Math.max(8, Math.min(afterLast, paneRight - clusterNeedW))

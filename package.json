@@ -34,7 +34,7 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "electron-updater": "^6.6.2",
-    "lightweight-charts": "^4.2.3",
+    "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.25.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",

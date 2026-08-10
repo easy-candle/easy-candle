@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  CandlestickSeries,
+  ColorType,
   createChart,
+  createSeriesMarkers,
+  createTextWatermark,
   CrosshairMode,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type ITextWatermarkPluginApi,
   type SeriesMarker,
   type Time
 } from 'lightweight-charts'
@@ -34,6 +41,7 @@ function focusLatestCandle(
 type CandleChartProps = {
   mode?: ViewMode
   symbol?: string
+  timeframe?: string
   candles?: Candle[] | null
   visibleCandles?: Candle[] | null
   currentCandle?: Candle | null
@@ -45,6 +53,7 @@ type CandleChartProps = {
 export default function CandleChart({
   mode = 'live',
   symbol = '',
+  timeframe = '',
   candles = null,
   visibleCandles = null,
   currentCandle = null,
@@ -55,6 +64,8 @@ export default function CandleChart({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const watermarkRef = useRef<ITextWatermarkPluginApi<Time> | null>(null)
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map())
   const [chartReady, setChartReady] = useState<{
     chart: IChartApi
@@ -106,7 +117,7 @@ export default function CandleChart({
 
       let series = map.get(overlay.id)
       if (!series) {
-        series = chart.addLineSeries({
+        series = chart.addSeries(LineSeries, {
           color: overlay.color || '#38bdf8',
           lineWidth: 2,
           priceLineVisible: false,
@@ -130,21 +141,11 @@ export default function CandleChart({
       width: container.clientWidth,
       height: Math.max(container.clientHeight, 1),
       layout: {
-        background: { color: '#09090b' },
+        background: { type: ColorType.Solid, color: '#09090b' },
         textColor: '#a1a1aa'
       },
       crosshair: {
         mode: CrosshairMode.Normal
-      },
-      watermark: {
-        visible: false,
-        text: '',
-        fontSize: 72,
-        fontFamily: 'Segoe UI, sans-serif',
-        fontStyle: '600',
-        color: 'rgba(255, 255, 255, 0.05)',
-        horzAlign: 'center',
-        vertAlign: 'center'
       },
       grid: {
         vertLines: { color: '#27272a' },
@@ -160,12 +161,27 @@ export default function CandleChart({
       }
     })
 
-    const series = chart.addCandlestickSeries({
+    const series = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e',
       downColor: '#ef4444',
       borderVisible: false,
       wickUpColor: '#22c55e',
       wickDownColor: '#ef4444'
+    })
+
+    markersRef.current = createSeriesMarkers(series, [])
+    watermarkRef.current = createTextWatermark(chart.panes()[0], {
+      horzAlign: 'center',
+      vertAlign: 'center',
+      lines: [
+        {
+          text: '',
+          color: 'rgba(255, 255, 255, 0.05)',
+          fontSize: 72,
+          fontFamily: 'Segoe UI, sans-serif',
+          fontStyle: '600'
+        }
+      ]
     })
 
     chartRef.current = chart
@@ -186,6 +202,8 @@ export default function CandleChart({
     return () => {
       observer.disconnect()
       overlaySeriesRef.current.clear()
+      markersRef.current = null
+      watermarkRef.current = null
       setChartReady(null)
       chart.remove()
       chartRef.current = null
@@ -193,15 +211,20 @@ export default function CandleChart({
     }
   }, [])
 
-  // Keep the built-in text watermark in sync with the selected symbol.
+  // Keep the text watermark in sync with the selected symbol.
   useEffect(() => {
-    const chart = chartRef.current
-    if (!chart) return
-    chart.applyOptions({
-      watermark: {
-        visible: Boolean(symbol),
-        text: symbol
-      }
+    const watermark = watermarkRef.current
+    if (!watermark) return
+    watermark.applyOptions({
+      lines: [
+        {
+          text: symbol || '',
+          color: 'rgba(255, 255, 255, 0.05)',
+          fontSize: 72,
+          fontFamily: 'Segoe UI, sans-serif',
+          fontStyle: '600'
+        }
+      ]
     })
   }, [symbol])
 
@@ -226,15 +249,15 @@ export default function CandleChart({
   }, [overlays])
 
   useEffect(() => {
-    const series = seriesRef.current
-    if (!series) return
+    const markersApi = markersRef.current
+    if (!markersApi) return
     const markers = Array.isArray(tradeMarkers) ? tradeMarkers : []
     const source = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
     const knownTimes = new Set(source.map((c) => c.time))
     const sorted = markers
       .filter((m) => knownTimes.has(m.time))
       .sort((a, b) => a.time - b.time) as SeriesMarker<Time>[]
-    series.setMarkers(sorted)
+    markersApi.setMarkers(sorted)
   }, [tradeMarkers, mode, candles, visibleCandles])
 
   const empty =
@@ -249,7 +272,14 @@ export default function CandleChart({
         className="pointer-events-none absolute left-1/2 top-[58%] z-[1] h-auto w-[min(48%,380px)] -translate-x-1/2 -translate-y-1/2 opacity-[0.08] select-none"
         aria-hidden
       />
-      {chartReady && <DrawingOverlay chart={chartReady.chart} series={chartReady.series} />}
+      {chartReady && (
+        <DrawingOverlay
+          chart={chartReady.chart}
+          series={chartReady.series}
+          paneTimeframe={timeframe}
+          paneCurrentCandle={currentCandle}
+        />
+      )}
       {empty && (
         <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-zinc-950/40 px-4 text-center text-sm text-zinc-500">
           {mode === 'replay' ? 'No candles in this replay window yet.' : 'No candles to display.'}

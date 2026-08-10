@@ -11,6 +11,7 @@ import {
 import IconButton from '@/components/IconButton'
 import { REPLAY_SPEEDS } from '@/lib/replayEngine'
 import { defaultUtcParts, parseUtcParts, toUtcParts } from '@/lib/utcDateTime'
+import { TIMEFRAMES } from '@shared/timeframes'
 import { useReplayStore } from '@/store/replayStore'
 
 export default function ReplayControls() {
@@ -18,13 +19,20 @@ export default function ReplayControls() {
   const isPlaying = useReplayStore((s) => s.isPlaying)
   const speed = useReplayStore((s) => s.speed)
   const replayIndex = useReplayStore((s) => s.replayIndex)
+  const secondaryReplayIndex = useReplayStore((s) => s.secondaryReplayIndex)
+  const chartSplit = useReplayStore((s) => s.chartSplit)
+  const driverPane = useReplayStore((s) => s.driverPane)
+  const timeframe = useReplayStore((s) => s.timeframe)
+  const secondaryTimeframe = useReplayStore((s) => s.secondaryTimeframe)
   const replayLoading = useReplayStore((s) => s.replayLoading)
+  const secondaryLoading = useReplayStore((s) => s.secondaryLoading)
   const currentCandle = useReplayStore((s) => s.currentCandle)
   const play = useReplayStore((s) => s.play)
   const pause = useReplayStore((s) => s.pause)
   const stepForward = useReplayStore((s) => s.stepForward)
   const stepBackward = useReplayStore((s) => s.stepBackward)
   const setSpeed = useReplayStore((s) => s.setSpeed)
+  const setDriverPane = useReplayStore((s) => s.setDriverPane)
   const jumpToTime = useReplayStore((s) => s.jumpToTime)
   const exitReplay = useReplayStore((s) => s.exitReplay)
 
@@ -33,8 +41,10 @@ export default function ReplayControls() {
   const [jumpTime, setJumpTime] = useState(seed.time)
   const [jumpError, setJumpError] = useState<string | null>(null)
 
-  const busy = replayLoading
+  const busy = replayLoading || secondaryLoading
   const ended = replayStatus === 'ended'
+  const driverIndex =
+    chartSplit && driverPane === 'secondary' ? secondaryReplayIndex : replayIndex
 
   async function onJump(event: FormEvent): Promise<void> {
     event.preventDefault()
@@ -64,7 +74,7 @@ export default function ReplayControls() {
 
         <IconButton
           label="Step backward"
-          disabled={busy || replayIndex <= 0}
+          disabled={busy || driverIndex <= 0}
           onClick={stepBackward}
         >
           <ChevronsLeft className="h-4 w-4" />
@@ -75,6 +85,28 @@ export default function ReplayControls() {
         </IconButton>
       </div>
 
+      {chartSplit && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={(event) => {
+            setDriverPane(driverPane === 'primary' ? 'secondary' : 'primary')
+            event.currentTarget.blur()
+          }}
+          title="Toggle which pane advances on step/play (Tab)"
+          aria-label="Toggle next candle pane"
+          className="inline-flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-300 transition-colors enabled:hover:border-zinc-500 enabled:hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <span className="text-zinc-500">Next</span>
+          <span className="font-medium text-amber-300">
+            {driverPane === 'secondary'
+              ? `${TIMEFRAMES[secondaryTimeframe]?.label ?? secondaryTimeframe} · right`
+              : `${TIMEFRAMES[timeframe]?.label ?? timeframe} · left`}
+          </span>
+          <span className="text-[10px] uppercase tracking-wide text-zinc-600">Tab</span>
+        </button>
+      )}
+
       <label className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400">
         <Gauge className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
         <span className="sr-only">Speed</span>
@@ -82,7 +114,10 @@ export default function ReplayControls() {
           value={String(speed)}
           disabled={busy}
           aria-label="Playback speed"
-          onChange={(e) => setSpeed(Number(e.target.value))}
+          onChange={(e) => {
+            setSpeed(Number(e.target.value))
+            e.currentTarget.blur()
+          }}
           className="rounded bg-zinc-900 text-zinc-100 outline-none disabled:opacity-60"
         >
           {REPLAY_SPEEDS.map((value) => (

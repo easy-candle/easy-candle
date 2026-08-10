@@ -35,12 +35,13 @@ export type LevelSetOptions = {
 }
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
 import { DEFAULT_SYMBOL } from '@shared/symbols'
-import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
+import { alignTimeToInterval, DEFAULT_TIMEFRAME, defaultSecondaryTimeframe, playheadCoverEnd, TIMEFRAMES } from '@shared/timeframes'
 
 export type ChartStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type ViewMode = 'live' | 'replay'
 export type ChartSyncKind = 'replace' | 'append'
 export type DrawTool = 'select' | 'hline' | 'trendline'
+export type DriverPane = 'primary' | 'secondary'
 export type { DataSource, ImportedDatasetMeta }
 
 export type ChartSync = {
@@ -91,13 +92,16 @@ function nextTradeId(): string {
 }
 
 const engine = createReplayEngine()
+const secondaryEngine = createReplayEngine()
 
 const BASE_TICK_MS = 500
 
 let clockTimer: ReturnType<typeof setInterval> | null = null
 let loadGeneration = 0
 let replayRequestId = 0
+let secondaryLoadGeneration = 0
 let prefetchInFlight = false
+let secondaryPrefetchInFlight = false
 
 function clearClock(): void {
   if (clockTimer != null) {
@@ -113,6 +117,28 @@ function tickMs(): number {
 
 function intervalSecondsFor(timeframe: string): number {
   return TIMEFRAMES[timeframe]?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
+}
+
+function emptySecondaryPaneState(): {
+  secondaryCandles: Candle[]
+  secondaryVisibleCandles: Candle[]
+  secondaryCurrentCandle: Candle | null
+  secondaryReplayIndex: number
+  secondaryBufferLength: number
+  secondaryStatus: ChartStatus
+  secondaryError: string | null
+  secondaryLoading: boolean
+} {
+  return {
+    secondaryCandles: [],
+    secondaryVisibleCandles: [],
+    secondaryCurrentCandle: null,
+    secondaryReplayIndex: 0,
+    secondaryBufferLength: 0,
+    secondaryStatus: 'idle',
+    secondaryError: null,
+    secondaryLoading: false
+  }
 }
 
 function engineSnapshot(): {
@@ -133,6 +159,23 @@ function engineSnapshot(): {
     visibleCandles: engine.getVisibleCandles(),
     currentCandle: engine.getCurrentCandle(),
     bufferLength: state.candles.length
+  }
+}
+
+function secondarySnapshot(): {
+  secondaryCandles: Candle[]
+  secondaryVisibleCandles: Candle[]
+  secondaryCurrentCandle: Candle | null
+  secondaryReplayIndex: number
+  secondaryBufferLength: number
+} {
+  const state = secondaryEngine.getState()
+  return {
+    secondaryCandles: state.candles,
+    secondaryVisibleCandles: secondaryEngine.getVisibleCandles(),
+    secondaryCurrentCandle: secondaryEngine.getCurrentCandle(),
+    secondaryReplayIndex: state.index,
+    secondaryBufferLength: state.candles.length
   }
 }
 
@@ -167,6 +210,18 @@ type ReplayStore = {
   sessionReport: SessionReport | null
   /** Reward multiple of risk for linked SL/TP (default 2 → 1:2). */
   riskReward: number
+  chartSplit: boolean
+  secondaryTimeframe: string
+  driverPane: DriverPane
+  secondaryCandles: Candle[]
+  secondaryVisibleCandles: Candle[]
+  secondaryCurrentCandle: Candle | null
+  secondaryReplayIndex: number
+  secondaryBufferLength: number
+  secondaryChartSync: ChartSync
+  secondaryStatus: ChartStatus
+  secondaryError: string | null
+  secondaryLoading: boolean
   toggleIndicator: (id: string) => void
   setDrawTool: (tool: DrawTool) => void
   addHorizontalLine: (price: number) => void
@@ -187,6 +242,9 @@ type ReplayStore = {
   dismissSessionReport: () => void
   setSymbol: (symbol: string) => void
   setTimeframe: (timeframe: string) => void
+  setChartSplit: (split: boolean) => void
+  setSecondaryTimeframe: (timeframe: string) => void
+  setDriverPane: (pane: DriverPane) => void
   loadCandles: () => Promise<void>
   activateImportedDataset: (candles: Candle[], meta: ImportedDatasetMeta) => void
   clearImportedDataset: () => void
@@ -217,6 +275,114 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         revision: s.chartSync.revision + 1
       }
     }))
+  }
+
+  function publishSecondary(kind: ChartSyncKind, opts: { fitContent?: boolean } = {}): void {
+    const fitContent = opts.fitContent ?? kind === 'replace'
+    set((s) => ({
+      ...secondarySnapshot(),
+      secondaryStatus: 'ready',
+      secondaryError: null,
+      secondaryChartSync: {
+        kind,
+        fitContent: kind === 'append' ? false : fitContent,
+        revision: s.secondaryChartSync.revision + 1
+      }
+    }))
+  }
+
+  function clearSecondaryPane(opts: { keepTimeframe?: boolean } = {}): void {
+    secondaryLoadGeneration += 1
+    secondaryPrefetchInFlight = false
+    secondaryEngine.load([])
+    set((s) => ({
+      ...emptySecondaryPaneState(),
+      ...(opts.keepTimeframe ? {} : {}),
+      secondaryChartSync: {
+        kind: 'replace',
+        fitContent: true,
+        revision: s.secondaryChartSync.revision + 1
+      }
+    }))
+  }
+
+  function syncSecondaryToPrimaryCover(opts: { fitContent?: boolean } = {}): void {
+    if (!get().chartSplit) return
+    if (get().mode !== 'replay') return
+    const candle = engine.getCurrentCandle()
+    if (!candle) return
+    if (secondaryEngine.getState().candles.length === 0) return
+
+    const coverUntil = playheadCoverEnd(candle.time, intervalSecondsFor(get().timeframe))
+    const before = secondaryEngine.getState().index
+    secondaryEngine.seekToTime(coverUntil)
+    const after = secondaryEngine.getState().index
+    publishSecondary(after === before + 1 ? 'append' : 'replace', {
+      fitContent: opts.fitContent ?? false
+    })
+  }
+
+  function syncPrimaryToSecondaryCover(opts: { fitContent?: boolean } = {}): void {
+    if (!get().chartSplit) return
+    if (get().mode !== 'replay') return
+    const candle = secondaryEngine.getCurrentCandle()
+    if (!candle) return
+    if (engine.getState().candles.length === 0) return
+
+    const coverUntil = playheadCoverEnd(
+      candle.time,
+      intervalSecondsFor(get().secondaryTimeframe)
+    )
+    const target = findIndexAtOrBefore(engine.getState().candles, coverUntil)
+    if (target < 0) return
+
+    const before = engine.getState().index
+    if (target === before) return
+
+    if (target > before) {
+      while (engine.getState().index < target) {
+        engine.stepForward()
+        maybeAutoCloseOnLevels()
+      }
+      publishReplay(target - before === 1 ? 'append' : 'replace', {
+        fitContent: opts.fitContent ?? false
+      })
+      return
+    }
+
+    engine.seekToIndex(target)
+    publishReplay('replace', { fitContent: opts.fitContent ?? false })
+  }
+
+  function rewindPrimaryToIndex(target: number): void {
+    while (engine.getState().index > target) {
+      const leftCandle = engine.getCurrentCandle() || get().currentCandle
+      const before = engine.getState().index
+      engine.stepBackward()
+      const after = engine.getState().index
+      if (!(after < before && leftCandle)) continue
+
+      const rewound = rewindTradesAfterStepBack({
+        position: get().position,
+        closedTrades: get().closedTrades,
+        leftCandleTime: leftCandle.time,
+        currentCandleTime:
+          (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time
+      })
+
+      const discardSet = new Set(rewound.discardedEntryTimes)
+      const tradeMarkers =
+        discardSet.size === 0
+          ? get().tradeMarkers
+          : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
+
+      set({
+        position: rewound.position,
+        closedTrades: rewound.closedTrades,
+        tradeMarkers,
+        replayMessage: null
+      })
+    }
   }
 
   /** Close open position if current candle OHLC touches TP/SL (fill at level price). */
@@ -252,6 +418,47 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
   function stopClock(): void {
     clearClock()
+  }
+
+  async function maybePrefetchSecondary(): Promise<void> {
+    if (secondaryPrefetchInFlight) return
+    if (!get().chartSplit) return
+    if (get().mode !== 'replay') return
+    if (get().dataSource === 'imported' && get().secondaryTimeframe === get().timeframe) return
+    if (!secondaryEngine.needsPrefetch()) return
+
+    const buffer = secondaryEngine.getState().candles
+    if (!buffer.length) return
+
+    const last = buffer[buffer.length - 1]
+    const { symbol, secondaryTimeframe } = get()
+    const intervalSec = intervalSecondsFor(secondaryTimeframe)
+    const nowSec = Math.floor(Date.now() / 1000)
+
+    if (last.time + intervalSec >= nowSec) return
+
+    secondaryPrefetchInFlight = true
+    try {
+      const more = await prefetchForward({
+        symbol,
+        interval: secondaryTimeframe,
+        afterTimeSeconds: last.time,
+        limit: PREFETCH_BATCH_SIZE
+      })
+
+      if (get().mode !== 'replay' || !get().chartSplit) return
+
+      if (more.length > 0) {
+        secondaryEngine.appendCandles(more)
+        publishSecondary('replace', { fitContent: false })
+      }
+    } catch (err) {
+      if (get().mode !== 'replay') return
+      const message = err instanceof Error ? err.message : 'Secondary prefetch failed'
+      set({ replayMessage: message })
+    } finally {
+      secondaryPrefetchInFlight = false
+    }
   }
 
   async function maybePrefetch(): Promise<void> {
@@ -298,6 +505,263 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         set({ isPrefetching: false })
       }
     }
+  }
+
+  async function loadSecondaryLiveCandles(): Promise<void> {
+    if (!get().chartSplit) return
+
+    const generation = (secondaryLoadGeneration += 1)
+    const { symbol, secondaryTimeframe, dataSource, importedCandles, timeframe } = get()
+
+    if (dataSource === 'imported' && secondaryTimeframe === timeframe) {
+      secondaryEngine.load([])
+      set((s) => ({
+        secondaryCandles: importedCandles,
+        secondaryVisibleCandles: [],
+        secondaryCurrentCandle: null,
+        secondaryReplayIndex: 0,
+        secondaryBufferLength: importedCandles.length,
+        secondaryStatus: 'ready',
+        secondaryError: null,
+        secondaryLoading: false,
+        secondaryChartSync: {
+          kind: 'replace',
+          fitContent: true,
+          revision: s.secondaryChartSync.revision + 1
+        }
+      }))
+      return
+    }
+
+    set({ secondaryStatus: 'loading', secondaryError: null, secondaryLoading: true })
+
+    try {
+      const candles = await fetchCandles({
+        symbol,
+        interval: secondaryTimeframe
+      })
+
+      if (generation !== secondaryLoadGeneration || !get().chartSplit) return
+
+      secondaryEngine.load([])
+      set((s) => ({
+        secondaryCandles: candles,
+        secondaryVisibleCandles: [],
+        secondaryCurrentCandle: null,
+        secondaryReplayIndex: 0,
+        secondaryBufferLength: candles.length,
+        secondaryStatus: 'ready',
+        secondaryError: null,
+        secondaryLoading: false,
+        secondaryChartSync: {
+          kind: 'replace',
+          fitContent: true,
+          revision: s.secondaryChartSync.revision + 1
+        }
+      }))
+    } catch (err) {
+      if (generation !== secondaryLoadGeneration) return
+      const message = err instanceof Error ? err.message : 'Failed to load secondary candles'
+      set({
+        ...emptySecondaryPaneState(),
+        secondaryStatus: 'error',
+        secondaryError: message,
+        secondaryLoading: false
+      })
+    }
+  }
+
+  async function loadSecondaryReplayWindow(anchorTimeSeconds: number): Promise<boolean> {
+    if (!get().chartSplit) return false
+
+    const startSec = Math.floor(Number(anchorTimeSeconds))
+    if (!Number.isFinite(startSec)) return false
+
+    const { symbol, secondaryTimeframe, dataSource, importedCandles, timeframe } = get()
+    const generation = (secondaryLoadGeneration += 1)
+
+    if (dataSource === 'imported' && secondaryTimeframe === timeframe) {
+      const keptSpeed = secondaryEngine.getState().speed
+      secondaryEngine.load(importedCandles)
+      secondaryEngine.setSpeed(keptSpeed)
+      secondaryEngine.seekToTime(startSec)
+      publishSecondary('replace', { fitContent: true })
+      set({ secondaryLoading: false, secondaryStatus: 'ready', secondaryError: null })
+      return true
+    }
+
+    const intervalSec = intervalSecondsFor(secondaryTimeframe)
+    const { startTimeMs, endTimeMs } = buildReplayWindowMs({
+      startTimeSeconds: startSec,
+      intervalSeconds: intervalSec
+    })
+
+    if (startTimeMs >= endTimeMs) {
+      set({
+        secondaryLoading: false,
+        secondaryError: 'Could not build secondary candle window.',
+        secondaryStatus: 'error'
+      })
+      return false
+    }
+
+    set({ secondaryLoading: true, secondaryError: null })
+
+    try {
+      const candles = await fetchCandlesRange({
+        symbol,
+        interval: secondaryTimeframe,
+        startTime: startTimeMs,
+        endTime: endTimeMs
+      })
+
+      if (generation !== secondaryLoadGeneration || !get().chartSplit) return false
+
+      if (!candles.length) {
+        set({
+          secondaryLoading: false,
+          secondaryStatus: 'error',
+          secondaryError: 'No secondary candles found for that UTC range.'
+        })
+        return false
+      }
+
+      const keptSpeed = secondaryEngine.getState().speed
+      secondaryEngine.load(candles)
+      secondaryEngine.setSpeed(keptSpeed)
+
+      if (startSec < candles[0].time) {
+        secondaryEngine.seekToIndex(0)
+      } else if (get().driverPane === 'secondary') {
+        secondaryEngine.seekToTime(startSec)
+      } else {
+        secondaryEngine.seekToTime(
+          playheadCoverEnd(startSec, intervalSecondsFor(get().timeframe))
+        )
+      }
+
+      set({ secondaryLoading: false, secondaryStatus: 'ready', secondaryError: null })
+      publishSecondary('replace', { fitContent: true })
+      void maybePrefetchSecondary()
+      return true
+    } catch (err) {
+      if (generation !== secondaryLoadGeneration) return false
+      const message = err instanceof Error ? err.message : 'Failed to load secondary replay window'
+      set({
+        secondaryLoading: false,
+        secondaryStatus: 'error',
+        secondaryError: message
+      })
+      return false
+    }
+  }
+
+  function alignSecondaryAfterPrimaryLoad(): void {
+    if (!get().chartSplit || get().mode !== 'replay') return
+    const candle = engine.getCurrentCandle() || get().currentCandle
+    if (!candle) return
+    void loadSecondaryReplayWindow(candle.time)
+  }
+
+  function driverEnded(): boolean {
+    if (get().chartSplit && get().driverPane === 'secondary') {
+      return secondaryEngine.getState().status === 'ended'
+    }
+    return engine.getState().status === 'ended'
+  }
+
+  function advanceDriverForward(): boolean {
+    const split = get().chartSplit
+    const driver = get().driverPane
+
+    if (!split || driver === 'primary') {
+      const before = engine.getState().index
+      engine.stepForward()
+      const after = engine.getState().index
+
+      if (after > before) {
+        publishReplay('append')
+        maybeAutoCloseOnLevels()
+        if (split) syncSecondaryToPrimaryCover()
+        void maybePrefetch()
+        void maybePrefetchSecondary()
+        return true
+      }
+
+      publishReplay('replace', { fitContent: false })
+      if (split) syncSecondaryToPrimaryCover()
+      return false
+    }
+
+    const before = secondaryEngine.getState().index
+    secondaryEngine.stepForward()
+    const after = secondaryEngine.getState().index
+
+    if (after > before) {
+      publishSecondary('append')
+      syncPrimaryToSecondaryCover()
+      void maybePrefetch()
+      void maybePrefetchSecondary()
+      return true
+    }
+
+    publishSecondary('replace', { fitContent: false })
+    return false
+  }
+
+  function retreatDriverBackward(): void {
+    const split = get().chartSplit
+    const driver = get().driverPane
+
+    if (!split || driver === 'primary') {
+      const leftCandle = engine.getCurrentCandle() || get().currentCandle
+      const before = engine.getState().index
+      engine.stepBackward()
+      const after = engine.getState().index
+
+      publishReplay('replace', { fitContent: false })
+      if (split) syncSecondaryToPrimaryCover()
+
+      if (after < before && leftCandle) {
+        const rewound = rewindTradesAfterStepBack({
+          position: get().position,
+          closedTrades: get().closedTrades,
+          leftCandleTime: leftCandle.time,
+          currentCandleTime:
+            (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time
+        })
+
+        const discardSet = new Set(rewound.discardedEntryTimes)
+        const tradeMarkers =
+          discardSet.size === 0
+            ? get().tradeMarkers
+            : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
+
+        set({
+          position: rewound.position,
+          closedTrades: rewound.closedTrades,
+          tradeMarkers,
+          replayMessage: null
+        })
+      }
+      return
+    }
+
+    secondaryEngine.stepBackward()
+    publishSecondary('replace', { fitContent: false })
+
+    const candle = secondaryEngine.getCurrentCandle()
+    if (!candle || engine.getState().candles.length === 0) return
+
+    const coverUntil = playheadCoverEnd(
+      candle.time,
+      intervalSecondsFor(get().secondaryTimeframe)
+    )
+    const target = findIndexAtOrBefore(engine.getState().candles, coverUntil)
+    if (target < 0) return
+
+    rewindPrimaryToIndex(target)
+    publishReplay('replace', { fitContent: false })
   }
 
   function publishImportedPreview(candles: Candle[], meta: ImportedDatasetMeta): void {
@@ -352,21 +816,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         return
       }
 
-      const before = engine.getState().index
-      engine.stepForward()
-      const after = engine.getState().index
-
-      if (after > before) {
-        publishReplay('append')
-        maybeAutoCloseOnLevels()
-        void maybePrefetch()
-      } else {
-        publishReplay('replace', { fitContent: false })
+      const advanced = advanceDriverForward()
+      if (!advanced || driverEnded()) {
         stopClock()
-      }
-
-      if (engine.getState().status === 'ended') {
-        stopClock()
+        // Reflect ended/paused status from primary engine snapshot used by UI.
+        if (get().chartSplit && get().driverPane === 'secondary' && driverEnded()) {
+          engine.pause()
+          set({ isPlaying: false, replayStatus: 'ended' })
+        }
       }
     }, tickMs())
   }
@@ -374,8 +831,10 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   function resetReplayState(opts: { keepImport?: boolean } = {}): void {
     stopClock()
     prefetchInFlight = false
+    secondaryPrefetchInFlight = false
     replayRequestId += 1
     engine.load([])
+    secondaryEngine.load([])
     set((s) => ({
       mode: 'live',
       replayStatus: 'idle',
@@ -394,6 +853,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: null,
       closedTrades: [],
       tradeMarkers: [],
+      driverPane: 'primary',
       ...(opts.keepImport
         ? {}
         : {
@@ -405,7 +865,17 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         kind: 'replace',
         fitContent: true,
         revision: s.chartSync.revision + 1
-      }
+      },
+      ...(s.chartSplit
+        ? {}
+        : {
+            ...emptySecondaryPaneState(),
+            secondaryChartSync: {
+              kind: 'replace' as const,
+              fitContent: true,
+              revision: s.secondaryChartSync.revision + 1
+            }
+          })
     }))
   }
 
@@ -654,6 +1124,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       // Force a full viewport/price-scale reset whenever a replay window is loaded.
       publishReplay('replace', { fitContent: true })
       void maybePrefetch()
+      alignSecondaryAfterPrimaryLoad()
       return true
     } catch (err) {
       if (requestId !== replayRequestId) return false
@@ -783,6 +1254,18 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     tradeMarkers: [],
     sessionReport: null,
     riskReward: DEFAULT_RISK_REWARD,
+    chartSplit: false,
+    secondaryTimeframe: defaultSecondaryTimeframe(DEFAULT_TIMEFRAME),
+    driverPane: 'primary',
+    secondaryCandles: [],
+    secondaryVisibleCandles: [],
+    secondaryCurrentCandle: null,
+    secondaryReplayIndex: 0,
+    secondaryBufferLength: 0,
+    secondaryChartSync: { kind: 'replace', fitContent: true, revision: 0 },
+    secondaryStatus: 'idle',
+    secondaryError: null,
+    secondaryLoading: false,
 
     toggleIndicator(id) {
       if (!getIndicator(id)) return
@@ -921,9 +1404,103 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         return
       }
 
-      resetReplayState()
+      resetReplayState({ keepImport: get().dataSource === 'imported' })
       set({ timeframe, candles: [] })
       void get().loadCandles()
+      if (get().chartSplit) {
+        void loadSecondaryLiveCandles()
+      }
+    },
+
+    setChartSplit(split) {
+      const next = Boolean(split)
+      if (next === get().chartSplit) return
+
+      if (!next) {
+        stopClock()
+        if (get().isPlaying) {
+          engine.pause()
+          set({ isPlaying: false, replayStatus: get().replayStatus === 'ended' ? 'ended' : 'paused' })
+        }
+        clearSecondaryPane()
+        set({ chartSplit: false, driverPane: 'primary' })
+        return
+      }
+
+      const secondaryTimeframe =
+        get().secondaryTimeframe === get().timeframe
+          ? defaultSecondaryTimeframe(get().timeframe)
+          : get().secondaryTimeframe
+
+      set({ chartSplit: true, secondaryTimeframe, driverPane: 'primary' })
+
+      if (get().mode === 'replay') {
+        const candle = engine.getCurrentCandle() || get().currentCandle
+        if (candle) {
+          void loadSecondaryReplayWindow(candle.time)
+        }
+      } else {
+        void loadSecondaryLiveCandles()
+      }
+    },
+
+    setSecondaryTimeframe(timeframe) {
+      if (!get().chartSplit) return
+      if (!TIMEFRAMES[timeframe]) return
+      if (timeframe === get().secondaryTimeframe) return
+
+      if (get().dataSource === 'imported' && timeframe !== get().timeframe && get().mode === 'replay') {
+        // Allow Binance secondary TF even for imported primary symbol.
+      }
+
+      set({ secondaryTimeframe: timeframe })
+
+      if (get().mode === 'replay') {
+        const driverCandle =
+          get().driverPane === 'secondary'
+            ? secondaryEngine.getCurrentCandle() || get().secondaryCurrentCandle
+            : engine.getCurrentCandle() || get().currentCandle
+        const anchor = driverCandle?.time
+        if (anchor == null) {
+          set({ secondaryError: 'Cannot change secondary timeframe without a playhead.' })
+          return
+        }
+        void loadSecondaryReplayWindow(anchor).then((ok) => {
+          if (!ok) return
+          if (get().driverPane === 'secondary') {
+            syncPrimaryToSecondaryCover({ fitContent: false })
+          } else {
+            syncSecondaryToPrimaryCover({ fitContent: false })
+          }
+        })
+        return
+      }
+
+      void loadSecondaryLiveCandles()
+    },
+
+    setDriverPane(pane) {
+      if (pane !== 'primary' && pane !== 'secondary') return
+      if (!get().chartSplit) return
+      if (get().mode !== 'replay') {
+        set({ driverPane: pane })
+        return
+      }
+      if (pane === get().driverPane) return
+
+      stopClock()
+      engine.pause()
+      secondaryEngine.pause()
+      set({ driverPane: pane, isPlaying: false })
+
+      if (pane === 'primary') {
+        syncSecondaryToPrimaryCover({ fitContent: false })
+        publishStatus()
+      } else {
+        syncPrimaryToSecondaryCover({ fitContent: false })
+        publishSecondary('replace', { fitContent: false })
+        publishStatus()
+      }
     },
 
     async loadCandles() {
@@ -949,6 +1526,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           timeframe: meta.timeframe,
           replayMessage: `Imported ${meta.symbol} ${meta.timeframe} · ${candles.length.toLocaleString()} candles`
         })
+        if (get().chartSplit) {
+          void loadSecondaryLiveCandles()
+        }
         return
       }
 
@@ -969,6 +1549,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           status: 'ready',
           error: null
         })
+        if (get().chartSplit) {
+          void loadSecondaryLiveCandles()
+        }
       } catch (err) {
         if (generation !== loadGeneration) return
 
@@ -1032,6 +1615,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         speed: engine.getState().speed
       })
       publishReplay('replace', { fitContent: true })
+      alignSecondaryAfterPrimaryLoad()
     },
 
     async startReplayAt(startTimeSeconds) {
@@ -1053,6 +1637,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
       stopClock()
       engine.pause()
+      secondaryEngine.pause()
       publishStatus()
 
       const buffer = engine.getState().candles
@@ -1066,6 +1651,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           set({ replayMessage: null })
           publishReplay('replace', { fitContent: true })
           void maybePrefetch()
+          alignSecondaryAfterPrimaryLoad()
           return
         }
       }
@@ -1112,100 +1698,78 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             }
           : null
 
+      secondaryEngine.load([])
+
       if (dataSource === 'imported' && importMeta && importedCandles.length) {
         publishImportedPreview(importedCandles, importMeta)
-        set({ sessionReport })
+        set({ sessionReport, driverPane: 'primary' })
+        if (get().chartSplit) {
+          void loadSecondaryLiveCandles()
+        }
         return
       }
 
       resetReplayState()
-      set({ sessionReport })
+      set({ sessionReport, driverPane: 'primary' })
       void get().loadCandles()
     },
 
     play() {
       if (get().mode !== 'replay') return
-      if (engine.getState().status === 'ended') return
-      if (get().replayLoading) return
+      if (driverEnded()) return
+      if (get().replayLoading || get().secondaryLoading) return
 
       engine.play()
+      if (get().chartSplit) secondaryEngine.play()
       publishStatus()
       startClock()
       void maybePrefetch()
+      void maybePrefetchSecondary()
     },
 
     pause() {
       if (get().mode !== 'replay') return
 
       engine.pause()
+      secondaryEngine.pause()
       stopClock()
       publishStatus()
     },
 
     stepForward() {
       if (get().mode !== 'replay') return
-      if (get().replayLoading) return
+      if (get().replayLoading || get().secondaryLoading) return
 
       stopClock()
       engine.pause()
+      secondaryEngine.pause()
+      set({ isPlaying: false })
 
-      const before = engine.getState().index
-      engine.stepForward()
-      const after = engine.getState().index
-
-      publishReplay(after > before ? 'append' : 'replace', {
-        fitContent: false
-      })
-      if (after > before) {
-        maybeAutoCloseOnLevels()
+      advanceDriverForward()
+      if (driverEnded()) {
+        set({ replayStatus: 'ended', isPlaying: false })
       }
-      void maybePrefetch()
     },
 
     stepBackward() {
       if (get().mode !== 'replay') return
-      if (get().replayLoading) return
+      if (get().replayLoading || get().secondaryLoading) return
 
       stopClock()
-
-      const leftCandle = engine.getCurrentCandle() || get().currentCandle
-      const before = engine.getState().index
-      engine.stepBackward()
-      const after = engine.getState().index
-
-      publishReplay('replace', { fitContent: false })
-
-      if (after < before && leftCandle) {
-        const rewound = rewindTradesAfterStepBack({
-          position: get().position,
-          closedTrades: get().closedTrades,
-          leftCandleTime: leftCandle.time,
-          currentCandleTime: (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time
-        })
-
-        const discardSet = new Set(rewound.discardedEntryTimes)
-        const tradeMarkers =
-          discardSet.size === 0
-            ? get().tradeMarkers
-            : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
-
-        set({
-          position: rewound.position,
-          closedTrades: rewound.closedTrades,
-          tradeMarkers,
-          replayMessage: null
-        })
-      }
+      retreatDriverBackward()
+      publishStatus()
     },
 
     setSpeed(speed) {
       engine.setSpeed(speed)
+      secondaryEngine.setSpeed(speed)
       const next = engine.getState().speed
       const { mode, isPlaying } = get()
       set({ speed: next })
 
       if (mode === 'replay' && isPlaying) {
         engine.play()
+        if (get().chartSplit) secondaryEngine.play()
         startClock()
       }
     },
@@ -1215,6 +1779,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       stopClock()
       engine.seekToIndex(index)
       publishReplay('replace', { fitContent: false })
+      syncSecondaryToPrimaryCover({ fitContent: false })
     },
 
     seekToTime(timeSeconds) {
@@ -1222,6 +1787,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       stopClock()
       engine.seekToTime(timeSeconds)
       publishReplay('replace', { fitContent: false })
+      syncSecondaryToPrimaryCover({ fitContent: false })
     }
   }
 })

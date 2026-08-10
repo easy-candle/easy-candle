@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { SquareSplitVertical, X } from 'lucide-react'
 import CsvImportControls, { type ImportFeedback } from '@/components/CsvImportControls'
 import DrawingToolbar from '@/components/DrawingToolbar'
+import IconButton from '@/components/IconButton'
 import IndicatorToggles from '@/components/IndicatorToggles'
 import ReplayControls from '@/components/ReplayControls'
 import ReplayStartPicker from '@/components/ReplayStartPicker'
@@ -25,6 +26,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const candles = useReplayStore((s) => s.candles)
   const pause = useReplayStore((s) => s.pause)
   const loadCandles = useReplayStore((s) => s.loadCandles)
+  const chartSplit = useReplayStore((s) => s.chartSplit)
+  const setChartSplit = useReplayStore((s) => s.setChartSplit)
   const [appVersion, setAppVersion] = useState('')
   const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
 
@@ -95,6 +98,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
         {!inReplay ? <ReplayStartPicker /> : <ReplayControls />}
         <DrawingToolbar />
+        <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
+          <IconButton
+            label={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
+            active={chartSplit}
+            onClick={() => setChartSplit(!chartSplit)}
+          >
+            <SquareSplitVertical className="h-4 w-4" />
+          </IconButton>
+        </div>
         <StatusBar />
       </div>
 
