@@ -413,6 +413,15 @@ export function formatPnl(pnl: number | null | undefined): string {
   return `${sign}${pnl.toFixed(2)}`
 }
 
+/** Chart overlay label, e.g. `+ 12.50 USD` / `- 3.10 USD`. */
+export function formatPnlUsd(pnl: number | null | undefined): string {
+  if (pnl == null || !Number.isFinite(pnl)) return '— USD'
+  const abs = Math.abs(pnl).toFixed(2)
+  if (pnl > 0) return `+ ${abs} USD`
+  if (pnl < 0) return `- ${abs} USD`
+  return `0.00 USD`
+}
+
 export function sideReport(trades: ClosedTrade[]): SideReport {
   const list = Array.isArray(trades) ? trades : []
   let wins = 0
