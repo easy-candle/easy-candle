@@ -1,4 +1,9 @@
 import { dedupeCandlesByTime, type Candle } from './candleUtils'
+import {
+  IMPORT_SOURCE_TIMEFRAME,
+  MIN_1M_CANDLES_FOR_IMPORT,
+  minImportCandlesMessage
+} from './importConstants'
 import type { ImportParseResult } from './importTypes'
 import { TIMEFRAMES, type TimeframeConfig } from './timeframes'
 
@@ -331,7 +336,14 @@ export function parseMtCsv(content: string, fileName: string): ImportParseResult
   if (fileMeta.unsupportedPeriod) {
     return {
       ok: false,
-      error: `Timeframe ${fileMeta.unsupportedPeriod} from the file name is not supported. Use M1, M5, M15, H1, H4, or D1.`
+      error: `Timeframe ${fileMeta.unsupportedPeriod} from the file name is not supported. Import only 1-minute (M1) exports.`
+    }
+  }
+
+  if (fileMeta.timeframe && fileMeta.timeframe !== IMPORT_SOURCE_TIMEFRAME) {
+    return {
+      ok: false,
+      error: `File name suggests timeframe ${fileMeta.timeframe}. Import only 1-minute (M1) MetaTrader exports.`
     }
   }
 
@@ -394,33 +406,36 @@ export function parseMtCsv(content: string, fileName: string): ImportParseResult
   if (!inferredTf) {
     return {
       ok: false,
-      error: `Candle spacing is ${inferredSeconds}s, which does not match a supported timeframe (1m, 5m, 15m, 1h, 4h, 1d).`
+      error: `Candle spacing is ${inferredSeconds}s, which is not 1-minute. Export M1 data from MetaTrader.`
     }
   }
 
-  if (fileMeta.timeframe && fileMeta.timeframe !== inferredTf.id) {
+  if (inferredTf.id !== IMPORT_SOURCE_TIMEFRAME) {
     return {
       ok: false,
-      error: `File name suggests timeframe ${fileMeta.timeframe}, but candle spacing matches ${inferredTf.id}.`
+      error: `Candle spacing matches ${inferredTf.id}. Import only 1-minute (M1) data — higher timeframes are built automatically.`
     }
+  }
+
+  if (candles.length < MIN_1M_CANDLES_FOR_IMPORT) {
+    return { ok: false, error: minImportCandlesMessage(candles.length) }
   }
 
   if (!fileMeta.symbol) {
     warnings.push('Symbol not found in file name — enter it before confirming.')
   }
 
-  if (!fileMeta.timeframe) {
-    warnings.push(
-      `Timeframe not found in file name — confirm ${inferredTf.id} (from candle spacing) or choose another.`
-    )
-  }
+  const spanDays = (candles[candles.length - 1].time - candles[0].time) / 86400
+  warnings.push(
+    `Will build 5m, 15m, 1h, 4h, and 1d from this 1m series (~${spanDays.toFixed(1)} days, ${candles.length.toLocaleString()} bars).`
+  )
 
   return {
     ok: true,
     candles,
     symbol: fileMeta.symbol,
-    timeframe: fileMeta.timeframe,
-    inferredTimeframe: inferredTf.id,
+    timeframe: IMPORT_SOURCE_TIMEFRAME,
+    inferredTimeframe: IMPORT_SOURCE_TIMEFRAME,
     symbolFromFilename: Boolean(fileMeta.symbol),
     timeframeFromFilename: Boolean(fileMeta.timeframe),
     warnings

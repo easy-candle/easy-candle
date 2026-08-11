@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FileUp, FolderOpen, RefreshCw, Trash2, X } from 'lucide-react'
+import { FileUp, Trash2, X } from 'lucide-react'
 import IconButton from '@/components/IconButton'
 import ImportConfirmModal, {
   type ImportConfirmDetails
 } from '@/components/ImportConfirmModal'
+import { buildImportTimeframes } from '@shared/candleAggregate'
+import { hasNewerCandles } from '@shared/importTypes'
 import { parseMtCsv } from '@shared/mtCsvImport'
 import type { Candle } from '@shared/candleUtils'
-import type { ImportedDatasetMeta } from '@shared/importTypes'
 import { useReplayStore } from '@/store/replayStore'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 
@@ -17,12 +18,14 @@ export type ImportFeedback = {
 
 type PendingImport = ImportConfirmDetails & {
   content: string
-  replaceId?: string
-  existingMetaId?: string
 }
 
 type CsvImportControlsProps = {
   onFeedback?: (feedback: ImportFeedback | null) => void
+}
+
+function normalizeSymbol(value: string): string {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
 
 export default function CsvImportControls({ onFeedback }: CsvImportControlsProps) {
@@ -33,8 +36,8 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const activateImportedDataset = useReplayStore((s) => s.activateImportedDataset)
   const clearImportedDataset = useReplayStore((s) => s.clearImportedDataset)
+  const refreshImportedList = useReplayStore((s) => s.refreshImportedList)
 
-  const [saved, setSaved] = useState<ImportedDatasetMeta[]>([])
   const [busy, setBusy] = useState(false)
   const [confirmBusy, setConfirmBusy] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
@@ -47,34 +50,26 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
     onFeedback?.(null)
   }, [onFeedback])
 
-  const showBannerError = useCallback(
-    (message: string): void => {
-      onFeedback?.({ tone: 'error', message })
+  const showBanner = useCallback(
+    (tone: ImportFeedback['tone'], message: string): void => {
+      onFeedback?.({ tone, message })
     },
     [onFeedback]
   )
 
-  const refreshList = useCallback(async (): Promise<void> => {
-    const result = await window.api.listImports()
-    if (result.ok) setSaved(result.imports)
-  }, [])
-
   useEffect(() => {
-    void refreshList()
-  }, [refreshList])
+    void refreshImportedList()
+  }, [refreshImportedList])
 
   function openConfirm(params: {
     content: string
     fileName: string
     candles: Candle[]
     symbol: string | null
-    timeframe: string | null
-    inferredTimeframe: string
     symbolFromFilename: boolean
-    timeframeFromFilename: boolean
     warnings: string[]
     replaceId?: string
-    existingMetaId?: string
+    existingSymbol?: string
   }): void {
     clearFeedback()
     setModalError(null)
@@ -83,21 +78,14 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
       fileName: params.fileName,
       candles: params.candles,
       symbol: params.symbol,
-      timeframe: params.timeframe,
-      inferredTimeframe: params.inferredTimeframe,
       symbolFromFilename: params.symbolFromFilename,
-      timeframeFromFilename: params.timeframeFromFilename,
       warnings: params.warnings,
       replaceId: params.replaceId,
-      existingMetaId: params.existingMetaId
+      existingSymbol: params.existingSymbol
     })
   }
 
-  async function prepareFromPath(
-    path: string,
-    fileName: string,
-    replaceId?: string
-  ): Promise<void> {
+  async function prepareFromPath(path: string, fileName: string): Promise<void> {
     setBusy(true)
     clearFeedback()
     setModalError(null)
@@ -105,14 +93,44 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
     try {
       const read = await window.api.readImportFile(path)
       if (!read.ok) {
-        showBannerError(read.error)
+        showBanner('error', read.error)
         return
       }
 
       const parsed = parseMtCsv(read.content, fileName || read.fileName)
       if (!parsed.ok) {
-        showBannerError(parsed.error)
+        showBanner('error', parsed.error)
         return
+      }
+
+      const symbolHint = parsed.symbol ? normalizeSymbol(parsed.symbol) : null
+      let replaceId: string | undefined
+      let existingSymbol: string | undefined
+
+      if (symbolHint) {
+        const listed = await window.api.listImports()
+        if (listed.ok) {
+          const existing = listed.imports.find(
+            (entry) => normalizeSymbol(entry.symbol) === symbolHint
+          )
+          if (existing) {
+            const loaded = await window.api.loadImport(existing.id, '1m')
+            if (loaded.ok) {
+              if (!hasNewerCandles(loaded.candles, parsed.candles)) {
+                showBanner(
+                  'info',
+                  `${existing.symbol} is already imported through ${formatUtcCandleTime(existing.lastTime)}. This file has no newer candles — nothing was updated.`
+                )
+                return
+              }
+              replaceId = existing.id
+              existingSymbol = existing.symbol
+            } else {
+              replaceId = existing.id
+              existingSymbol = existing.symbol
+            }
+          }
+        }
       }
 
       openConfirm({
@@ -120,12 +138,10 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
         fileName: fileName || read.fileName,
         candles: parsed.candles,
         symbol: parsed.symbol,
-        timeframe: parsed.timeframe,
-        inferredTimeframe: parsed.inferredTimeframe,
         symbolFromFilename: parsed.symbolFromFilename,
-        timeframeFromFilename: parsed.timeframeFromFilename,
         warnings: parsed.warnings,
-        replaceId
+        replaceId,
+        existingSymbol
       })
     } finally {
       setBusy(false)
@@ -137,73 +153,49 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
     setModalError(null)
     const dialog = await window.api.openImportDialog()
     if (!dialog.ok) {
-      if (!dialog.canceled && dialog.error) showBannerError(dialog.error)
+      if (!dialog.canceled && dialog.error) showBanner('error', dialog.error)
       return
     }
     await prepareFromPath(dialog.path, dialog.fileName)
   }
 
-  async function onUpdateActive(): Promise<void> {
-    if (!importMeta) return
-    clearFeedback()
-    setModalError(null)
-    const dialog = await window.api.openImportDialog()
-    if (!dialog.ok) {
-      if (!dialog.canceled && dialog.error) showBannerError(dialog.error)
-      return
-    }
-    await prepareFromPath(dialog.path, dialog.fileName, importMeta.id)
-  }
-
-  async function onLoadSaved(id: string): Promise<void> {
-    if (!id) return
-    setBusy(true)
-    clearFeedback()
-    setModalError(null)
-    try {
-      const loaded = await window.api.loadImport(id)
-      if (!loaded.ok) {
-        showBannerError(loaded.error)
-        return
-      }
-
-      const parsed = parseMtCsv(loaded.content, loaded.meta.originalFileName)
-      if (!parsed.ok) {
-        showBannerError(parsed.error)
-        return
-      }
-
-      openConfirm({
-        content: loaded.content,
-        fileName: loaded.meta.originalFileName,
-        candles: parsed.candles,
-        symbol: parsed.symbol ?? loaded.meta.symbol,
-        timeframe: parsed.timeframe ?? loaded.meta.timeframe,
-        inferredTimeframe: parsed.inferredTimeframe,
-        symbolFromFilename: parsed.symbolFromFilename || Boolean(loaded.meta.symbol),
-        timeframeFromFilename: parsed.timeframeFromFilename || Boolean(loaded.meta.timeframe),
-        warnings: parsed.warnings,
-        existingMetaId: loaded.meta.id
-      })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onConfirmImport(values: { symbol: string; timeframe: string }): Promise<void> {
+  async function onConfirmImport(values: { symbol: string }): Promise<void> {
     if (!pending) return
     setConfirmBusy(true)
     setModalError(null)
     clearFeedback()
 
     try {
+      const symbol = normalizeSymbol(values.symbol)
+      let replaceId = pending.replaceId
+
+      // Symbol typed in the modal may match an existing import even when the file name did not.
+      if (!replaceId) {
+        const listed = await window.api.listImports()
+        if (listed.ok) {
+          const existing = listed.imports.find(
+            (entry) => normalizeSymbol(entry.symbol) === symbol
+          )
+          if (existing) {
+            const loaded = await window.api.loadImport(existing.id, '1m')
+            if (loaded.ok && !hasNewerCandles(loaded.candles, pending.candles)) {
+              setModalError(
+                `${existing.symbol} is already imported through ${formatUtcCandleTime(existing.lastTime)}. This file has no newer candles.`
+              )
+              return
+            }
+            replaceId = existing.id
+          }
+        }
+      }
+
+      const candlesByTimeframe = buildImportTimeframes(pending.candles)
       const savedResult = await window.api.saveImport({
         content: pending.content,
         originalFileName: pending.fileName,
-        symbol: values.symbol,
-        timeframe: values.timeframe,
-        candles: pending.candles,
-        replaceId: pending.replaceId ?? pending.existingMetaId
+        symbol,
+        candlesByTimeframe,
+        replaceId
       })
 
       if (!savedResult.ok) {
@@ -211,11 +203,27 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
         return
       }
 
-      activateImportedDataset(pending.candles, savedResult.meta)
+      // Activate on default display TF (15m when available).
+      const activateTf = savedResult.meta.timeframe
+      const series = candlesByTimeframe[activateTf] || pending.candles
+      activateImportedDataset(series, { ...savedResult.meta, timeframe: activateTf })
       setPending(null)
       setModalError(null)
-      clearFeedback()
-      await refreshList()
+
+      const last = formatUtcCandleTime(savedResult.meta.lastTime)
+      if (savedResult.updated) {
+        showBanner(
+          'info',
+          `Updated ${savedResult.meta.symbol}: new candles through ${last}. Built 5m · 15m · 1h · 4h · 1d.`
+        )
+      } else {
+        showBanner(
+          'info',
+          `Imported ${savedResult.meta.symbol} (${savedResult.meta.candleCount.toLocaleString()} × 1m). Built 5m · 15m · 1h · 4h · 1d.`
+        )
+      }
+
+      await refreshImportedList()
     } finally {
       setConfirmBusy(false)
     }
@@ -228,13 +236,14 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
     try {
       const result = await window.api.deleteImport(id)
       if (!result.ok) {
-        showBannerError(result.error)
+        showBanner('error', result.error)
         return
       }
       if (importMeta?.id === id) {
         clearImportedDataset()
       }
-      await refreshList()
+      await refreshImportedList()
+      showBanner('info', 'Imported symbol removed.')
     } finally {
       setBusy(false)
     }
@@ -244,7 +253,7 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
     <>
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
         <IconButton
-          label="Import MT4/MT5 CSV"
+          label="Import MT4/MT5 1-minute CSV"
           disabled={disabled}
           onClick={() => void onImportNew()}
           tone="accent"
@@ -254,46 +263,17 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
           <span className="text-xs font-medium">{busy ? '…' : 'Import'}</span>
         </IconButton>
 
-        {saved.length > 0 && (
-          <label className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2">
-            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
-            <select
-              className="max-w-[11rem] rounded bg-zinc-900 text-zinc-100 outline-none disabled:opacity-60"
-              disabled={disabled}
-              aria-label="Saved imports"
-              value={dataSource === 'imported' && importMeta ? importMeta.id : ''}
-              onChange={(event) => void onLoadSaved(event.target.value)}
-            >
-              <option value="" className="bg-zinc-900 text-zinc-100">
-                Saved imports…
-              </option>
-              {saved.map((entry) => (
-                <option key={entry.id} value={entry.id} className="bg-zinc-900 text-zinc-100">
-                  {entry.symbol} {entry.timeframe} · {entry.candleCount.toLocaleString()}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
         {dataSource === 'imported' && importMeta && (
           <>
             <span
-              className="hidden max-w-[10rem] truncate text-[11px] text-amber-400/90 lg:inline"
+              className="hidden max-w-[12rem] truncate text-[11px] text-amber-400/90 lg:inline"
               title={`${importMeta.originalFileName} · ${formatUtcCandleTime(importMeta.firstTime)} → ${formatUtcCandleTime(importMeta.lastTime)}`}
             >
-              {importMeta.symbol} · {importMeta.timeframe}
+              {importMeta.symbol} · imported
             </span>
-            <IconButton
-              label="Update imported CSV"
-              disabled={disabled}
-              onClick={() => void onUpdateActive()}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </IconButton>
             {importMeta.id && (
               <IconButton
-                label="Delete saved import"
+                label="Delete imported symbol"
                 disabled={disabled}
                 tone="danger"
                 onClick={() => void onDeleteSaved(importMeta.id)}

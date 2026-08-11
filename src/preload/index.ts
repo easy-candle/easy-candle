@@ -37,7 +37,8 @@ const api = {
   saveImport: (params: ImportSaveParams): Promise<ImportSaveResult> =>
     ipcRenderer.invoke('import:save', params),
   listImports: (): Promise<ImportListResult> => ipcRenderer.invoke('import:list'),
-  loadImport: (id: string): Promise<ImportLoadResult> => ipcRenderer.invoke('import:load', id),
+  loadImport: (id: string, timeframe?: string): Promise<ImportLoadResult> =>
+    ipcRenderer.invoke('import:load', id, timeframe),
   deleteImport: (id: string): Promise<ImportDeleteResult> => ipcRenderer.invoke('import:delete', id),
   checkForUpdates: (): Promise<{ ok: boolean; skipped?: boolean; version?: string | null; error?: string }> =>
     ipcRenderer.invoke('update:check'),

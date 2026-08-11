@@ -189,6 +189,8 @@ type ReplayStore = {
   dataSource: DataSource
   importMeta: ImportedDatasetMeta | null
   importedCandles: Candle[]
+  /** Persisted MT imports shown in the symbol dropdown. */
+  importedList: ImportedDatasetMeta[]
   replayStatus: ReplayStatus
   isPlaying: boolean
   speed: number
@@ -248,6 +250,8 @@ type ReplayStore = {
   loadCandles: () => Promise<void>
   activateImportedDataset: (candles: Candle[], meta: ImportedDatasetMeta) => void
   clearImportedDataset: () => void
+  refreshImportedList: () => Promise<void>
+  selectImportedDataset: (id: string, timeframe?: string) => Promise<void>
   startImportedReplay: () => void
   startReplayAt: (startTimeSeconds: number) => Promise<void>
   jumpToTime: (timeSeconds: number) => Promise<void>
@@ -507,39 +511,46 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
   }
 
+  async function loadImportedSeries(
+    id: string,
+    timeframe: string
+  ): Promise<{ meta: ImportedDatasetMeta; candles: Candle[] } | null> {
+    const loaded = await window.api.loadImport(id, timeframe)
+    if (!loaded.ok) return null
+    return { meta: loaded.meta, candles: dedupeCandlesByTime(loaded.candles) }
+  }
+
   async function loadSecondaryLiveCandles(): Promise<void> {
     if (!get().chartSplit) return
 
     const generation = (secondaryLoadGeneration += 1)
-    const { symbol, secondaryTimeframe, dataSource, importedCandles, timeframe } = get()
-
-    if (dataSource === 'imported' && secondaryTimeframe === timeframe) {
-      secondaryEngine.load([])
-      set((s) => ({
-        secondaryCandles: importedCandles,
-        secondaryVisibleCandles: [],
-        secondaryCurrentCandle: null,
-        secondaryReplayIndex: 0,
-        secondaryBufferLength: importedCandles.length,
-        secondaryStatus: 'ready',
-        secondaryError: null,
-        secondaryLoading: false,
-        secondaryChartSync: {
-          kind: 'replace',
-          fitContent: true,
-          revision: s.secondaryChartSync.revision + 1
-        }
-      }))
-      return
-    }
+    const { symbol, secondaryTimeframe, dataSource, importMeta, importedCandles, timeframe } =
+      get()
 
     set({ secondaryStatus: 'loading', secondaryError: null, secondaryLoading: true })
 
     try {
-      const candles = await fetchCandles({
-        symbol,
-        interval: secondaryTimeframe
-      })
+      let candles: Candle[] = []
+
+      if (dataSource === 'imported' && importMeta) {
+        if (secondaryTimeframe === timeframe) {
+          candles = importedCandles
+        } else if (importMeta.timeframes?.[secondaryTimeframe]) {
+          const loaded = await loadImportedSeries(importMeta.id, secondaryTimeframe)
+          if (generation !== secondaryLoadGeneration || !get().chartSplit) return
+          if (!loaded) {
+            throw new Error(`No imported candles for ${secondaryTimeframe}.`)
+          }
+          candles = loaded.candles
+        } else {
+          throw new Error(`Timeframe ${secondaryTimeframe} is not available for this import.`)
+        }
+      } else {
+        candles = await fetchCandles({
+          symbol,
+          interval: secondaryTimeframe
+        })
+      }
 
       if (generation !== secondaryLoadGeneration || !get().chartSplit) return
 
@@ -577,16 +588,46 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const startSec = Math.floor(Number(anchorTimeSeconds))
     if (!Number.isFinite(startSec)) return false
 
-    const { symbol, secondaryTimeframe, dataSource, importedCandles, timeframe } = get()
+    const { symbol, secondaryTimeframe, dataSource, importMeta, importedCandles, timeframe } =
+      get()
     const generation = (secondaryLoadGeneration += 1)
 
-    if (dataSource === 'imported' && secondaryTimeframe === timeframe) {
+    if (dataSource === 'imported' && importMeta) {
+      let series = importedCandles
+      if (secondaryTimeframe !== timeframe) {
+        if (!importMeta.timeframes?.[secondaryTimeframe]) {
+          set({
+            secondaryLoading: false,
+            secondaryStatus: 'error',
+            secondaryError: `Timeframe ${secondaryTimeframe} is not available for this import.`
+          })
+          return false
+        }
+        const loaded = await loadImportedSeries(importMeta.id, secondaryTimeframe)
+        if (generation !== secondaryLoadGeneration || !get().chartSplit) return false
+        if (!loaded) {
+          set({
+            secondaryLoading: false,
+            secondaryStatus: 'error',
+            secondaryError: `No imported candles for ${secondaryTimeframe}.`
+          })
+          return false
+        }
+        series = loaded.candles
+      }
+
       const keptSpeed = secondaryEngine.getState().speed
-      secondaryEngine.load(importedCandles)
+      secondaryEngine.load(series)
       secondaryEngine.setSpeed(keptSpeed)
       secondaryEngine.seekToTime(startSec)
       publishSecondary('replace', { fitContent: true })
-      set({ secondaryLoading: false, secondaryStatus: 'ready', secondaryError: null })
+      set({
+        secondaryCandles: series,
+        secondaryBufferLength: series.length,
+        secondaryLoading: false,
+        secondaryStatus: 'ready',
+        secondaryError: null
+      })
       return true
     }
 
@@ -1142,12 +1183,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (!TIMEFRAMES[nextTimeframe]) return
     if (nextTimeframe === get().timeframe) return
     if (get().mode !== 'replay') return
-    if (get().dataSource === 'imported') {
-      set({
-        replayMessage: 'Imported replays are locked to the file timeframe. Import another CSV to change it.'
-      })
-      return
-    }
 
     const current = engine.getCurrentCandle() || get().currentCandle
     const anchorOpen = current?.time
@@ -1165,6 +1200,85 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const previousTimeframe = get().timeframe
     const nextIntervalSec = intervalSecondsFor(nextTimeframe)
     const seekTime = alignTimeToInterval(anchorOpen, nextIntervalSec)
+
+    if (get().dataSource === 'imported') {
+      const meta = get().importMeta
+      if (!meta?.timeframes?.[nextTimeframe]) {
+        set({
+          replayMessage: `Timeframe ${nextTimeframe} is not available for this import.`
+        })
+        return
+      }
+
+      set({ replayLoading: true, timeframe: nextTimeframe, replayMessage: null })
+      const loaded = await loadImportedSeries(meta.id, nextTimeframe)
+      if (!loaded) {
+        set({
+          timeframe: previousTimeframe,
+          replayLoading: false,
+          replayMessage: `Failed to load imported ${nextTimeframe} candles.`
+        })
+        return
+      }
+
+      const remappedMarkers = get().tradeMarkers.map((marker) => ({
+        ...marker,
+        time: alignTimeToInterval(marker.time, nextIntervalSec)
+      }))
+      const remappedDrawings = get().drawings.map((drawing) => {
+        if (drawing.type === 'hline') return drawing
+        return {
+          ...drawing,
+          t1: alignTimeToInterval(drawing.t1, nextIntervalSec),
+          t2: alignTimeToInterval(drawing.t2, nextIntervalSec)
+        }
+      })
+      const pending = get().pendingTrend
+      const remappedPending =
+        pending == null
+          ? null
+          : {
+              time: alignTimeToInterval(pending.time, nextIntervalSec),
+              price: pending.price
+            }
+      const open = get().position
+      const remappedPosition =
+        open == null
+          ? null
+          : {
+              ...open,
+              entryTime: alignTimeToInterval(open.entryTime, nextIntervalSec)
+            }
+      const remappedClosed = get().closedTrades.map((trade) => ({
+        ...trade,
+        entryTime: alignTimeToInterval(trade.entryTime, nextIntervalSec),
+        exitTime: alignTimeToInterval(trade.exitTime, nextIntervalSec)
+      }))
+
+      const keptSpeed = engine.getState().speed
+      engine.load(loaded.candles)
+      engine.setSpeed(keptSpeed)
+      engine.seekToTime(seekTime)
+
+      set({
+        importMeta: loaded.meta,
+        importedCandles: loaded.candles,
+        candles: loaded.candles,
+        tradeMarkers: remappedMarkers,
+        drawings: remappedDrawings,
+        pendingTrend: remappedPending,
+        position: remappedPosition,
+        closedTrades: remappedClosed,
+        replayLoading: false,
+        replayMessage: `Switched imported replay to ${nextTimeframe}.`,
+        status: 'ready',
+        error: null,
+        speed: engine.getState().speed
+      })
+      publishReplay('replace', { fitContent: true })
+      alignSecondaryAfterPrimaryLoad()
+      return
+    }
 
     // Keep the open position, session PnL, and drawings. Remap trade markers
     // and trendline endpoints onto the new candle open grid so LWC can resolve
@@ -1234,6 +1348,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     dataSource: 'binance',
     importMeta: null,
     importedCandles: [],
+    importedList: [],
     replayStatus: 'idle',
     isPlaying: false,
     speed: 1,
@@ -1385,26 +1500,57 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     setSymbol(symbol) {
-      if (symbol === get().symbol) return
+      if (symbol === get().symbol && get().dataSource === 'binance') return
       // Replay sessions are locked to the symbol they started on.
       if (get().mode === 'replay') return
-      if (get().dataSource === 'imported') return
       resetReplayState()
-      set({ symbol })
+      set({ symbol, dataSource: 'binance', importMeta: null, importedCandles: [] })
       void get().loadCandles()
     },
 
     setTimeframe(timeframe) {
       if (timeframe === get().timeframe) return
       if (!TIMEFRAMES[timeframe]) return
-      if (get().dataSource === 'imported' && get().mode !== 'replay') return
 
       if (get().mode === 'replay') {
         void switchReplayTimeframe(timeframe)
         return
       }
 
-      resetReplayState({ keepImport: get().dataSource === 'imported' })
+      if (get().dataSource === 'imported') {
+        const meta = get().importMeta
+        if (!meta?.timeframes?.[timeframe]) {
+          set({ error: `Timeframe ${timeframe} is not available for this import.` })
+          return
+        }
+        void (async () => {
+          set({ status: 'loading', error: null, timeframe })
+          const loaded = await loadImportedSeries(meta.id, timeframe)
+          if (!loaded) {
+            set({
+              status: 'error',
+              error: `Failed to load imported ${timeframe} candles.`
+            })
+            return
+          }
+          set({
+            importMeta: loaded.meta,
+            importedCandles: loaded.candles,
+            candles: loaded.candles,
+            symbol: loaded.meta.symbol,
+            timeframe: loaded.meta.timeframe,
+            status: 'ready',
+            error: null,
+            replayMessage: `Imported ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${loaded.candles.length.toLocaleString()} candles`
+          })
+          if (get().chartSplit) {
+            void loadSecondaryLiveCandles()
+          }
+        })()
+        return
+      }
+
+      resetReplayState()
       set({ timeframe, candles: [] })
       void get().loadCandles()
       if (get().chartSplit) {
@@ -1449,8 +1595,12 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (!TIMEFRAMES[timeframe]) return
       if (timeframe === get().secondaryTimeframe) return
 
-      if (get().dataSource === 'imported' && timeframe !== get().timeframe && get().mode === 'replay') {
-        // Allow Binance secondary TF even for imported primary symbol.
+      if (get().dataSource === 'imported') {
+        const meta = get().importMeta
+        if (!meta?.timeframes?.[timeframe]) {
+          set({ secondaryError: `Timeframe ${timeframe} is not available for this import.` })
+          return
+        }
       }
 
       set({ secondaryTimeframe: timeframe })
@@ -1507,9 +1657,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const generation = (loadGeneration += 1)
 
       if (get().dataSource === 'imported') {
-        const candles = get().importedCandles
         const meta = get().importMeta
-        if (!candles.length || !meta) {
+        if (!meta) {
           set({
             candles: [],
             status: 'error',
@@ -1518,13 +1667,27 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           return
         }
 
+        set({ status: 'loading', error: null })
+        const loaded = await loadImportedSeries(meta.id, get().timeframe || meta.timeframe)
+        if (generation !== loadGeneration) return
+        if (!loaded) {
+          set({
+            candles: [],
+            status: 'error',
+            error: 'Failed to load imported candles.'
+          })
+          return
+        }
+
         set({
-          candles,
+          importMeta: loaded.meta,
+          importedCandles: loaded.candles,
+          candles: loaded.candles,
           status: 'ready',
           error: null,
-          symbol: meta.symbol,
-          timeframe: meta.timeframe,
-          replayMessage: `Imported ${meta.symbol} ${meta.timeframe} · ${candles.length.toLocaleString()} candles`
+          symbol: loaded.meta.symbol,
+          timeframe: loaded.meta.timeframe,
+          replayMessage: `Imported ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${loaded.candles.length.toLocaleString()} candles`
         })
         if (get().chartSplit) {
           void loadSecondaryLiveCandles()
@@ -1572,6 +1735,10 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         return
       }
       publishImportedPreview(normalized, meta)
+      void get().refreshImportedList()
+      if (get().chartSplit) {
+        void loadSecondaryLiveCandles()
+      }
     },
 
     clearImportedDataset() {
@@ -1583,6 +1750,35 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         candles: []
       })
       void get().loadCandles()
+    },
+
+    async refreshImportedList() {
+      const result = await window.api.listImports()
+      if (!result.ok) return
+      set({ importedList: result.imports })
+    },
+
+    async selectImportedDataset(id, timeframe) {
+      if (!id) return
+      if (get().mode === 'replay') return
+
+      set({ status: 'loading', error: null })
+      const loaded = await window.api.loadImport(id, timeframe)
+      if (!loaded.ok) {
+        set({ status: 'error', error: loaded.error })
+        return
+      }
+
+      const candles = dedupeCandlesByTime(loaded.candles)
+      if (!candles.length) {
+        set({ status: 'error', error: 'Imported file has no valid candles.' })
+        return
+      }
+
+      publishImportedPreview(candles, loaded.meta)
+      if (get().chartSplit) {
+        void loadSecondaryLiveCandles()
+      }
     },
 
     startImportedReplay() {

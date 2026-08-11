@@ -3,6 +3,8 @@ import { app, dialog, ipcMain } from 'electron'
 import { promises as fs } from 'fs'
 import { basename, join } from 'path'
 import type { Candle } from '@shared/candleUtils'
+import { IMPORT_STORED_TIMEFRAMES } from '@shared/candleAggregate'
+import { DEFAULT_TIMEFRAME } from '@shared/timeframes'
 import type {
   ImportDeleteResult,
   ImportDialogResult,
@@ -11,7 +13,8 @@ import type {
   ImportReadResult,
   ImportSaveParams,
   ImportSaveResult,
-  ImportedDatasetMeta
+  ImportedDatasetMeta,
+  ImportedTimeframeStats
 } from '@shared/importTypes'
 import { decodeMtTextBuffer } from '@shared/mtTextDecode'
 
@@ -19,12 +22,20 @@ function importsRoot(): string {
   return join(app.getPath('userData'), 'imports')
 }
 
-function metaPath(id: string): string {
-  return join(importsRoot(), id, 'meta.json')
+function datasetDir(id: string): string {
+  return join(importsRoot(), id)
 }
 
-function dataPath(id: string): string {
-  return join(importsRoot(), id, 'data.csv')
+function metaPath(id: string): string {
+  return join(datasetDir(id), 'meta.json')
+}
+
+function sourcePath(id: string): string {
+  return join(datasetDir(id), 'source.csv')
+}
+
+function candlesPath(id: string, timeframe: string): string {
+  return join(datasetDir(id), 'candles', `${timeframe}.json`)
 }
 
 async function ensureImportsRoot(): Promise<void> {
@@ -36,6 +47,8 @@ async function readMeta(id: string): Promise<ImportedDatasetMeta | null> {
     const raw = await fs.readFile(metaPath(id), 'utf8')
     const parsed = JSON.parse(raw) as ImportedDatasetMeta
     if (!parsed || typeof parsed.id !== 'string') return null
+    if (!parsed.timeframes || typeof parsed.timeframes !== 'object') return null
+    if (!parsed.sourceTimeframe) parsed.sourceTimeframe = '1m'
     return parsed
   } catch {
     return null
@@ -43,37 +56,88 @@ async function readMeta(id: string): Promise<ImportedDatasetMeta | null> {
 }
 
 async function writeMeta(meta: ImportedDatasetMeta): Promise<void> {
-  await fs.mkdir(join(importsRoot(), meta.id), { recursive: true })
+  await fs.mkdir(datasetDir(meta.id), { recursive: true })
   await fs.writeFile(metaPath(meta.id), JSON.stringify(meta, null, 2), 'utf8')
+}
+
+function statsFor(candles: Candle[]): ImportedTimeframeStats {
+  const first = candles[0]
+  const last = candles[candles.length - 1]
+  return {
+    candleCount: candles.length,
+    firstTime: first?.time ?? 0,
+    lastTime: last?.time ?? 0
+  }
 }
 
 function buildMeta(params: {
   id: string
   originalFileName: string
   symbol: string
-  timeframe: string
-  candles: Candle[]
+  candlesByTimeframe: Record<string, Candle[]>
+  activeTimeframe?: string
   createdAt?: string
 }): ImportedDatasetMeta {
   const now = new Date().toISOString()
-  const first = params.candles[0]
-  const last = params.candles[params.candles.length - 1]
+  const candles1m = params.candlesByTimeframe['1m'] || []
+  const timeframes: Record<string, ImportedTimeframeStats> = {}
+
+  for (const tf of IMPORT_STORED_TIMEFRAMES) {
+    const series = params.candlesByTimeframe[tf]
+    if (series?.length) timeframes[tf] = statsFor(series)
+  }
+
+  const preferred =
+    params.activeTimeframe && timeframes[params.activeTimeframe]
+      ? params.activeTimeframe
+      : timeframes[DEFAULT_TIMEFRAME]
+        ? DEFAULT_TIMEFRAME
+        : '1m'
+
+  const primary = statsFor(candles1m)
+
   return {
     id: params.id,
     symbol: params.symbol,
-    timeframe: params.timeframe,
+    sourceTimeframe: '1m',
+    timeframe: preferred,
     originalFileName: params.originalFileName,
-    candleCount: params.candles.length,
-    firstTime: first?.time ?? 0,
-    lastTime: last?.time ?? 0,
+    candleCount: primary.candleCount,
+    firstTime: primary.firstTime,
+    lastTime: primary.lastTime,
+    timeframes,
     createdAt: params.createdAt ?? now,
     updatedAt: now
   }
 }
 
+async function writeCandles(
+  id: string,
+  candlesByTimeframe: Record<string, Candle[]>
+): Promise<void> {
+  const dir = join(datasetDir(id), 'candles')
+  await fs.mkdir(dir, { recursive: true })
+  for (const tf of IMPORT_STORED_TIMEFRAMES) {
+    const series = candlesByTimeframe[tf]
+    if (!series) continue
+    await fs.writeFile(candlesPath(id, tf), JSON.stringify(series), 'utf8')
+  }
+}
+
+async function readCandles(id: string, timeframe: string): Promise<Candle[] | null> {
+  try {
+    const raw = await fs.readFile(candlesPath(id, timeframe), 'utf8')
+    const parsed = JSON.parse(raw) as Candle[]
+    if (!Array.isArray(parsed)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 async function openCsvDialog(): Promise<ImportDialogResult> {
   const result = await dialog.showOpenDialog({
-    title: 'Import MT4/MT5 candles',
+    title: 'Import MT4/MT5 1-minute candles',
     properties: ['openFile'],
     filters: [
       { name: 'CSV / TXT', extensions: ['csv', 'txt'] },
@@ -104,8 +168,14 @@ async function saveImport(params: ImportSaveParams): Promise<ImportSaveResult> {
   try {
     await ensureImportsRoot()
 
+    const candles1m = params.candlesByTimeframe?.['1m']
+    if (!candles1m?.length) {
+      return { ok: false, error: 'Missing 1-minute candles for import.' }
+    }
+
     let id = params.replaceId
     let createdAt: string | undefined
+    let updated = false
 
     if (id) {
       const existing = await readMeta(id)
@@ -113,6 +183,7 @@ async function saveImport(params: ImportSaveParams): Promise<ImportSaveResult> {
         return { ok: false, error: 'Saved import not found for update.' }
       }
       createdAt = existing.createdAt
+      updated = true
     } else {
       id = randomUUID()
     }
@@ -121,16 +192,16 @@ async function saveImport(params: ImportSaveParams): Promise<ImportSaveResult> {
       id,
       originalFileName: params.originalFileName,
       symbol: params.symbol,
-      timeframe: params.timeframe,
-      candles: params.candles,
+      candlesByTimeframe: params.candlesByTimeframe,
       createdAt
     })
 
-    await fs.mkdir(join(importsRoot(), id), { recursive: true })
-    await fs.writeFile(dataPath(id), params.content, 'utf8')
+    await fs.mkdir(datasetDir(id), { recursive: true })
+    await fs.writeFile(sourcePath(id), params.content, 'utf8')
+    await writeCandles(id, params.candlesByTimeframe)
     await writeMeta(meta)
 
-    return { ok: true, meta }
+    return { ok: true, meta, updated }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to save import'
     return { ok: false, error: message }
@@ -157,12 +228,33 @@ async function listImports(): Promise<ImportListResult> {
   }
 }
 
-async function loadImport(id: string): Promise<ImportLoadResult> {
+async function loadImport(id: string, timeframe?: string): Promise<ImportLoadResult> {
   try {
     const meta = await readMeta(id)
     if (!meta) return { ok: false, error: 'Saved import not found.' }
-    const content = await fs.readFile(dataPath(id), 'utf8')
-    return { ok: true, meta, content }
+
+    const requested = String(timeframe || meta.timeframe || '1m')
+    const tf =
+      meta.timeframes[requested] != null
+        ? requested
+        : meta.timeframes['1m'] != null
+          ? '1m'
+          : Object.keys(meta.timeframes)[0]
+
+    if (!tf) return { ok: false, error: 'Imported dataset has no candle series.' }
+
+    const candles = await readCandles(id, tf)
+    if (!candles?.length) {
+      return { ok: false, error: `No candles found for timeframe ${tf}.` }
+    }
+
+    const nextMeta: ImportedDatasetMeta = { ...meta, timeframe: tf }
+    // Persist last-used TF so symbol re-select restores it.
+    if (meta.timeframe !== tf) {
+      await writeMeta({ ...nextMeta, updatedAt: meta.updatedAt })
+    }
+
+    return { ok: true, meta: nextMeta, candles }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load import'
     return { ok: false, error: message }
@@ -171,7 +263,7 @@ async function loadImport(id: string): Promise<ImportLoadResult> {
 
 async function deleteImport(id: string): Promise<ImportDeleteResult> {
   try {
-    const dir = join(importsRoot(), id)
+    const dir = datasetDir(id)
     await fs.rm(dir, { recursive: true, force: true })
     return { ok: true }
   } catch (err) {
@@ -189,8 +281,10 @@ export function registerImportIpc(): void {
     saveImport(params)
   )
   ipcMain.handle('import:list', async (): Promise<ImportListResult> => listImports())
-  ipcMain.handle('import:load', async (_event, id: string): Promise<ImportLoadResult> =>
-    loadImport(String(id || ''))
+  ipcMain.handle(
+    'import:load',
+    async (_event, id: string, timeframe?: string): Promise<ImportLoadResult> =>
+      loadImport(String(id || ''), timeframe ? String(timeframe) : undefined)
   )
   ipcMain.handle('import:delete', async (_event, id: string): Promise<ImportDeleteResult> =>
     deleteImport(String(id || ''))

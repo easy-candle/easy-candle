@@ -23,7 +23,7 @@ interface EasyCandleApi {
   readImportFile: (path: string) => Promise<ImportReadResult>
   saveImport: (params: ImportSaveParams) => Promise<ImportSaveResult>
   listImports: () => Promise<ImportListResult>
-  loadImport: (id: string) => Promise<ImportLoadResult>
+  loadImport: (id: string, timeframe?: string) => Promise<ImportLoadResult>
   deleteImport: (id: string) => Promise<ImportDeleteResult>
   checkForUpdates: () => Promise<{
     ok: boolean

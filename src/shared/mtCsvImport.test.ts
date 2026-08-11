@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MIN_1M_CANDLES_FOR_IMPORT } from './importConstants'
 import { inferTimeframeSeconds, parseMtCsv, parseMtFilename } from './mtCsvImport'
 
 function mt4Series(count: number, stepSec: number, start = Date.UTC(2024, 0, 2, 0, 0, 0) / 1000): string {
@@ -19,6 +20,19 @@ describe('parseMtFilename', () => {
     expect(parseMtFilename('EURUSD_M15_202001010000_202412312359.csv')).toEqual({
       symbol: 'EURUSD',
       timeframe: '15m',
+      unsupportedPeriod: null
+    })
+  })
+
+  it('parses M1 names', () => {
+    expect(parseMtFilename('EURUSD_M1_20200101.csv')).toEqual({
+      symbol: 'EURUSD',
+      timeframe: '1m',
+      unsupportedPeriod: null
+    })
+    expect(parseMtFilename('XAUUSDM1.csv')).toEqual({
+      symbol: 'XAUUSD',
+      timeframe: '1m',
       unsupportedPeriod: null
     })
   })
@@ -67,101 +81,93 @@ describe('parseMtFilename', () => {
 })
 
 describe('parseMtCsv', () => {
-  it('parses MT4 CSV and validates timeframe against content', () => {
-    const content = mt4Series(20, 900)
-    const result = parseMtCsv(content, 'EURUSD_M15.csv')
+  it('accepts a full 1m M1 export and requires 10 days of rows', () => {
+    const content = mt4Series(MIN_1M_CANDLES_FOR_IMPORT, 60)
+    const result = parseMtCsv(content, 'EURUSD_M1.csv')
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.symbol).toBe('EURUSD')
-    expect(result.timeframe).toBe('15m')
-    expect(result.candles).toHaveLength(20)
-    expect(inferTimeframeSeconds(result.candles)).toBe(900)
+    expect(result.timeframe).toBe('1m')
+    expect(result.candles).toHaveLength(MIN_1M_CANDLES_FOR_IMPORT)
+    expect(inferTimeframeSeconds(result.candles)).toBe(60)
   })
 
-  it('parses MT5-style combined datetime rows', () => {
+  it('rejects non-1m candle spacing', () => {
+    const content = mt4Series(20, 900)
+    const result = parseMtCsv(content, 'history.csv')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/1-minute|M1/i)
+  })
+
+  it('rejects non-1m timeframe in the file name', () => {
+    const content = mt4Series(MIN_1M_CANDLES_FOR_IMPORT, 60)
+    const result = parseMtCsv(content, 'EURUSD_M15.csv')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/file name suggests timeframe 15m/i)
+  })
+
+  it('rejects 1m files shorter than 10 days', () => {
+    const content = mt4Series(100, 60)
+    const result = parseMtCsv(content, 'EURUSD_M1.csv')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/10 days/i)
+    expect(result.error).toMatch(/14[,.]?400/)
+  })
+
+  it('parses MT5-style combined datetime 1m rows', () => {
     const lines = [
-      '<DATE>\t<TIME>\t<OPEN>\t<HIGH>\t<LOW>\t<CLOSE>\t<TICKVOL>\t<VOL>\t<SPREAD>',
-      '2024.01.02\t00:00:00\t100\t101\t99\t100.5\t12\t0\t1',
-      '2024.01.02\t01:00:00\t100.5\t102\t100\t101\t8\t0\t1',
-      '2024.01.02\t02:00:00\t101\t103\t100.5\t102\t9\t0\t1'
+      '<DATE>\t<TIME>\t<OPEN>\t<HIGH>\t<LOW>\t<CLOSE>\t<TICKVOL>\t<VOL>\t<SPREAD>'
     ]
-    const result = parseMtCsv(lines.join('\n'), 'XAUUSD_H1.csv')
+    const start = Date.UTC(2024, 0, 2, 0, 0, 0)
+    for (let i = 0; i < MIN_1M_CANDLES_FOR_IMPORT; i += 1) {
+      const d = new Date(start + i * 60_000)
+      const date = `${d.getUTCFullYear()}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${String(d.getUTCDate()).padStart(2, '0')}`
+      const time = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:00`
+      lines.push(`${date}\t${time}\t100\t101\t99\t100.5\t12\t0\t1`)
+    }
+    const result = parseMtCsv(lines.join('\n'), 'XAUUSD_M1.csv')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.timeframe).toBe('1h')
-    expect(result.candles).toHaveLength(3)
+    expect(result.timeframe).toBe('1m')
+    expect(result.candles).toHaveLength(MIN_1M_CANDLES_FOR_IMPORT)
   })
 
-  it('parses MT5 combined datetime with tab-separated OHLC (no header)', () => {
-    const lines = [
-      '2025.03.05 02:00\t2914.37\t2914.4\t2912.33\t2913.35\t305\t0',
-      '2025.03.05 02:05\t2913.35\t2914.35\t2912.26\t2914.24\t405\t0',
-      '2025.03.05 02:10\t2914.24\t2915.12\t2913.91\t2914.21\t411\t0',
-      '2025.03.05 02:15\t2914.21\t2915.6\t2914.01\t2915.38\t325\t0',
-      '2025.03.05 02:20\t2915.38\t2915.97\t2914.99\t2915.52\t341\t0'
-    ]
-    const result = parseMtCsv(lines.join('\n'), 'XAUUSD_M5_20250305.csv')
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.symbol).toBe('XAUUSD')
-    expect(result.timeframe).toBe('5m')
-    expect(result.candles).toHaveLength(5)
-    expect(result.candles[0]).toMatchObject({
-      open: 2914.37,
-      high: 2914.4,
-      low: 2912.33,
-      close: 2913.35
-    })
-  })
-
-  it('parses space-separated MT5 rows', () => {
-    const lines = [
-      '2025.03.05 02:00 2914.37 2914.4 2912.33 2913.35 305 0',
-      '2025.03.05 02:05 2913.35 2914.35 2912.26 2914.24 405 0',
-      '2025.03.05 02:10 2914.24 2915.12 2913.91 2914.21 411 0'
-    ]
-    const result = parseMtCsv(lines.join('\n'), 'XAUUSD_M5.csv')
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.timeframe).toBe('5m')
-    expect(result.candles).toHaveLength(3)
-  })
-
-  it('parses semicolon European-decimal exports', () => {
-    const lines = [
-      '2024.01.02 00:00;100,10;101,20;99,50;100,80;12;0',
-      '2024.01.02 01:00;100,80;102,00;100,00;101,10;8;0',
-      '2024.01.02 02:00;101,10;103,00;100,50;102,00;9;0'
-    ]
-    const result = parseMtCsv(lines.join('\n'), 'EURUSD_H1.csv')
+  it('parses European-decimal 1m exports', () => {
+    const lines: string[] = []
+    const start = Date.UTC(2024, 0, 2, 0, 0, 0)
+    for (let i = 0; i < MIN_1M_CANDLES_FOR_IMPORT; i += 1) {
+      const d = new Date(start + i * 60_000)
+      const date = `${d.getUTCFullYear()}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${String(d.getUTCDate()).padStart(2, '0')}`
+      const time = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+      lines.push(`${date} ${time};100,10;101,20;99,50;100,80;12;0`)
+    }
+    const result = parseMtCsv(lines.join('\n'), 'EURUSD_M1.csv')
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.candles[0].open).toBeCloseTo(100.1, 5)
   })
 
-  it('recovers from UTF-16 LE text that still contains NULs', () => {
-    const utf16 = Buffer.from(
-      '2025.03.05 02:00\t2914.37\t2914.4\t2912.33\t2913.35\t305\t0\n' +
-        '2025.03.05 02:05\t2913.35\t2914.35\t2912.26\t2914.24\t405\t0\n' +
-        '2025.03.05 02:10\t2914.24\t2915.12\t2913.91\t2914.21\t411\t0\n',
-      'utf16le'
-    ).toString('latin1')
-    const result = parseMtCsv(utf16, 'XAUUSD_M5.csv')
+  it('recovers from UTF-16 LE 1m text that still contains NULs', () => {
+    const rows: string[] = []
+    const start = Date.UTC(2025, 2, 5, 2, 0, 0)
+    for (let i = 0; i < MIN_1M_CANDLES_FOR_IMPORT; i += 1) {
+      const d = new Date(start + i * 60_000)
+      const date = `${d.getUTCFullYear()}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${String(d.getUTCDate()).padStart(2, '0')}`
+      const time = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+      rows.push(`${date} ${time}\t2914.37\t2914.4\t2912.33\t2913.35\t305\t0`)
+    }
+    const utf16 = Buffer.from(rows.join('\n') + '\n', 'utf16le').toString('latin1')
+    const result = parseMtCsv(utf16, 'XAUUSD_M1.csv')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.candles.length).toBeGreaterThanOrEqual(3)
-  })
-
-  it('fails when filename timeframe disagrees with candle spacing', () => {
-    const content = mt4Series(20, 900)
-    const result = parseMtCsv(content, 'EURUSD_H1.csv')
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.error).toMatch(/file name suggests timeframe 1h/i)
+    expect(result.candles.length).toBe(MIN_1M_CANDLES_FOR_IMPORT)
   })
 
   it('allows missing symbol in file name for modal confirmation', () => {
-    const content = mt4Series(10, 60)
+    const content = mt4Series(MIN_1M_CANDLES_FOR_IMPORT, 60)
     const result = parseMtCsv(content, 'history.csv')
     expect(result.ok).toBe(true)
     if (!result.ok) return

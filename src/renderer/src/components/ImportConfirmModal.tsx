@@ -1,25 +1,25 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import type { Candle } from '@shared/candleUtils'
-import { TIMEFRAME_IDS, TIMEFRAMES } from '@shared/timeframes'
+import { IMPORT_SOURCE_TIMEFRAME, MIN_IMPORT_DAYS } from '@shared/importConstants'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 
 export type ImportConfirmDetails = {
   fileName: string
   symbol: string | null
-  timeframe: string | null
-  inferredTimeframe: string
   symbolFromFilename: boolean
-  timeframeFromFilename: boolean
   candles: Candle[]
   warnings: string[]
+  /** When set, confirm will update this existing import. */
+  replaceId?: string
+  existingSymbol?: string
 }
 
 type ImportConfirmModalProps = {
   details: ImportConfirmDetails | null
   busy?: boolean
   serverError?: string | null
-  onConfirm: (values: { symbol: string; timeframe: string }) => void
+  onConfirm: (values: { symbol: string }) => void
   onCancel: () => void
 }
 
@@ -35,13 +35,11 @@ export default function ImportConfirmModal({
   onCancel
 }: ImportConfirmModalProps) {
   const [symbol, setSymbol] = useState('')
-  const [timeframe, setTimeframe] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!details) return
     setSymbol(details.symbol ?? '')
-    setTimeframe(details.timeframe ?? details.inferredTimeframe ?? '')
     setFormError(null)
   }, [details])
 
@@ -61,11 +59,12 @@ export default function ImportConfirmModal({
   const first = details.candles[0]
   const last = details.candles[details.candles.length - 1]
   const needSymbol = !details.symbolFromFilename
-  const needTimeframe = !details.timeframeFromFilename
+  const spanDays =
+    first && last ? ((last.time - first.time) / 86400).toFixed(1) : '—'
+  const isUpdate = Boolean(details.replaceId)
 
   function submit(): void {
     const nextSymbol = normalizeSymbol(symbol)
-    const nextTimeframe = String(timeframe || '').trim()
 
     if (!nextSymbol) {
       setFormError('Symbol is required.')
@@ -75,13 +74,9 @@ export default function ImportConfirmModal({
       setFormError('Enter a valid symbol (e.g. XAUUSD).')
       return
     }
-    if (!nextTimeframe || !TIMEFRAMES[nextTimeframe]) {
-      setFormError('Timeframe is required.')
-      return
-    }
 
     setFormError(null)
-    onConfirm({ symbol: nextSymbol, timeframe: nextTimeframe })
+    onConfirm({ symbol: nextSymbol })
   }
 
   return (
@@ -102,7 +97,7 @@ export default function ImportConfirmModal({
         <div className="flex items-start justify-between gap-3 border-b border-zinc-800 px-4 py-3">
           <div>
             <h2 id="import-confirm-title" className="text-sm font-semibold text-amber-400">
-              Confirm import
+              {isUpdate ? 'Update import' : 'Confirm import'}
             </h2>
             <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={details.fileName}>
               {details.fileName}
@@ -141,34 +136,19 @@ export default function ImportConfirmModal({
               )}
             </label>
 
-            <label className="block">
+            <div>
               <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                Timeframe{needTimeframe ? ' *' : ''}
+                Source TF
               </span>
-              {needTimeframe ? (
-                <select
-                  value={timeframe}
-                  disabled={busy}
-                  aria-label="Timeframe"
-                  onChange={(event) => setTimeframe(event.target.value)}
-                  className="mt-1 h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-2 font-medium text-zinc-100 outline-none focus:border-amber-500/60 disabled:opacity-40"
-                >
-                  {!timeframe && (
-                    <option value="" className="bg-zinc-900">
-                      Select…
-                    </option>
-                  )}
-                  {TIMEFRAME_IDS.map((id) => (
-                    <option key={id} value={id} className="bg-zinc-900 text-zinc-100">
-                      {TIMEFRAMES[id].label}
-                      {id === details.inferredTimeframe ? ' (from file)' : ''}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="mt-1 block font-medium text-zinc-100">{details.timeframe}</span>
-              )}
-            </label>
+              <span className="mt-1 block font-medium text-zinc-100">{IMPORT_SOURCE_TIMEFRAME}</span>
+            </div>
+
+            <div className="col-span-2">
+              <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                Built timeframes
+              </span>
+              <p className="mt-0.5 text-zinc-200">5m · 15m · 1h · 4h · 1d</p>
+            </div>
 
             <div className="col-span-2">
               <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
@@ -184,13 +164,29 @@ export default function ImportConfirmModal({
                 {formatUtcCandleTime(last?.time) || '—'}
               </p>
             </div>
-            <div className="col-span-2">
-              <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Candles</span>
+            <div>
+              <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                1m candles
+              </span>
               <p className="mt-0.5 tabular-nums text-zinc-200">
                 {details.candles.length.toLocaleString()}
               </p>
             </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                Span (≥{MIN_IMPORT_DAYS}d)
+              </span>
+              <p className="mt-0.5 tabular-nums text-zinc-200">{spanDays} days</p>
+            </div>
           </div>
+
+          {isUpdate && (
+            <p className="text-[11px] leading-relaxed text-sky-300/90">
+              Updating existing import
+              {details.existingSymbol ? ` for ${details.existingSymbol}` : ''}. New candles will
+              replace the stored series.
+            </p>
+          )}
 
           {details.warnings.length > 0 && (
             <p className="text-[11px] leading-relaxed text-amber-400/90">
@@ -217,7 +213,7 @@ export default function ImportConfirmModal({
             onClick={submit}
             className="inline-flex h-8 items-center rounded border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-medium text-amber-300 hover:border-amber-400/70 hover:text-amber-200 disabled:opacity-40"
           >
-            {busy ? 'Saving…' : 'Confirm & load'}
+            {busy ? 'Saving…' : isUpdate ? 'Update & load' : 'Confirm & load'}
           </button>
         </div>
       </div>
