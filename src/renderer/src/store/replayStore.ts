@@ -253,7 +253,11 @@ type ReplayStore = {
   refreshImportedList: () => Promise<void>
   selectImportedDataset: (id: string, timeframe?: string) => Promise<void>
   startImportedReplay: () => void
-  startReplayAt: (startTimeSeconds: number) => Promise<void>
+  startImportedReplayAt: (startIndex: number, opts?: { message?: string | null }) => void
+  startReplayAt: (
+    startTimeSeconds: number,
+    opts?: { forwardBars?: number; message?: string | null }
+  ) => Promise<void>
   jumpToTime: (timeSeconds: number) => Promise<void>
   exitReplay: () => void
   play: () => void
@@ -1073,7 +1077,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
   async function loadReplayWindow(
     startTimeSeconds: number,
-    opts: { clampMessage?: boolean; message?: string | null } = {}
+    opts: { clampMessage?: boolean; message?: string | null; forwardBars?: number } = {}
   ): Promise<boolean> {
     const startSec = Math.floor(Number(startTimeSeconds))
     if (!Number.isFinite(startSec)) {
@@ -1092,10 +1096,18 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     const { symbol, timeframe } = get()
     const intervalSec = intervalSecondsFor(timeframe)
-    const { startTimeMs, endTimeMs } = buildReplayWindowMs({
+    const windowOpts: {
+      startTimeSeconds: number
+      intervalSeconds: number
+      forwardBars?: number
+    } = {
       startTimeSeconds: startSec,
       intervalSeconds: intervalSec
-    })
+    }
+    if (opts.forwardBars != null && Number.isFinite(opts.forwardBars)) {
+      windowOpts.forwardBars = Math.max(1, Math.floor(opts.forwardBars))
+    }
+    const { startTimeMs, endTimeMs } = buildReplayWindowMs(windowOpts)
 
     if (startTimeMs >= endTimeMs) {
       set({
@@ -1782,6 +1794,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     startImportedReplay() {
+      // Start on the 5th candle (index 4) so the first bars are visible as context.
+      get().startImportedReplayAt(4)
+    },
+
+    startImportedReplayAt(startIndex, opts = {}) {
       if (get().dataSource !== 'imported') return
       if (get().mode === 'replay') return
 
@@ -1795,18 +1812,23 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const keptSpeed = engine.getState().speed
       engine.load(candles)
       engine.setSpeed(keptSpeed)
-      // Start on the 5th candle (index 4) so the first bars are visible as context.
-      const startIndex = Math.min(4, Math.max(candles.length - 1, 0))
-      engine.seekToIndex(startIndex)
+
+      const idx = Math.min(
+        Math.max(0, Math.floor(Number(startIndex)) || 0),
+        Math.max(candles.length - 1, 0)
+      )
+      engine.seekToIndex(idx)
+
+      const defaultMessage =
+        idx > 0
+          ? `Replay from candle ${idx + 1} of imported file.`
+          : 'Replay from start of imported file.'
 
       set({
         candles,
         status: 'ready',
         replayLoading: false,
-        replayMessage:
-          startIndex > 0
-            ? `Replay from candle ${startIndex + 1} of imported file.`
-            : 'Replay from start of imported file.',
+        replayMessage: opts.message ?? defaultMessage,
         error: null,
         speed: engine.getState().speed
       })
@@ -1814,12 +1836,15 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       alignSecondaryAfterPrimaryLoad()
     },
 
-    async startReplayAt(startTimeSeconds) {
+    async startReplayAt(startTimeSeconds, opts = {}) {
       if (get().dataSource === 'imported') {
         get().startImportedReplay()
         return
       }
-      await loadReplayWindow(startTimeSeconds)
+      await loadReplayWindow(startTimeSeconds, {
+        message: opts.message,
+        forwardBars: opts.forwardBars
+      })
     },
 
     async jumpToTime(timeSeconds) {
