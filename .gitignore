@@ -6,3 +6,4 @@ release
 .eslintcache
 *.log*
 *.tsbuildinfo
+build/appx/
