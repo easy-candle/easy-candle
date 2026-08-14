@@ -13,14 +13,15 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 /**
  * Replay keyboard shortcuts:
- * - Space while playing → pause
- * - Space while paused/ready → step forward one candle
- * - Backspace → step backward one candle (rewinds trades)
+ * - Space → play/pause (toggles; steps are handled by arrow keys)
+ * - ArrowRight → step forward one candle (hold to keep stepping)
+ * - ArrowLeft / Backspace → step backward one candle (hold to keep stepping)
  * - Tab (split only) → toggle next-candle pane (left ↔ right)
  * - Escape → cancel pending trend line / return to select tool
  */
 export function useReplayHotkeys(): void {
   const mode = useReplayStore((s) => s.mode)
+  const play = useReplayStore((s) => s.play)
   const pause = useReplayStore((s) => s.pause)
   const stepForward = useReplayStore((s) => s.stepForward)
   const stepBackward = useReplayStore((s) => s.stepBackward)
@@ -51,8 +52,7 @@ export function useReplayHotkeys(): void {
         return
       }
 
-      if (event.key === 'Backspace') {
-        if (event.repeat) return
+      if (event.key === 'ArrowLeft' || event.key === 'Backspace') {
         if (state.replayLoading || state.secondaryLoading) return
         const driverIndex =
           state.chartSplit && state.driverPane === 'secondary'
@@ -62,6 +62,15 @@ export function useReplayHotkeys(): void {
 
         event.preventDefault()
         stepBackward()
+        return
+      }
+
+      if (event.key === 'ArrowRight') {
+        if (state.replayLoading || state.secondaryLoading) return
+        if (state.replayStatus === 'ended') return
+
+        event.preventDefault()
+        stepForward()
         return
       }
 
@@ -77,10 +86,10 @@ export function useReplayHotkeys(): void {
       }
 
       if (state.replayStatus === 'ended') return
-      stepForward()
+      play()
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, pause, stepForward, stepBackward, setDrawTool, setDriverPane])
+  }, [mode, play, pause, stepForward, stepBackward, setDrawTool, setDriverPane])
 }
