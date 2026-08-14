@@ -56,7 +56,7 @@ export default function TradePanel() {
 
         <div className="flex items-center gap-1">
           <IconButton
-            label="Long — open long (when flat)"
+            tooltip="Long — open long (when flat)"
             disabled={!canOpen}
             onClick={paperBuy}
             tone="success"
@@ -67,7 +67,7 @@ export default function TradePanel() {
             <span className="text-xs font-semibold">LONG</span>
           </IconButton>
           <IconButton
-            label="Short — open short (when flat)"
+            tooltip="Short — open short (when flat)"
             disabled={!canOpen}
             onClick={paperSell}
             tone="danger"
@@ -78,7 +78,7 @@ export default function TradePanel() {
             <span className="text-xs font-semibold">SHORT</span>
           </IconButton>
           <IconButton
-            label="Close open position at current close"
+            tooltip="Close open position at current close"
             disabled={!canClose}
             onClick={paperClose}
             tone="accent"
@@ -97,7 +97,7 @@ export default function TradePanel() {
             R:R
           </span>
           <IconButton
-            label="Decrease risk:reward"
+            tooltip="Decrease risk:reward"
             onClick={() => nudgeRr(-0.5)}
             className="!h-6 !w-6"
           >
@@ -107,7 +107,7 @@ export default function TradePanel() {
             {rrLabel}
           </span>
           <IconButton
-            label="Increase risk:reward"
+            tooltip="Increase risk:reward"
             onClick={() => nudgeRr(0.5)}
             className="!h-6 !w-6"
           >

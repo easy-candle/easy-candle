@@ -111,14 +111,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {inReplay && <DrawingToolbar />}
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
             <IconButton
-              label={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
+              tooltip={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
               active={chartSplit}
               onClick={() => setChartSplit(!chartSplit)}
             >
               <SquareSplitVertical className="h-4 w-4" />
             </IconButton>
             <IconButton
-              label="Full-screen chart (F)"
+              tooltip="Full-screen chart"
+              shortcut={['F']}
               active={false}
               onClick={toggleChartFullscreen}
             >
@@ -191,7 +192,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {chartFullscreen && (
             <div className="pointer-events-none absolute right-2 top-2 z-30">
               <IconButton
-                label="Exit full-screen chart (F)"
+                tooltip="Exit full-screen chart"
+                shortcut={['F']}
                 onClick={() => setChartFullscreen(false)}
                 className="pointer-events-auto bg-zinc-950/90 shadow-lg shadow-black/40"
               >

@@ -94,10 +94,7 @@ export default function ReplayStartPicker() {
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-400"
-    >
+    <form onSubmit={onSubmit} className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
       <label className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400">
         <span className="sr-only">Replay range mode</span>
         <select
@@ -180,7 +177,7 @@ export default function ReplayStartPicker() {
       )}
 
       <IconButton
-        label={
+        tooltip={
           imported && rangeMode === 'manual'
             ? 'Start replay from beginning of imported file'
             : rangeMode === 'random'

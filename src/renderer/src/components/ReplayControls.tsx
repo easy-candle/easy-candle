@@ -9,6 +9,7 @@ import {
   SkipForward
 } from 'lucide-react'
 import IconButton from '@/components/IconButton'
+import Tooltip from '@/components/Tooltip'
 import { REPLAY_SPEEDS } from '@/lib/replayEngine'
 import { defaultUtcParts, parseUtcParts, toUtcParts } from '@/lib/utcDateTime'
 import { TIMEFRAMES } from '@shared/timeframes'
@@ -63,48 +64,70 @@ export default function ReplayControls() {
     <div className="flex flex-wrap items-center gap-1.5">
       <div className="flex items-center gap-1">
         {!isPlaying ? (
-          <IconButton label="Play" disabled={busy || ended} onClick={play} tone="accent">
+          <IconButton
+            tooltip="Play"
+            disabled={busy || ended}
+            onClick={play}
+            tone="accent"
+            tooltipSide="top"
+            shortcut={['Space']}
+          >
             <Play className="h-4 w-4 fill-current" />
           </IconButton>
         ) : (
-          <IconButton label="Pause" disabled={busy} onClick={pause} tone="accent">
+          <IconButton
+            tooltip="Pause"
+            shortcut={['Space']}
+            disabled={busy}
+            onClick={pause}
+            tone="accent"
+            tooltipSide="top"
+          >
             <Pause className="h-4 w-4 fill-current" />
           </IconButton>
         )}
 
         <IconButton
-          label="Step backward"
+          tooltip="Step backward"
+          shortcut={['ArrowLeft']}
           disabled={busy || driverIndex <= 0}
           onClick={stepBackward}
+          tooltipSide="top"
         >
           <ChevronsLeft className="h-4 w-4" />
         </IconButton>
 
-        <IconButton label="Step forward" disabled={busy || ended} onClick={stepForward}>
+        <IconButton
+          tooltip="Step forward"
+          shortcut={['ArrowRight']}
+          disabled={busy || ended}
+          onClick={stepForward}
+          tooltipSide="top"
+        >
           <ChevronsRight className="h-4 w-4" />
         </IconButton>
       </div>
 
       {chartSplit && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={(event) => {
-            setDriverPane(driverPane === 'primary' ? 'secondary' : 'primary')
-            event.currentTarget.blur()
-          }}
-          title="Toggle which pane advances on step/play (Tab)"
-          aria-label="Toggle next candle pane"
-          className="inline-flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-300 transition-colors enabled:hover:border-zinc-500 enabled:hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <span className="text-zinc-500">Next</span>
-          <span className="font-medium text-amber-300">
-            {driverPane === 'secondary'
-              ? `${TIMEFRAMES[secondaryTimeframe]?.label ?? secondaryTimeframe} · right`
-              : `${TIMEFRAMES[timeframe]?.label ?? timeframe} · left`}
-          </span>
-          <span className="text-[10px] uppercase tracking-wide text-zinc-600">Tab</span>
-        </button>
+        <Tooltip text="Toggle next-candle pane" kbds={['Tab']} side="top">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(event) => {
+              setDriverPane(driverPane === 'primary' ? 'secondary' : 'primary')
+              event.currentTarget.blur()
+            }}
+            aria-label="Toggle next candle pane"
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-300 transition-colors enabled:hover:border-zinc-500 enabled:hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span className="text-zinc-500">Next</span>
+            <span className="font-medium text-amber-300">
+              {driverPane === 'secondary'
+                ? `${TIMEFRAMES[secondaryTimeframe]?.label ?? secondaryTimeframe} · right`
+                : `${TIMEFRAMES[timeframe]?.label ?? timeframe} · left`}
+            </span>
+          </button>
+        </Tooltip>
       )}
 
       <label className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400">
@@ -150,13 +173,13 @@ export default function ReplayControls() {
           onChange={(e) => setJumpTime(e.target.value)}
           className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
         />
-        <IconButton label="Jump to UTC time" type="submit" disabled={busy}>
+        <IconButton tooltip="Jump to UTC time" type="submit" tooltipSide="top" disabled={busy}>
           <SkipForward className="h-4 w-4" />
         </IconButton>
         {jumpError && <span className="text-xs text-red-400">{jumpError}</span>}
       </form>
 
-      <IconButton label="Exit replay" onClick={exitReplay} className="ml-0.5">
+      <IconButton tooltip="Exit replay" onClick={exitReplay} tooltipSide="top" className="ml-0.5">
         <LogOut className="h-4 w-4" />
       </IconButton>
     </div>

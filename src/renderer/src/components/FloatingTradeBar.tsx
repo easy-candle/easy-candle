@@ -39,7 +39,7 @@ export default function FloatingTradeBar() {
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-1">
           <IconButton
-            label="Long — open long (when flat)"
+            tooltip="Long — open long (when flat)"
             disabled={!canOpen}
             onClick={paperBuy}
             tone="success"
@@ -50,7 +50,7 @@ export default function FloatingTradeBar() {
             <span className="text-xs font-semibold">LONG</span>
           </IconButton>
           <IconButton
-            label="Short — open short (when flat)"
+            tooltip="Short — open short (when flat)"
             disabled={!canOpen}
             onClick={paperSell}
             tone="danger"
@@ -61,7 +61,7 @@ export default function FloatingTradeBar() {
             <span className="text-xs font-semibold">SHORT</span>
           </IconButton>
           <IconButton
-            label="Close open position at current close"
+            tooltip="Close open position at current close"
             disabled={!canClose}
             onClick={paperClose}
             tone="accent"
@@ -79,13 +79,13 @@ export default function FloatingTradeBar() {
           <span className="px-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500">
             R:R
           </span>
-          <IconButton label="Decrease risk:reward" onClick={() => setRiskReward(riskReward - 0.5)} className="!h-6 !w-6">
+          <IconButton tooltip="Decrease risk:reward" onClick={() => setRiskReward(riskReward - 0.5)} className="!h-6 !w-6">
             <Minus className="h-3 w-3" />
           </IconButton>
           <span className="min-w-[2.75rem] text-center text-xs font-semibold tabular-nums text-zinc-200">
             {rrLabel}
           </span>
-          <IconButton label="Increase risk:reward" onClick={() => setRiskReward(riskReward + 0.5)} className="!h-6 !w-6">
+          <IconButton tooltip="Increase risk:reward" onClick={() => setRiskReward(riskReward + 0.5)} className="!h-6 !w-6">
             <Plus className="h-3 w-3" />
           </IconButton>
           <div className="ml-0.5 flex items-center gap-0.5 border-l border-zinc-800 pl-1.5">
