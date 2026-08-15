@@ -1,0 +1,13 @@
+queue_rules:
+  - name: default
+    merge_conditions: []
+    merge_method: merge
+
+pull_request_rules:
+  - name: put approved PRs in the queue
+    conditions:
+      - "#approved-reviews-by>=1"
+      - -draft
+    actions:
+      queue:
+        name: default
