@@ -72,14 +72,6 @@ export default function StatusBar() {
           </span>
         )}
         {replayMessage && <span className="text-amber-400/90">{replayMessage}</span>}
-        {!ended && (
-          <span className="text-zinc-600">
-            Space: {isPlaying ? 'pause' : 'step'} · Backspace: back
-          </span>
-        )}
-        {ended && (
-          <span className="text-zinc-600">Backspace: back</span>
-        )}
       </div>
     )
   }
