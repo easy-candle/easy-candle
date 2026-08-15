@@ -31,6 +31,12 @@ const api = {
   fetchKlines: (params: KlinesFetchParams): Promise<KlinesFetchResult> =>
     ipcRenderer.invoke('klines:fetch', params),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+  minimizeWindow: (): void => ipcRenderer.send('window:minimize'),
+  toggleMaximizeWindow: (): void => ipcRenderer.send('window:toggle-maximize'),
+  closeWindow: (): void => ipcRenderer.send('window:close'),
+  isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
+  onWindowMaximizedChange: (callback: (maximized: boolean) => void): (() => void) =>
+    subscribe('window:maximized-changed', callback),
   openImportDialog: (): Promise<ImportDialogResult> => ipcRenderer.invoke('import:openDialog'),
   readImportFile: (path: string): Promise<ImportReadResult> =>
     ipcRenderer.invoke('import:readFile', path),
@@ -39,11 +45,18 @@ const api = {
   listImports: (): Promise<ImportListResult> => ipcRenderer.invoke('import:list'),
   loadImport: (id: string, timeframe?: string): Promise<ImportLoadResult> =>
     ipcRenderer.invoke('import:load', id, timeframe),
-  deleteImport: (id: string): Promise<ImportDeleteResult> => ipcRenderer.invoke('import:delete', id),
-  checkForUpdates: (): Promise<{ ok: boolean; skipped?: boolean; version?: string | null; error?: string }> =>
-    ipcRenderer.invoke('update:check'),
-  downloadUpdate: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('update:download'),
-  installUpdate: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('update:install'),
+  deleteImport: (id: string): Promise<ImportDeleteResult> =>
+    ipcRenderer.invoke('import:delete', id),
+  checkForUpdates: (): Promise<{
+    ok: boolean
+    skipped?: boolean
+    version?: string | null
+    error?: string
+  }> => ipcRenderer.invoke('update:check'),
+  downloadUpdate: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('update:download'),
+  installUpdate: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('update:install'),
   onUpdateAvailable: (callback: (info: UpdateAvailableInfo) => void): (() => void) =>
     subscribe('update:available', callback),
   onUpdateProgress: (callback: (info: UpdateProgressInfo) => void): (() => void) =>

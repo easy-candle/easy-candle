@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Maximize2, Minimize2, SquareSplitVertical, X } from 'lucide-react'
+import AboutDialog from '@/components/AboutDialog'
 import CsvImportControls, { type ImportFeedback } from '@/components/CsvImportControls'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import FloatingDrawingBar from '@/components/FloatingDrawingBar'
@@ -7,14 +8,15 @@ import FloatingReplayBar from '@/components/FloatingReplayBar'
 import FloatingTradeBar from '@/components/FloatingTradeBar'
 import IconButton from '@/components/IconButton'
 import IndicatorToggles from '@/components/IndicatorToggles'
+import KeyboardShortcutsDialog from '@/components/KeyboardShortcutsDialog'
 import ReplayStartPicker from '@/components/ReplayStartPicker'
 import SessionReportModal from '@/components/SessionReportModal'
 import UpdateModal from '@/components/UpdateModal'
 import StatusBar from '@/components/StatusBar'
 import SymbolSelect from '@/components/SymbolSelect'
 import TimeframeSelect from '@/components/TimeframeSelect'
+import TitleBar from '@/components/TitleBar'
 import TradePanel from '@/components/TradePanel'
-import iconUrl from '@/assets/easycandle-icon.svg'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
 import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
@@ -35,7 +37,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const chartFullscreen = useUiLayoutStore((s) => s.chartFullscreen)
   const toggleChartFullscreen = useUiLayoutStore((s) => s.toggleChartFullscreen)
   const setChartFullscreen = useUiLayoutStore((s) => s.setChartFullscreen)
-  const [appVersion, setAppVersion] = useState('')
+  const showMainToolbar = useUiLayoutStore((s) => s.showMainToolbar)
+  const showStatusBar = useUiLayoutStore((s) => s.showStatusBar)
+  const showDrawingToolbar = useUiLayoutStore((s) => s.showDrawingToolbar)
+  const showReplayControls = useUiLayoutStore((s) => s.showReplayControls)
+  const showPaperTrade = useUiLayoutStore((s) => s.showPaperTrade)
   const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
 
   const inReplay = mode === 'replay'
@@ -49,10 +55,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   useReplayHotkeys()
   useUiHotkeys()
-
-  useEffect(() => {
-    void window.api.getAppVersion().then(setAppVersion)
-  }, [])
 
   useEffect(() => {
     function onVisibility(): void {
@@ -70,45 +72,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-zinc-950">
-      {!chartFullscreen && (
-        <header className="shrink-0 border-b border-zinc-800/90 bg-gradient-to-b from-zinc-900/80 to-zinc-950 px-3 py-2.5 sm:px-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <img
-                src={iconUrl}
-                alt=""
-                width={28}
-                height={28}
-                className="h-7 w-7 rounded border border-amber-500/30"
-                aria-hidden
-              />
-              <div className="leading-tight">
-                <h1 className="text-sm font-semibold tracking-tight text-amber-400">
-                  Easy Candle{appVersion ? ` v${appVersion}` : ''}
-                </h1>
-                <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-600">
-                  {imported
-                    ? inReplay
-                      ? 'Imported replay · UTC'
-                      : 'Imported · UTC'
-                    : inReplay
-                      ? 'Replay · UTC'
-                      : 'Live · UTC'}
-                </p>
-              </div>
-            </div>
-          </div>
-        </header>
-      )}
+      <TitleBar />
 
-      {!chartFullscreen && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/90 bg-zinc-950/90 px-3 py-2 sm:px-4">
+      {!chartFullscreen && showMainToolbar && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/90 bg-zinc-950/90 px-2 py-2 sm:px-2">
           <SymbolSelect />
           <TimeframeSelect />
           <IndicatorToggles />
           {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
           {!inReplay && <ReplayStartPicker />}
-          {inReplay && <DrawingToolbar />}
+          {inReplay && showDrawingToolbar && <DrawingToolbar />}
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
             <IconButton
               label={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
@@ -125,7 +98,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <Maximize2 className="h-4 w-4" />
             </IconButton>
           </div>
-          <StatusBar />
+          {showStatusBar && <StatusBar />}
         </div>
       )}
 
@@ -185,8 +158,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
           }`}
         >
           {children}
-          {inReplay && <FloatingReplayBar />}
-          {chartFullscreen && inReplay && <FloatingDrawingBar />}
+          {showReplayControls && inReplay && <FloatingReplayBar />}
+          {showDrawingToolbar && chartFullscreen && inReplay && <FloatingDrawingBar />}
           {chartFullscreen && inReplay && <FloatingTradeBar />}
           {chartFullscreen && (
             <div className="pointer-events-none absolute right-2 top-2 z-30">
@@ -226,9 +199,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </div>
           )}
         </div>
-        {!chartFullscreen && <TradePanel />}
+        {showPaperTrade && !chartFullscreen && <TradePanel />}
       </main>
 
+      <KeyboardShortcutsDialog />
+      <AboutDialog />
       <SessionReportModal />
       <UpdateModal />
     </div>
