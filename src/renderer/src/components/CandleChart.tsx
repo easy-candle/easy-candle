@@ -260,8 +260,8 @@ export default function CandleChart({
     markersApi.setMarkers(sorted)
   }, [tradeMarkers, mode, candles, visibleCandles])
 
-  const empty =
-    mode === 'live' ? !(candles && candles.length) : !(visibleCandles && visibleCandles.length)
+  const seriesCandles = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
+  const empty = seriesCandles.length === 0
 
   return (
     <div className="absolute inset-0 h-full w-full">
@@ -278,6 +278,7 @@ export default function CandleChart({
           series={chartReady.series}
           paneTimeframe={timeframe}
           paneCurrentCandle={currentCandle}
+          paneCandles={seriesCandles}
         />
       )}
       {empty && (

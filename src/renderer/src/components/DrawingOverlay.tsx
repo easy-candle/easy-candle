@@ -8,6 +8,12 @@ import {
 import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import {
+  isTimeInSeriesRange,
+  logicalToX,
+  unixTimeToLogical,
+  xToUnixTime
+} from '@/lib/chart/drawingTimeScale'
+import {
   formatPnlUsd,
   formatRiskReward,
   isValidStopLoss,
@@ -50,6 +56,8 @@ type DrawingOverlayProps = {
   paneTimeframe?: string
   /** This pane's playhead candle (for X placement on this time scale). */
   paneCurrentCandle?: Candle | null
+  /** Series bars on this pane — used to extrapolate times in empty chart space. */
+  paneCandles?: Candle[]
 }
 
 function linkedLevelForDrag(
@@ -113,7 +121,8 @@ export default function DrawingOverlay({
   chart,
   series,
   paneTimeframe,
-  paneCurrentCandle = null
+  paneCurrentCandle = null,
+  paneCandles = []
 }: DrawingOverlayProps) {
   const drawings = useReplayStore((s) => s.drawings)
   const drawTool = useReplayStore((s) => s.drawTool)
@@ -141,10 +150,20 @@ export default function DrawingOverlay({
 
   function timeToX(time: number): number | null {
     if (!chart) return null
-    const aligned = mapTimeToPane(time)
-    const direct = chart.timeScale().timeToCoordinate(aligned as Time)
-    if (direct != null) return direct
-    return chart.timeScale().timeToCoordinate(time as Time)
+    const exact = chart.timeScale().timeToCoordinate(time as Time)
+    if (exact != null) return exact
+    // Align only for in-range times (split-pane TF mapping). Aligning a
+    // future time floors it back onto the last bar and snaps the endpoint.
+    if (isTimeInSeriesRange(time, paneCandles)) {
+      const aligned = mapTimeToPane(time)
+      if (aligned !== time) {
+        const alignedX = chart.timeScale().timeToCoordinate(aligned as Time)
+        if (alignedX != null) return alignedX
+      }
+    }
+    const logical = unixTimeToLogical(time, paneCandles, intervalSeconds)
+    if (logical == null) return null
+    return logicalToX(chart, logical)
   }
 
   const [version, setVersion] = useState(0)
@@ -155,7 +174,9 @@ export default function DrawingOverlay({
   const dragRef = useRef<DragState | null>(null)
   const suppressClickRef = useRef(false)
   const levelPreviewRef = useRef(levelPreview)
+  const paneCandlesRef = useRef(paneCandles)
   levelPreviewRef.current = levelPreview
+  paneCandlesRef.current = paneCandles
 
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
@@ -254,10 +275,8 @@ export default function DrawingOverlay({
 
       if (drag.kind !== 'trend') return
 
-      const time = chart.timeScale().coordinateToTime(x)
-      if (time == null) return
-      const timeSec = typeof time === 'number' ? time : Number(time)
-      if (!Number.isFinite(timeSec)) return
+      const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+      if (timeSec == null) return
       drag.moved = true
       updateTrendLineEndpoint(drag.id, drag.end, {
         time: timeSec,
@@ -295,7 +314,8 @@ export default function DrawingOverlay({
     updateHorizontalLine,
     updateTrendLineEndpoint,
     setTakeProfit,
-    setStopLoss
+    setStopLoss,
+    intervalSeconds
   ])
 
   function onClick(event: ReactMouseEvent<SVGSVGElement>): void {
@@ -309,12 +329,7 @@ export default function DrawingOverlay({
     const x = event.clientX - rect.left
     const y = event.clientY - rect.top
     const price = series.coordinateToPrice(y)
-    const time = chart.timeScale().coordinateToTime(x)
-
-    if (price == null || time == null) return
-
-    const timeSec = typeof time === 'number' ? time : Number(time)
-    if (!Number.isFinite(timeSec) || !Number.isFinite(price)) return
+    if (price == null || !Number.isFinite(price)) return
 
     if (drawTool === 'hline') {
       addHorizontalLine(price)
@@ -322,6 +337,8 @@ export default function DrawingOverlay({
     }
 
     if (drawTool === 'trendline') {
+      const timeSec = xToUnixTime(chart, x, paneCandles, intervalSeconds)
+      if (timeSec == null) return
       addTrendPoint({ time: timeSec, price })
     }
   }
