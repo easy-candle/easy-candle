@@ -45,7 +45,7 @@ function persistTab(tab: ReplayRangeMode): void {
   }
 }
 
-export default function ReplayStartModal() {
+export default function ReplayStartDialog() {
   const status = useReplayStore((s) => s.status)
   const mode = useReplayStore((s) => s.mode)
   const dataSource = useReplayStore((s) => s.dataSource)
