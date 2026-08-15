@@ -1,24 +1,59 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clampRandomLength,
-  DEFAULT_RANDOM_LENGTH,
   IMPORTED_CONTEXT_BARS,
   pickRandomImportedStartIndex,
   pickRandomLiveStart,
-  RANDOM_LOOKBACK_DAYS
+  RANDOM_LOOKBACK_DAYS,
+  RANDOM_RANGE_PRESETS,
+  rangeToCandles,
+  rangeToSeconds
 } from './randomReplayRange'
 
-describe('clampRandomLength', () => {
-  it('returns default for non-finite values', () => {
-    expect(clampRandomLength(undefined)).toBe(DEFAULT_RANDOM_LENGTH)
-    expect(clampRandomLength(NaN)).toBe(DEFAULT_RANDOM_LENGTH)
-    expect(clampRandomLength('x')).toBe(DEFAULT_RANDOM_LENGTH)
+describe('rangeToSeconds', () => {
+  it('returns 0 for invalid or non-positive values', () => {
+    expect(rangeToSeconds(undefined, 'day')).toBe(0)
+    expect(rangeToSeconds(NaN, 'day')).toBe(0)
+    expect(rangeToSeconds(0, 'day')).toBe(0)
+    expect(rangeToSeconds(-3, 'week')).toBe(0)
   })
 
-  it('clamps to 50–2000 and floors', () => {
-    expect(clampRandomLength(10)).toBe(50)
-    expect(clampRandomLength(5000)).toBe(2000)
-    expect(clampRandomLength(250.9)).toBe(250)
+  it('converts units to seconds', () => {
+    expect(rangeToSeconds(1, 'day')).toBe(86400)
+    expect(rangeToSeconds(2, 'week')).toBe(2 * 7 * 86400)
+    expect(rangeToSeconds(3, 'month')).toBe(3 * 30 * 86400)
+    expect(rangeToSeconds(1, 'year')).toBe(365 * 86400)
+  })
+
+  it('floors fractional values', () => {
+    expect(rangeToSeconds(2.9, 'day')).toBe(2 * 86400)
+  })
+})
+
+describe('rangeToCandles', () => {
+  it('converts a duration to a candle count for an interval', () => {
+    expect(rangeToCandles(1, 'day', 900)).toBe(96)
+    expect(rangeToCandles(1, 'week', 3600)).toBe(168)
+    expect(rangeToCandles(1, 'day', 86400)).toBe(1)
+  })
+
+  it('returns 0 for invalid values', () => {
+    expect(rangeToCandles(0, 'day', 900)).toBe(0)
+    expect(rangeToCandles(NaN, 'day', 900)).toBe(0)
+  })
+})
+
+describe('RANDOM_RANGE_PRESETS', () => {
+  it('matches the quick-select set', () => {
+    expect(RANDOM_RANGE_PRESETS.map((p) => p.label)).toEqual([
+      '1D',
+      '3D',
+      '1W',
+      '3W',
+      '1M',
+      '3M',
+      '6M',
+      '1Y'
+    ])
   })
 })
 
@@ -79,9 +114,7 @@ describe('pickRandomLiveStart', () => {
 
 describe('pickRandomImportedStartIndex', () => {
   it('returns null for empty series', () => {
-    expect(
-      pickRandomImportedStartIndex({ candleCount: 0, lengthCandles: 100 })
-    ).toBeNull()
+    expect(pickRandomImportedStartIndex({ candleCount: 0, lengthCandles: 100 })).toBeNull()
   })
 
   it('respects context and length bounds', () => {
