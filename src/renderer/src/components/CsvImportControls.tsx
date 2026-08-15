@@ -253,7 +253,7 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
     <>
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
         <IconButton
-          label="Import MT4/MT5 1-minute CSV"
+          tooltip="Import MT4/MT5 1-minute CSV"
           disabled={disabled}
           onClick={() => void onImportNew()}
           tone="accent"
@@ -273,7 +273,7 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
             </span>
             {importMeta.id && (
               <IconButton
-                label="Delete imported symbol"
+                tooltip="Delete imported symbol"
                 disabled={disabled}
                 tone="danger"
                 onClick={() => void onDeleteSaved(importMeta.id)}
@@ -282,7 +282,7 @@ export default function CsvImportControls({ onFeedback }: CsvImportControlsProps
               </IconButton>
             )}
             <IconButton
-              label="Exit imported mode"
+              tooltip="Exit imported mode"
               disabled={disabled}
               onClick={() => {
                 clearFeedback()

@@ -199,7 +199,7 @@ export default function ReplayStartModal() {
   return (
     <>
       <IconButton
-        label="Start replay"
+        tooltip="Start replay"
         disabled={disabled || !canStart}
         tone="accent"
         onClick={openModal}

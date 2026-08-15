@@ -26,7 +26,7 @@ export default function DrawingToolbar({ variant = 'inline' }: DrawingToolbarPro
   return (
     <div className={shellClass}>
       <IconButton
-        label="Select / pan"
+        tooltip="Select / pan"
         active={drawTool === 'select'}
         disabled={disabled}
         onClick={() => setDrawTool('select')}
@@ -34,7 +34,7 @@ export default function DrawingToolbar({ variant = 'inline' }: DrawingToolbarPro
         <MousePointer2 className="h-4 w-4" />
       </IconButton>
       <IconButton
-        label="Horizontal line"
+        tooltip="Horizontal line"
         active={drawTool === 'hline'}
         disabled={disabled}
         onClick={() => setDrawTool('hline')}
@@ -42,7 +42,7 @@ export default function DrawingToolbar({ variant = 'inline' }: DrawingToolbarPro
         <Minus className="h-4 w-4" />
       </IconButton>
       <IconButton
-        label="Trend line"
+        tooltip="Trend line"
         active={drawTool === 'trendline'}
         disabled={disabled}
         onClick={() => setDrawTool('trendline')}
@@ -50,7 +50,7 @@ export default function DrawingToolbar({ variant = 'inline' }: DrawingToolbarPro
         <TrendingUp className="h-4 w-4" />
       </IconButton>
       <IconButton
-        label="Clear drawings"
+        tooltip="Clear drawings"
         disabled={disabled || drawings.length === 0}
         onClick={clearDrawings}
         tone="danger"

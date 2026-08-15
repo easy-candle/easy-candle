@@ -1,7 +1,8 @@
 import type { MouseEvent, ReactNode } from 'react'
+import Tooltip from '@/components/Tooltip'
 
 type IconButtonProps = {
-  label: string
+  tooltip: string
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void
   disabled?: boolean
   active?: boolean
@@ -9,17 +10,23 @@ type IconButtonProps = {
   type?: 'button' | 'submit'
   children: ReactNode
   className?: string
+  /** Keyboard shortcut(s) shown as <kbd> in the tooltip. */
+  shortcut?: string[]
+  /** Tooltip placement relative to the button. Defaults to 'bottom'. */
+  tooltipSide?: 'top' | 'bottom'
 }
 
 export default function IconButton({
-  label,
+  tooltip,
   onClick,
   disabled = false,
   active = false,
   tone = 'default',
   type = 'button',
   children,
-  className = ''
+  className = '',
+  shortcut,
+  tooltipSide = 'bottom'
 }: IconButtonProps) {
   const toneClass =
     tone === 'accent'
@@ -39,15 +46,16 @@ export default function IconButton({
     : 'border-zinc-700 bg-zinc-900/80 text-zinc-300'
 
   return (
-    <button
-      type={type}
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${activeClass} ${toneClass} ${className}`}
-    >
-      {children}
-    </button>
+    <Tooltip text={tooltip} kbds={shortcut} side={tooltipSide}>
+      <button
+        type={type}
+        aria-label={tooltip}
+        disabled={disabled}
+        onClick={onClick}
+        className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${activeClass} ${toneClass} ${className}`}
+      >
+        {children}
+      </button>
+    </Tooltip>
   )
 }
