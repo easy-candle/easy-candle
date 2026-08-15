@@ -128,10 +128,10 @@ export default function TimeframeSelect() {
               disabled={disabled}
               title={TIMEFRAMES[id].label}
               onClick={() => setTimeframe(id)}
-              className={`inline-flex h-5 items-center rounded border px-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+              className={`inline-flex h-5 items-center rounded px-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                 id === timeframe
-                  ? 'border-amber-500/60 bg-amber-950/40 text-amber-300'
-                  : 'border-zinc-950/90 bg-zinc-950/90 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+                  ? 'bg-amber-950/40 text-amber-300'
+                  : 'border-zinc-950/90 bg-zinc-950/90 text-zinc-400 hover:text-zinc-200'
               }`}
             >
               {TIMEFRAMES[id].label}
