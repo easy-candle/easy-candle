@@ -15,7 +15,7 @@ export default function IndicatorToggles() {
         return (
           <IconButton
             key={indicator.id}
-            label={`${active ? 'Hide' : 'Show'} ${indicator.label}`}
+            tooltip={`${active ? 'Hide' : 'Show'} ${indicator.label}`}
             active={active}
             onClick={() => toggleIndicator(indicator.id)}
             className="!w-auto px-2 text-[10px] font-semibold tracking-wide"
