@@ -11,6 +11,7 @@ merge_protections_settings:
 
 merge_protections:
   - name: require-approval
+    if: true
     success_conditions:
       - "#approved-reviews-by>=1"
       - -draft
