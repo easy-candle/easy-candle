@@ -7,7 +7,7 @@ import FloatingDrawingBar from '@/components/FloatingDrawingBar'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
 import FloatingTradeBar from '@/components/FloatingTradeBar'
 import IconButton from '@/components/IconButton'
-import IndicatorToggles from '@/components/IndicatorToggles'
+import IndicatorsDropdown from '@/components/IndicatorsDropdown'
 import KeyboardShortcutsDialog from '@/components/KeyboardShortcutsDialog'
 import ReplayStartModal from '@/components/ReplayStartModal'
 import SessionReportModal from '@/components/SessionReportModal'
@@ -78,7 +78,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/90 bg-zinc-950/90 px-2 py-2 sm:px-2">
           <SymbolSelect />
           <TimeframeSelect />
-          <IndicatorToggles />
+          <IndicatorsDropdown />
           {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
 {!inReplay && <ReplayStartModal />}
           {inReplay && showDrawingToolbar && <DrawingToolbar />}
