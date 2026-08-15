@@ -9,7 +9,7 @@ import FloatingTradeBar from '@/components/FloatingTradeBar'
 import IconButton from '@/components/IconButton'
 import IndicatorToggles from '@/components/IndicatorToggles'
 import KeyboardShortcutsDialog from '@/components/KeyboardShortcutsDialog'
-import ReplayStartPicker from '@/components/ReplayStartPicker'
+import ReplayStartModal from '@/components/ReplayStartModal'
 import SessionReportModal from '@/components/SessionReportModal'
 import UpdateModal from '@/components/UpdateModal'
 import StatusBar from '@/components/StatusBar'
@@ -80,7 +80,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <TimeframeSelect />
           <IndicatorToggles />
           {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
-          {!inReplay && <ReplayStartPicker />}
+{!inReplay && <ReplayStartModal />}
           {inReplay && showDrawingToolbar && <DrawingToolbar />}
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
             <IconButton

@@ -1,5 +1,9 @@
 /** UTC date/time helpers for replay start + jump inputs. */
 
+export function nowUtcSeconds(): number {
+  return Math.floor(Date.now() / 1000)
+}
+
 export function defaultUtcParts(offsetDays = 7): { date: string; time: string } {
   const ms = Date.now() - offsetDays * 24 * 60 * 60 * 1000
   return toUtcParts(Math.floor(ms / 1000))

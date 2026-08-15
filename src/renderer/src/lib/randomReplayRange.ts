@@ -2,14 +2,42 @@ import { alignTimeToInterval } from '@shared/timeframes'
 
 export type ReplayRangeMode = 'manual' | 'random'
 
-/** Default forward session length (candles) for Random mode. */
-export const DEFAULT_RANDOM_LENGTH = 500
+export type RangeUnit = 'day' | 'week' | 'month' | 'year'
 
-/** Preset lengths shown in the Random UI. */
-export const RANDOM_LENGTH_PRESETS = Object.freeze([100, 250, 500, 1000] as const)
+const SECONDS_PER_UNIT: Record<RangeUnit, number> = {
+  day: 86400,
+  week: 7 * 86400,
+  month: 30 * 86400,
+  year: 365 * 86400
+}
 
-const MIN_LENGTH = 50
-const MAX_LENGTH = 2000
+export const RANGE_UNITS = Object.freeze(['day', 'week', 'month', 'year'] as const)
+
+export const RANGE_UNIT_LABELS: Record<RangeUnit, string> = {
+  day: 'Day',
+  week: 'Week',
+  month: 'Month',
+  year: 'Year'
+}
+
+export type RandomRangePreset = {
+  value: number
+  unit: RangeUnit
+  label: string
+}
+
+export const RANDOM_RANGE_PRESETS: readonly RandomRangePreset[] = [
+  { value: 1, unit: 'day', label: '1D' },
+  { value: 3, unit: 'day', label: '3D' },
+  { value: 1, unit: 'week', label: '1W' },
+  { value: 3, unit: 'week', label: '3W' },
+  { value: 1, unit: 'month', label: '1M' },
+  { value: 3, unit: 'month', label: '3M' },
+  { value: 6, unit: 'month', label: '6M' },
+  { value: 1, unit: 'year', label: '1Y' }
+]
+
+export const DEFAULT_RANGE: RandomRangePreset = { value: 1, unit: 'week', label: '1W' }
 
 /** Live Random search window: last N days ending now (UTC). */
 export const RANDOM_LOOKBACK_DAYS = 365
@@ -17,10 +45,24 @@ export const RANDOM_LOOKBACK_DAYS = 365
 /** Left context bars for imported Random starts (matches Manual import spirit). */
 export const IMPORTED_CONTEXT_BARS = 4
 
-export function clampRandomLength(value: unknown, fallback = DEFAULT_RANDOM_LENGTH): number {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return fallback
-  return Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, Math.floor(n)))
+function toPositiveInt(value: unknown, fallback = 1): number {
+  const n = Math.floor(Number(value))
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+/** Duration of a range in seconds. Returns 0 for invalid or non-positive values. */
+export function rangeToSeconds(value: unknown, unit: RangeUnit): number {
+  const n = toPositiveInt(value, 0)
+  if (n <= 0) return 0
+  return n * SECONDS_PER_UNIT[unit]
+}
+
+/** Number of candles that cover a range for a given timeframe interval. */
+export function rangeToCandles(value: unknown, unit: RangeUnit, intervalSeconds: number): number {
+  const seconds = rangeToSeconds(value, unit)
+  const interval = Math.max(1, Math.floor(Number(intervalSeconds)) || 1)
+  if (seconds <= 0) return 0
+  return Math.max(1, Math.round(seconds / interval))
 }
 
 /**
@@ -36,7 +78,7 @@ export function pickRandomLiveStart(opts: {
 }): number | null {
   const nowSec = Math.floor(Number(opts.nowSeconds))
   const intervalSec = Math.max(1, Math.floor(Number(opts.intervalSeconds)) || 1)
-  const length = clampRandomLength(opts.lengthCandles)
+  const length = toPositiveInt(opts.lengthCandles)
   const lookbackDays = Math.max(1, Math.floor(opts.lookbackDays ?? RANDOM_LOOKBACK_DAYS))
   const random = opts.random ?? Math.random
 
@@ -70,7 +112,7 @@ export function pickRandomImportedStartIndex(opts: {
   random?: () => number
 }): number | null {
   const count = Math.floor(Number(opts.candleCount))
-  const length = clampRandomLength(opts.lengthCandles)
+  const length = toPositiveInt(opts.lengthCandles)
   const context = Math.max(0, Math.floor(opts.contextBars ?? IMPORTED_CONTEXT_BARS))
   const random = opts.random ?? Math.random
 
