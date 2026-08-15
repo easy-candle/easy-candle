@@ -19,6 +19,11 @@ import type {
 interface EasyCandleApi {
   fetchKlines: (params: KlinesFetchParams) => Promise<KlinesFetchResult>
   getAppVersion: () => Promise<string>
+  minimizeWindow: () => void
+  toggleMaximizeWindow: () => void
+  closeWindow: () => void
+  isWindowMaximized: () => Promise<boolean>
+  onWindowMaximizedChange: (callback: (maximized: boolean) => void) => () => void
   openImportDialog: () => Promise<ImportDialogResult>
   readImportFile: (path: string) => Promise<ImportReadResult>
   saveImport: (params: ImportSaveParams) => Promise<ImportSaveResult>
