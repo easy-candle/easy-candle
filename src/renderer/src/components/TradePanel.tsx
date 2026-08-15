@@ -1,4 +1,13 @@
-import { ArrowDownCircle, ArrowUpCircle, CircleX, Minus, Plus } from 'lucide-react'
+import {
+  ChevronUp,
+  ArrowDownCircle,
+  ChevronDown,
+  ArrowUpCircle,
+  CircleX,
+  Minus,
+  Plus
+} from 'lucide-react'
+import { useState } from 'react'
 import IconButton from '@/components/IconButton'
 import {
   formatExitReason,
@@ -10,10 +19,12 @@ import {
 } from '@/lib/paperTrade'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import { useReplayStore } from '@/store/replayStore'
+import Tooltip from "@/components/Tooltip";
 
 const RR_PRESETS = [1, 1.5, 2, 3] as const
 
 export default function TradePanel() {
+  const [showPositions, setShowPositions] = useState(true)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
   const replayLoading = useReplayStore((s) => s.replayLoading)
@@ -164,91 +175,108 @@ export default function TradePanel() {
               {formatPnl(perf.total)}
             </span>
           </span>
+          <Tooltip text={showPositions ? 'Hide positions list' : 'Show positions list'} side="top">
+            <button
+              type="button"
+              onClick={() => setShowPositions((v) => !v)}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-800/80 hover:text-zinc-300"
+            >
+              {showPositions ? (
+                <ChevronDown className="h-5 w-5" />
+              ) : (
+                <ChevronUp className="h-5 w-5" />
+              )}
+            </button>
+          </Tooltip>
         </div>
       </div>
 
-      <div className="max-h-36 overflow-y-auto px-3 py-1.5">
-        {!position && closedTrades.length === 0 ? (
-          <p className="py-1.5 text-[11px] text-zinc-600">
-            Open LONG or SHORT at the current close (1 unit). First SL/TP drag seeds the other at{' '}
-            {rrLabel} as a guide — then move either level freely. Candle advances leave levels put.
-          </p>
-        ) : (
-          <ul className="divide-y divide-zinc-800/80 text-[11px]">
-            {position && (
-              <li className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums">
-                <span className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
-                  Open
-                </span>
-                <span
-                  className={
-                    position.side === 'long'
-                      ? 'font-semibold text-emerald-400'
-                      : 'font-semibold text-red-400'
-                  }
-                >
-                  {position.side.toUpperCase()}
-                </span>
-                <span className="text-zinc-400">
-                  Entry {position.entryPrice.toFixed(2)} · {formatUtcCandleTime(position.entryTime)}
-                </span>
-                {position.takeProfit != null && (
-                  <span className="text-teal-400/90">
-                    TP {position.takeProfit.toFixed(2)}
-                    {openRr != null ? ` · ${formatRiskReward(openRr)}` : ` · ${rrLabel}`}
+      {showPositions && (
+        <div className="max-h-36 overflow-y-auto px-3 py-1.5">
+          {!position && closedTrades.length === 0 ? (
+            <p className="py-1.5 text-[11px] text-zinc-600">
+              Open LONG or SHORT at the current close (1 unit). First SL/TP drag seeds the other at{' '}
+              {rrLabel} as a guide — then move either level freely. Candle advances leave levels
+              put.
+            </p>
+          ) : (
+            <ul className="divide-y divide-zinc-800/80 text-[11px]">
+              {position && (
+                <li className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums">
+                  <span className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                    Open
                   </span>
-                )}
-                {position.stopLoss != null && (
-                  <span className="text-orange-400/90">SL {position.stopLoss.toFixed(2)}</span>
-                )}
-                <span
-                  className={`ml-auto font-medium ${
-                    openPnl != null && openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'
-                  }`}
-                >
-                  {formatPnl(openPnl)}
-                </span>
-              </li>
-            )}
+                  <span
+                    className={
+                      position.side === 'long'
+                        ? 'font-semibold text-emerald-400'
+                        : 'font-semibold text-red-400'
+                    }
+                  >
+                    {position.side.toUpperCase()}
+                  </span>
+                  <span className="text-zinc-400">
+                    Entry {position.entryPrice.toFixed(2)} ·{' '}
+                    {formatUtcCandleTime(position.entryTime)}
+                  </span>
+                  {position.takeProfit != null && (
+                    <span className="text-teal-400/90">
+                      TP {position.takeProfit.toFixed(2)}
+                      {openRr != null ? ` · ${formatRiskReward(openRr)}` : ` · ${rrLabel}`}
+                    </span>
+                  )}
+                  {position.stopLoss != null && (
+                    <span className="text-orange-400/90">SL {position.stopLoss.toFixed(2)}</span>
+                  )}
+                  <span
+                    className={`ml-auto font-medium ${
+                      openPnl != null && openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'
+                    }`}
+                  >
+                    {formatPnl(openPnl)}
+                  </span>
+                </li>
+              )}
 
-            {[...closedTrades].reverse().map((trade) => (
-              <li
-                key={`${trade.id}-${trade.exitTime}`}
-                className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums text-zinc-400"
-              >
-                <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Closed
-                </span>
-                <span
-                  className={
-                    trade.side === 'long'
-                      ? 'font-semibold text-emerald-400/90'
-                      : 'font-semibold text-red-400/90'
-                  }
+              {[...closedTrades].reverse().map((trade) => (
+                <li
+                  key={`${trade.id}-${trade.exitTime}`}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums text-zinc-400"
                 >
-                  {trade.side.toUpperCase()}
-                </span>
-                <span className="rounded bg-zinc-900/80 px-1 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
-                  {formatExitReason(trade.exitReason)}
-                </span>
-                <span>
-                  {trade.entryPrice.toFixed(2)} → {trade.exitPrice.toFixed(2)}
-                </span>
-                <span className="text-zinc-600">
-                  {formatUtcCandleTime(trade.entryTime)} → {formatUtcCandleTime(trade.exitTime)}
-                </span>
-                <span
-                  className={`ml-auto font-medium ${
-                    trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
-                  }`}
-                >
-                  {formatPnl(trade.pnl)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+                  <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Closed
+                  </span>
+                  <span
+                    className={
+                      trade.side === 'long'
+                        ? 'font-semibold text-emerald-400/90'
+                        : 'font-semibold text-red-400/90'
+                    }
+                  >
+                    {trade.side.toUpperCase()}
+                  </span>
+                  <span className="rounded bg-zinc-900/80 px-1 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
+                    {formatExitReason(trade.exitReason)}
+                  </span>
+                  <span>
+                    {trade.entryPrice.toFixed(2)} → {trade.exitPrice.toFixed(2)}
+                  </span>
+                  <span className="text-zinc-600">
+                    {formatUtcCandleTime(trade.entryTime)} → {formatUtcCandleTime(trade.exitTime)}
+                  </span>
+                  <span
+                    className={`ml-auto font-medium ${
+                      trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
+                    }`}
+                  >
+                    {formatPnl(trade.pnl)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }
