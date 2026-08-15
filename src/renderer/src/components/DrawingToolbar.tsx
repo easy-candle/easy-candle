@@ -15,9 +15,7 @@ export default function DrawingToolbar({ variant = 'inline' }: DrawingToolbarPro
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const clearDrawings = useReplayStore((s) => s.clearDrawings)
 
-  if (mode !== 'replay') return null
-
-  const disabled = replayStatus === 'ended'
+  const disabled = mode === 'replay' && replayStatus === 'ended'
   const shellClass =
     variant === 'floating'
       ? 'flex items-center gap-1'

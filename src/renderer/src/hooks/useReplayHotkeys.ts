@@ -17,7 +17,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * - ArrowRight → step forward one candle (hold to keep stepping)
  * - ArrowLeft / Backspace → step backward one candle (hold to keep stepping)
  * - Tab (split only) → toggle next-candle pane (left ↔ right)
- * - Escape → cancel pending trend line / return to select tool
  */
 export function useReplayHotkeys(): void {
   const mode = useReplayStore((s) => s.mode)
@@ -25,7 +24,6 @@ export function useReplayHotkeys(): void {
   const pause = useReplayStore((s) => s.pause)
   const stepForward = useReplayStore((s) => s.stepForward)
   const stepBackward = useReplayStore((s) => s.stepBackward)
-  const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const setDriverPane = useReplayStore((s) => s.setDriverPane)
 
   useEffect(() => {
@@ -36,14 +34,6 @@ export function useReplayHotkeys(): void {
 
       const state = useReplayStore.getState()
       if (state.mode !== 'replay') return
-
-      if (event.key === 'Escape') {
-        if (state.pendingTrend || state.drawTool !== 'select') {
-          event.preventDefault()
-          setDrawTool('select')
-        }
-        return
-      }
 
       if (event.key === 'Tab' && state.chartSplit) {
         if (event.repeat) return
@@ -91,5 +81,5 @@ export function useReplayHotkeys(): void {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, play, pause, stepForward, stepBackward, setDrawTool, setDriverPane])
+  }, [mode, play, pause, stepForward, stepBackward, setDriverPane])
 }

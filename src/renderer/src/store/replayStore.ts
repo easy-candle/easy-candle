@@ -91,6 +91,36 @@ function nextTradeId(): string {
   return `t-${tradeSeq}`
 }
 
+function emptyDrawingState(): {
+  drawTool: DrawTool
+  drawings: Drawing[]
+  pendingTrend: null
+} {
+  return { drawTool: 'select', drawings: [], pendingTrend: null }
+}
+
+function remapDrawingsToInterval(drawings: Drawing[], intervalSec: number): Drawing[] {
+  return drawings.map((drawing) => {
+    if (drawing.type === 'hline') return drawing
+    return {
+      ...drawing,
+      t1: alignTimeToInterval(drawing.t1, intervalSec),
+      t2: alignTimeToInterval(drawing.t2, intervalSec)
+    }
+  })
+}
+
+function remapPendingTrendToInterval(
+  pending: TrendPoint | null,
+  intervalSec: number
+): TrendPoint | null {
+  if (pending == null) return null
+  return {
+    time: alignTimeToInterval(pending.time, intervalSec),
+    price: pending.price
+  }
+}
+
 const engine = createReplayEngine()
 const secondaryEngine = createReplayEngine()
 
@@ -273,10 +303,12 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   function publishReplay(kind: ChartSyncKind, opts: { fitContent?: boolean } = {}): void {
     const snap = engineSnapshot()
     const fitContent = opts.fitContent ?? kind === 'replace'
+    const enteringReplay = get().mode !== 'replay'
     set((s) => ({
       mode: 'replay',
       candles: engine.getState().candles,
       ...snap,
+      ...(enteringReplay ? emptyDrawingState() : {}),
       chartSync: {
         kind,
         fitContent: kind === 'append' ? false : fitContent,
@@ -837,9 +869,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         meta.candleCount > 0
           ? `Imported ${meta.symbol} ${meta.timeframe} · ${meta.candleCount.toLocaleString()} candles`
           : null,
-      drawTool: 'select',
-      drawings: [],
-      pendingTrend: null,
+      ...emptyDrawingState(),
       position: null,
       closedTrades: [],
       tradeMarkers: [],
@@ -873,7 +903,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }, tickMs())
   }
 
-  function resetReplayState(opts: { keepImport?: boolean } = {}): void {
+  function resetReplayState(opts: { keepImport?: boolean; keepDrawings?: boolean } = {}): void {
     stopClock()
     prefetchInFlight = false
     secondaryPrefetchInFlight = false
@@ -892,9 +922,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       isPrefetching: false,
       replayLoading: false,
       replayMessage: null,
-      drawTool: 'select',
-      drawings: [],
-      pendingTrend: null,
+      ...(opts.keepDrawings ? {} : emptyDrawingState()),
       position: null,
       closedTrades: [],
       tradeMarkers: [],
@@ -1237,22 +1265,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         ...marker,
         time: alignTimeToInterval(marker.time, nextIntervalSec)
       }))
-      const remappedDrawings = get().drawings.map((drawing) => {
-        if (drawing.type === 'hline') return drawing
-        return {
-          ...drawing,
-          t1: alignTimeToInterval(drawing.t1, nextIntervalSec),
-          t2: alignTimeToInterval(drawing.t2, nextIntervalSec)
-        }
-      })
-      const pending = get().pendingTrend
-      const remappedPending =
-        pending == null
-          ? null
-          : {
-              time: alignTimeToInterval(pending.time, nextIntervalSec),
-              price: pending.price
-            }
+      const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
+      const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
       const open = get().position
       const remappedPosition =
         open == null
@@ -1299,22 +1313,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       ...marker,
       time: alignTimeToInterval(marker.time, nextIntervalSec)
     }))
-    const remappedDrawings = get().drawings.map((drawing) => {
-      if (drawing.type === 'hline') return drawing
-      return {
-        ...drawing,
-        t1: alignTimeToInterval(drawing.t1, nextIntervalSec),
-        t2: alignTimeToInterval(drawing.t2, nextIntervalSec)
-      }
-    })
-    const pending = get().pendingTrend
-    const remappedPending =
-      pending == null
-        ? null
-        : {
-            time: alignTimeToInterval(pending.time, nextIntervalSec),
-            price: pending.price
-          }
+    const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
+    const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
 
     const open = get().position
     const remappedPosition =
@@ -1412,8 +1412,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     addHorizontalLine(price) {
-      if (get().mode !== 'replay') return
-      if (get().replayStatus === 'ended') return
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
       if (!Number.isFinite(price)) return
       set((s) => ({
         drawTool: 'select',
@@ -1422,8 +1421,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     updateHorizontalLine(id, price) {
-      if (get().mode !== 'replay') return
-      if (get().replayStatus === 'ended') return
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
       if (!id || !Number.isFinite(price)) return
       set((s) => ({
         drawings: s.drawings.map((d) =>
@@ -1433,8 +1431,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     addTrendPoint(point) {
-      if (get().mode !== 'replay') return
-      if (get().replayStatus === 'ended') return
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
       if (!point || !Number.isFinite(point.time) || !Number.isFinite(point.price)) {
         return
       }
@@ -1463,8 +1460,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     updateTrendLineEndpoint(id, end, point) {
-      if (get().mode !== 'replay') return
-      if (get().replayStatus === 'ended') return
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
       if (!id || !point) return
       if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) return
       set((s) => ({
@@ -1535,8 +1531,15 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           set({ error: `Timeframe ${timeframe} is not available for this import.` })
           return
         }
+        const nextIntervalSec = intervalSecondsFor(timeframe)
         void (async () => {
-          set({ status: 'loading', error: null, timeframe })
+          set({
+            status: 'loading',
+            error: null,
+            timeframe,
+            drawings: remapDrawingsToInterval(get().drawings, nextIntervalSec),
+            pendingTrend: remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
+          })
           const loaded = await loadImportedSeries(meta.id, timeframe)
           if (!loaded) {
             set({
@@ -1562,8 +1565,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         return
       }
 
-      resetReplayState()
-      set({ timeframe, candles: [] })
+      const nextIntervalSec = intervalSecondsFor(timeframe)
+      const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
+      const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
+      resetReplayState({ keepDrawings: true })
+      set({
+        timeframe,
+        candles: [],
+        drawings: remappedDrawings,
+        pendingTrend: remappedPending
+      })
       void get().loadCandles()
       if (get().chartSplit) {
         void loadSecondaryLiveCandles()

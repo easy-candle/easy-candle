@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -14,14 +15,26 @@ function isEditableTarget(target: EventTarget | null): boolean {
 /**
  * UI keyboard shortcuts (live + replay):
  * - F → toggle chart fullscreen
+ * - Escape → cancel pending trend line / return to select tool
  */
 export function useUiHotkeys(): void {
   const toggleChartFullscreen = useUiLayoutStore((s) => s.toggleChartFullscreen)
+  const setDrawTool = useReplayStore((s) => s.setDrawTool)
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       if (isEditableTarget(event.target)) return
       if (event.ctrlKey || event.metaKey || event.altKey) return
+
+      if (event.key === 'Escape') {
+        const state = useReplayStore.getState()
+        if (state.pendingTrend || state.drawTool !== 'select') {
+          event.preventDefault()
+          setDrawTool('select')
+        }
+        return
+      }
+
       if (event.repeat) return
 
       if (event.key === 'f' || event.key === 'F') {
@@ -32,5 +45,5 @@ export function useUiHotkeys(): void {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toggleChartFullscreen])
+  }, [toggleChartFullscreen, setDrawTool])
 }

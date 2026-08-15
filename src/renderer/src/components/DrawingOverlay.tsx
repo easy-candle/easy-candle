@@ -187,9 +187,10 @@ export default function DrawingOverlay({
     }
   }, [chart, series, bump])
 
-  const canEdit = mode === 'replay' && replayStatus !== 'ended'
+  const canEditTrade = mode === 'replay' && replayStatus !== 'ended'
+  const canDraw = !(mode === 'replay' && replayStatus === 'ended')
 
-  const placing = canEdit && (drawTool === 'hline' || drawTool === 'trendline')
+  const placing = canDraw && (drawTool === 'hline' || drawTool === 'trendline')
 
   // Document-level drag so handles stay under the cursor outside the SVG.
   useEffect(() => {
@@ -338,7 +339,8 @@ export default function DrawingOverlay({
   }
 
   function startDrag(event: ReactMouseEvent, next: DragState): void {
-    if (!canEdit) return
+    const allowed = next.kind === 'hline' || next.kind === 'trend' ? canDraw : canEditTrade
+    if (!allowed) return
     event.preventDefault()
     event.stopPropagation()
     dragRef.current = next
@@ -454,8 +456,8 @@ export default function DrawingOverlay({
   const priceScaleW = chart?.priceScale('right').width() ?? 56
   const paneRight = Math.max(0, (width || 0) - priceScaleW - OVERLAY_LAYOUT.rightPad)
   const placeExtra =
-    (canEdit && position?.takeProfit == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0) +
-    (canEdit && position?.stopLoss == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0)
+    (canEditTrade && position?.takeProfit == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0) +
+    (canEditTrade && position?.stopLoss == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0)
   const entryPillW =
     OVERLAY_LAYOUT.qtyW + estimatePnlWidth(openPnlLabel) + OVERLAY_LAYOUT.closeW
   const clusterNeedW = placeExtra + entryPillW
@@ -834,14 +836,14 @@ export default function DrawingOverlay({
             let x = clusterX
             const nodes: React.JSX.Element[] = []
 
-            if (canEdit && position.takeProfit == null) {
+            if (canEditTrade && position.takeProfit == null) {
               nodes.push(
                 <g key="place-tp">{renderPlaceButton('tp', x, entryY)}</g>
               )
               x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
             }
 
-            if (canEdit && position.stopLoss == null) {
+            if (canEditTrade && position.stopLoss == null) {
               nodes.push(
                 <g key="place-sl">{renderPlaceButton('sl', x, entryY)}</g>
               )
@@ -858,7 +860,7 @@ export default function DrawingOverlay({
                   pnlLabel: openPnlLabel,
                   pnlColor: openPnlColor,
                   closeColor: TRADE_OVERLAY.closeIcon,
-                  onClose: canEdit
+                  onClose: canEditTrade
                     ? (e) => {
                         stopAction(e)
                         paperClose()
@@ -884,11 +886,11 @@ export default function DrawingOverlay({
               pnlLabel: tpPnlLabel,
               pnlColor: TRADE_OVERLAY.tpLine,
               closeColor: TRADE_OVERLAY.tpLine,
-              dragCursor: canEdit ? 'cursor-ns-resize' : undefined,
-              onDragStart: canEdit
+              dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
+              onDragStart: canEditTrade
                 ? (e) => startDrag(e, { kind: 'tp', mode: 'move', moved: false })
                 : undefined,
-              onClose: canEdit
+              onClose: canEditTrade
                 ? (e) => {
                     stopAction(e)
                     setTakeProfit(null)
@@ -909,11 +911,11 @@ export default function DrawingOverlay({
               pnlLabel: slPnlLabel,
               pnlColor: TRADE_OVERLAY.slLine,
               closeColor: TRADE_OVERLAY.slLine,
-              dragCursor: canEdit ? 'cursor-ns-resize' : undefined,
-              onDragStart: canEdit
+              dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
+              onDragStart: canEditTrade
                 ? (e) => startDrag(e, { kind: 'sl', mode: 'move', moved: false })
                 : undefined,
-              onClose: canEdit
+              onClose: canEditTrade
                 ? (e) => {
                     stopAction(e)
                     setStopLoss(null)
@@ -965,7 +967,7 @@ export default function DrawingOverlay({
                 stroke={DRAW_STROKE}
                 strokeWidth={DRAW_WIDTH}
               />
-              {canEdit && midX > 0 && (
+              {canDraw && midX > 0 && (
                 <rect
                   x={midX - 4.5}
                   y={y - 4.5}
@@ -1000,7 +1002,7 @@ export default function DrawingOverlay({
                 stroke={DRAW_STROKE}
                 strokeWidth={DRAW_WIDTH}
               />
-              {canEdit && (
+              {canDraw && (
                 <>
                   <circle
                     cx={a.x}

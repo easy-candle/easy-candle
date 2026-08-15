@@ -81,7 +81,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <IndicatorsDropdown />
           {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
 {!inReplay && <ReplayStartModal />}
-          {inReplay && showDrawingToolbar && <DrawingToolbar />}
+          {showDrawingToolbar && <DrawingToolbar />}
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
             <IconButton
               tooltip={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
@@ -160,7 +160,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         >
           {children}
           {showReplayControls && inReplay && <FloatingReplayBar />}
-          {showDrawingToolbar && chartFullscreen && inReplay && <FloatingDrawingBar />}
+          {showDrawingToolbar && chartFullscreen && <FloatingDrawingBar />}
           {chartFullscreen && inReplay && <FloatingTradeBar />}
           {chartFullscreen && (
             <div className="pointer-events-none absolute right-2 top-2 z-30">
