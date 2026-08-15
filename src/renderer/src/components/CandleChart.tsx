@@ -15,6 +15,7 @@ import {
   type Time
 } from 'lightweight-charts'
 import DrawingOverlay from '@/components/DrawingOverlay'
+import OhlcLegend from '@/components/OhlcLegend'
 import wordmarkUrl from '@/assets/easycandle-wordmark.svg'
 import type { ChartOverlay } from '@/lib/indicators'
 import type { Candle } from '@shared/candleUtils'
@@ -273,13 +274,16 @@ export default function CandleChart({
         aria-hidden
       />
       {chartReady && (
-        <DrawingOverlay
-          chart={chartReady.chart}
-          series={chartReady.series}
-          paneTimeframe={timeframe}
-          paneCurrentCandle={currentCandle}
-          paneCandles={seriesCandles}
-        />
+        <>
+          <OhlcLegend chart={chartReady.chart} series={chartReady.series} candles={seriesCandles} />
+          <DrawingOverlay
+            chart={chartReady.chart}
+            series={chartReady.series}
+            paneTimeframe={timeframe}
+            paneCurrentCandle={currentCandle}
+            paneCandles={seriesCandles}
+          />
+        </>
       )}
       {empty && (
         <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-zinc-950/40 px-4 text-center text-sm text-zinc-500">
