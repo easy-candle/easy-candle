@@ -1,6 +1,11 @@
-import { Minus, MousePointer2, Trash2, TrendingUp } from 'lucide-react'
+import { MousePointer2, Trash2 } from 'lucide-react'
+import DrawingToolIcon from '@/components/DrawingToolIcon'
 import IconButton from '@/components/IconButton'
 import { useReplayStore } from '@/store/replayStore'
+import fibonacciIcon from '@/assets/drawings/fibonacci.svg?raw'
+import hlineIcon from '@/assets/drawings/hline.svg?raw'
+import rectangleIcon from '@/assets/drawings/rectangle.svg?raw'
+import trendlineIcon from '@/assets/drawings/trendline.svg?raw'
 
 type DrawingToolbarProps = {
   /** inline = top toolbar chrome; floating = no left border (inside FloatingPanel) */
@@ -37,7 +42,7 @@ export default function DrawingToolbar({ variant = 'inline' }: DrawingToolbarPro
         disabled={disabled}
         onClick={() => setDrawTool('hline')}
       >
-        <Minus className="h-4 w-4" />
+        <DrawingToolIcon svg={hlineIcon} />
       </IconButton>
       <IconButton
         tooltip="Trend line"
@@ -45,7 +50,23 @@ export default function DrawingToolbar({ variant = 'inline' }: DrawingToolbarPro
         disabled={disabled}
         onClick={() => setDrawTool('trendline')}
       >
-        <TrendingUp className="h-4 w-4" />
+        <DrawingToolIcon svg={trendlineIcon} />
+      </IconButton>
+      <IconButton
+        tooltip="Fibonacci retracement"
+        active={drawTool === 'fib'}
+        disabled={disabled}
+        onClick={() => setDrawTool('fib')}
+      >
+        <DrawingToolIcon svg={fibonacciIcon} />
+      </IconButton>
+      <IconButton
+        tooltip="Rectangle"
+        active={drawTool === 'rect'}
+        disabled={disabled}
+        onClick={() => setDrawTool('rect')}
+      >
+        <DrawingToolIcon svg={rectangleIcon} />
       </IconButton>
       <IconButton
         tooltip="Clear drawings"

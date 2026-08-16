@@ -11,6 +11,7 @@ const SHORTCUTS: Shortcut[] = [
   { keys: ['Tab'], description: 'Toggle next-candle pane (split view)' },
   { keys: ['Escape'], description: 'Cancel drawing / return to select tool' },
   { keys: ['Delete', 'Backspace'], description: 'Delete selected drawing' },
+  { keys: ['Ctrl+Drag'], description: 'Duplicate drawing' },
   { keys: ['F'], description: 'Toggle chart fullscreen' }
 ]
 

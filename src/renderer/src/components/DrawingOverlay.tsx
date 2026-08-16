@@ -8,11 +8,31 @@ import {
 import type { IChartApi, ISeriesApi, SeriesType, Time } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import {
+  isTwoPointTool,
+  type Drawing,
+  type Endpoint,
+  type RectHandle,
+  type TrendPoint,
+  type TwoPointTool
+} from '@/lib/chart/drawingGeometry'
+import {
   isTimeInSeriesRange,
   logicalToX,
   unixTimeToLogical,
   xToUnixTime
 } from '@/lib/chart/drawingTimeScale'
+import {
+  DRAW_STROKE,
+  DRAW_WIDTH,
+  FibShape,
+  fibLevelsAt,
+  HANDLE_FILL,
+  HANDLE_STROKE,
+  HLineShape,
+  RectShape,
+  TrendLineShape,
+  type Point
+} from '@/components/DrawingShapes'
 import {
   formatPnlUsd,
   formatRiskReward,
@@ -31,18 +51,37 @@ import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 
-type Point = { x: number; y: number }
-
-const DRAW_STROKE = '#f23645'
-const DRAW_WIDTH = 2.5
-const HANDLE_FILL = '#2962ff'
-const HANDLE_STROKE = '#ffffff'
-const SELECT_STROKE = '#f59e0b'
+type BodyOrigin = { drawing: Drawing; time: number; price: number }
 
 type DragState =
   | { kind: 'hline'; id: string; moved: boolean }
-  | { kind: 'trend'; id: string; end: 'start' | 'end'; moved: boolean }
+  | {
+      kind: 'trend'
+      id: string
+      end: Endpoint | 'body'
+      moved: boolean
+      origin?: BodyOrigin
+    }
+  | {
+      kind: 'fib'
+      id: string
+      end: Endpoint | 'body'
+      moved: boolean
+      origin?: BodyOrigin
+    }
+  | {
+      kind: 'rect'
+      id: string
+      handle: RectHandle | 'body'
+      moved: boolean
+      origin?: BodyOrigin
+    }
+  | { kind: 'place-two'; tool: TwoPointTool; startX: number; startY: number; moved: boolean }
   | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
+
+function wantsClone(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
+  return event.ctrlKey || event.metaKey
+}
 
 type LevelPreview = {
   kind: 'tp' | 'sl'
@@ -137,8 +176,12 @@ export default function DrawingOverlay({
   const riskReward = useReplayStore((s) => s.riskReward)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
   const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
-  const addTrendPoint = useReplayStore((s) => s.addTrendPoint)
-  const updateTrendLineEndpoint = useReplayStore((s) => s.updateTrendLineEndpoint)
+  const addTwoPoint = useReplayStore((s) => s.addTwoPoint)
+  const updateTwoPointEndpoint = useReplayStore((s) => s.updateTwoPointEndpoint)
+  const updateRectHandle = useReplayStore((s) => s.updateRectHandle)
+  const cloneDrawing = useReplayStore((s) => s.cloneDrawing)
+  const moveDrawing = useReplayStore((s) => s.moveDrawing)
+  const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const selectDrawing = useReplayStore((s) => s.selectDrawing)
   const setTakeProfit = useReplayStore((s) => s.setTakeProfit)
   const setStopLoss = useReplayStore((s) => s.setStopLoss)
@@ -230,7 +273,7 @@ export default function DrawingOverlay({
     return () => chart.unsubscribeClick(handler)
   }, [chart, canSelect, selectDrawing])
 
-  const placing = canDraw && (drawTool === 'hline' || drawTool === 'trendline')
+  const placing = canDraw && (drawTool === 'hline' || isTwoPointTool(drawTool))
 
   // Document-level drag so handles stay under the cursor outside the SVG.
   useEffect(() => {
@@ -244,6 +287,13 @@ export default function DrawingOverlay({
       const rect = el.getBoundingClientRect()
       const x = event.clientX - rect.left
       const y = event.clientY - rect.top
+
+      if (drag.kind === 'place-two') {
+        setHover({ x, y })
+        if (Math.hypot(x - drag.startX, y - drag.startY) >= 4) drag.moved = true
+        return
+      }
+
       const price = series.coordinateToPrice(y)
       if (price == null || !Number.isFinite(price)) return
 
@@ -292,20 +342,59 @@ export default function DrawingOverlay({
         return
       }
 
-      if (drag.kind !== 'trend') return
+      if (drag.kind === 'trend' || drag.kind === 'fib' || drag.kind === 'rect') {
+        const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+        if (timeSec == null) return
+        const point: TrendPoint = { time: timeSec, price }
+        drag.moved = true
 
-      const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
-      if (timeSec == null) return
-      drag.moved = true
-      updateTrendLineEndpoint(drag.id, drag.end, {
-        time: timeSec,
-        price
-      })
+        if (drag.kind === 'rect') {
+          if (drag.handle === 'body') {
+            const origin = drag.origin
+            if (!origin) return
+            moveDrawing(drag.id, origin.drawing, timeSec - origin.time, price - origin.price)
+            return
+          }
+          updateRectHandle(drag.id, drag.handle, point)
+          return
+        }
+
+        if (drag.end === 'body') {
+          const origin = drag.origin
+          if (!origin) return
+          moveDrawing(drag.id, origin.drawing, timeSec - origin.time, price - origin.price)
+          return
+        }
+
+        updateTwoPointEndpoint(drag.id, drag.end, point)
+      }
     }
 
-    function onUp(): void {
+    function onUp(event: MouseEvent): void {
       const drag = dragRef.current
       if (drag?.moved) suppressClickRef.current = true
+
+      if (drag?.kind === 'place-two') {
+        suppressClickRef.current = true
+        if (drag.moved && series && chart) {
+          const el = chart.chartElement()
+          if (el) {
+            const box = el.getBoundingClientRect()
+            const x = event.clientX - box.left
+            const y = event.clientY - box.top
+            const price = series.coordinateToPrice(y)
+            const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+            if (price != null && Number.isFinite(price) && timeSec != null) {
+              addTwoPoint({ time: timeSec, price })
+            } else {
+              setDrawTool(drag.tool)
+            }
+          }
+        } else {
+          setDrawTool(drag.tool)
+        }
+        setHover(null)
+      }
 
       if (drag && (drag.kind === 'tp' || drag.kind === 'sl') && drag.mode === 'place') {
         const preview = levelPreviewRef.current
@@ -331,7 +420,11 @@ export default function DrawingOverlay({
     chart,
     series,
     updateHorizontalLine,
-    updateTrendLineEndpoint,
+    updateTwoPointEndpoint,
+    updateRectHandle,
+    moveDrawing,
+    addTwoPoint,
+    setDrawTool,
     setTakeProfit,
     setStopLoss,
     intervalSeconds
@@ -342,24 +435,27 @@ export default function DrawingOverlay({
       suppressClickRef.current = false
       return
     }
-    if (!placing || !chart || !series) return
+    if (!placing || drawTool !== 'hline' || !series) return
 
     const rect = event.currentTarget.getBoundingClientRect()
-    const x = event.clientX - rect.left
     const y = event.clientY - rect.top
     const price = series.coordinateToPrice(y)
     if (price == null || !Number.isFinite(price)) return
+    addHorizontalLine(price)
+  }
 
-    if (drawTool === 'hline') {
-      addHorizontalLine(price)
-      return
-    }
-
-    if (drawTool === 'trendline') {
-      const timeSec = xToUnixTime(chart, x, paneCandles, intervalSeconds)
-      if (timeSec == null) return
-      addTrendPoint({ time: timeSec, price })
-    }
+  function onSvgMouseDown(event: ReactMouseEvent<SVGSVGElement>): void {
+    if (!canDraw || !isTwoPointTool(drawTool) || event.button !== 0 || !chart || !series) return
+    const point = pointerAtEvent(event)
+    if (!point) return
+    const box = event.currentTarget.getBoundingClientRect()
+    const x = event.clientX - box.left
+    const y = event.clientY - box.top
+    event.preventDefault()
+    addTwoPoint(point)
+    dragRef.current = { kind: 'place-two', tool: drawTool, startX: x, startY: y, moved: false }
+    setHover({ x, y })
+    setDraggingKey('place-two')
   }
 
   function onMove(event: ReactMouseEvent<SVGSVGElement>): void {
@@ -374,27 +470,73 @@ export default function DrawingOverlay({
     })
   }
 
+  function pointerAtEvent(event: ReactMouseEvent): TrendPoint | null {
+    if (!chart || !series) return null
+    const el = chart.chartElement()
+    if (!el) return null
+    const box = el.getBoundingClientRect()
+    const x = event.clientX - box.left
+    const y = event.clientY - box.top
+    const price = series.coordinateToPrice(y)
+    const time = xToUnixTime(chart, x, paneCandles, intervalSeconds)
+    if (price == null || !Number.isFinite(price) || time == null) return null
+    return { time, price }
+  }
+
   function startDrag(event: ReactMouseEvent, next: DragState): void {
-    const allowed = next.kind === 'hline' || next.kind === 'trend' ? canDraw : canEditTrade
+    const isDrawingDrag =
+      next.kind === 'hline' || next.kind === 'trend' || next.kind === 'fib' || next.kind === 'rect'
+    const allowed = isDrawingDrag ? canDraw : canEditTrade
     if (!allowed) return
     event.preventDefault()
     event.stopPropagation()
-    dragRef.current = next
-    if (next.kind === 'hline') {
-      setDraggingKey(`hline:${next.id}`)
-    } else if (next.kind === 'trend') {
-      setDraggingKey(`trend:${next.id}:${next.end}`)
+
+    let drag: DragState = next
+    if (isDrawingDrag) {
+      const isBody =
+        next.kind === 'hline' ||
+        (next.kind === 'rect' && next.handle === 'body') ||
+        ((next.kind === 'trend' || next.kind === 'fib') && next.end === 'body')
+
+      let id = next.id
+      if (isBody && wantsClone(event)) {
+        id = cloneDrawing(id) ?? id
+      }
+
+      if (isBody && next.kind !== 'hline') {
+        const originPt = pointerAtEvent(event)
+        const drawing = useReplayStore.getState().drawings.find((d) => d.id === id)
+        if (!originPt || !drawing) return
+        drag = {
+          ...next,
+          id,
+          origin: { drawing, time: originPt.time, price: originPt.price }
+        }
+      } else {
+        drag = { ...next, id }
+      }
+    }
+
+    dragRef.current = drag
+    if (drag.kind === 'hline') {
+      setDraggingKey(`hline:${drag.id}`)
+    } else if (drag.kind === 'trend' || drag.kind === 'fib') {
+      setDraggingKey(`${drag.kind}:${drag.id}:${drag.end}`)
+    } else if (drag.kind === 'rect') {
+      setDraggingKey(`rect:${drag.id}:${drag.handle}`)
+    } else if (drag.kind === 'place-two') {
+      setDraggingKey('place-two')
     } else {
-      setDraggingKey(`${next.kind}:${next.mode}`)
+      setDraggingKey(`${drag.kind}:${drag.mode}`)
       setPlaceHint(null)
       // Seed preview immediately at the entry handle Y so the line appears on drag start.
       if (series && position) {
         const seedY = series.priceToCoordinate(position.entryPrice)
         if (seedY != null) {
           const linked =
-            next.mode === 'place'
+            drag.mode === 'place'
               ? linkedLevelForDrag(
-                  next.kind,
+                  drag.kind,
                   position.entryPrice,
                   position.side,
                   position.entryPrice,
@@ -403,7 +545,7 @@ export default function DrawingOverlay({
                 )
               : { linkedPrice: null, linkedY: null }
           setLevelPreview({
-            kind: next.kind,
+            kind: drag.kind,
             price: position.entryPrice,
             y: seedY,
             linkedPrice: linked.linkedPrice,
@@ -717,8 +859,10 @@ export default function DrawingOverlay({
       width={width || '100%'}
       height={height || '100%'}
       onClick={onClick}
+      onMouseDown={onSvgMouseDown}
       onMouseMove={onMove}
       onMouseLeave={() => {
+        if (dragRef.current?.kind === 'place-two') return
         setHover(null)
         setPlaceHint(null)
       }}
@@ -1003,50 +1147,18 @@ export default function DrawingOverlay({
         if (drawing.type === 'hline') {
           const y = series?.priceToCoordinate(drawing.price)
           if (y == null) return null
-          const selected = drawing.id === selectedDrawingId
           return (
-            <g key={drawing.id}>
-              <line
-                x1={0}
-                x2={width || '100%'}
-                y1={y}
-                y2={y}
-                stroke={selected ? SELECT_STROKE : DRAW_STROKE}
-                strokeWidth={DRAW_WIDTH}
-              />
-              {canSelect && (
-                <line
-                  x1={0}
-                  x2={width || '100%'}
-                  y1={y}
-                  y2={y}
-                  stroke="transparent"
-                  strokeWidth={14}
-                  className="pointer-events-auto cursor-pointer"
-                  onClick={(e) => selectDrawingOnClick(e, drawing.id)}
-                />
-              )}
-              {canDraw && midX > 0 && (
-                <rect
-                  x={midX - 4.5}
-                  y={y - 4.5}
-                  width={9}
-                  height={9}
-                  rx={2}
-                  ry={2}
-                  fill={selected ? SELECT_STROKE : HANDLE_FILL}
-                  stroke={HANDLE_STROKE}
-                  strokeWidth={1.25}
-                  className="pointer-events-auto cursor-ns-resize"
-                  onMouseDown={(e) =>
-                    startDrag(e, { kind: 'hline', id: drawing.id, moved: false })
-                  }
-                  onClick={
-                    canSelect ? (e) => selectDrawingOnClick(e, drawing.id) : undefined
-                  }
-                />
-              )}
-            </g>
+            <HLineShape
+              key={drawing.id}
+              y={y}
+              width={width}
+              midX={midX}
+              selected={drawing.id === selectedDrawingId}
+              canSelect={canSelect}
+              canDraw={canDraw}
+              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+              onDrag={(e) => startDrag(e, { kind: 'hline', id: drawing.id, moved: false })}
+            />
           )
         }
 
@@ -1054,74 +1166,72 @@ export default function DrawingOverlay({
           const a = toXY(drawing.t1, drawing.p1)
           const b = toXY(drawing.t2, drawing.p2)
           if (!a || !b) return null
-          const selected = drawing.id === selectedDrawingId
           return (
-            <g key={drawing.id}>
-              <line
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
-                stroke={selected ? SELECT_STROKE : DRAW_STROKE}
-                strokeWidth={DRAW_WIDTH}
-              />
-              {canSelect && (
-                <line
-                  x1={a.x}
-                  y1={a.y}
-                  x2={b.x}
-                  y2={b.y}
-                  stroke="transparent"
-                  strokeWidth={14}
-                  className="pointer-events-auto cursor-pointer"
-                  onClick={(e) => selectDrawingOnClick(e, drawing.id)}
-                />
+            <TrendLineShape
+              key={drawing.id}
+              a={a}
+              b={b}
+              selected={drawing.id === selectedDrawingId}
+              canSelect={canSelect}
+              canDraw={canDraw}
+              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+              onDragEnd={(end, e) =>
+                startDrag(e, { kind: 'trend', id: drawing.id, end, moved: false })
+              }
+              onDragBody={(e) =>
+                startDrag(e, { kind: 'trend', id: drawing.id, end: 'body', moved: false })
+              }
+            />
+          )
+        }
+
+        if (drawing.type === 'fib') {
+          const a = toXY(drawing.t1, drawing.p1)
+          const b = toXY(drawing.t2, drawing.p2)
+          if (!a || !b || !series) return null
+          return (
+            <FibShape
+              key={drawing.id}
+              a={a}
+              b={b}
+              levels={fibLevelsAt(drawing.p1, drawing.p2, (price) =>
+                series.priceToCoordinate(price)
               )}
-              {canDraw && (
-                <>
-                  <circle
-                    cx={a.x}
-                    cy={a.y}
-                    r={4.5}
-                    fill={selected ? SELECT_STROKE : HANDLE_FILL}
-                    stroke={HANDLE_STROKE}
-                    strokeWidth={1.25}
-                    className="pointer-events-auto cursor-move"
-                    onMouseDown={(e) =>
-                      startDrag(e, {
-                        kind: 'trend',
-                        id: drawing.id,
-                        end: 'start',
-                        moved: false
-                      })
-                    }
-                    onClick={
-                      canSelect ? (e) => selectDrawingOnClick(e, drawing.id) : undefined
-                    }
-                  />
-                  <circle
-                    cx={b.x}
-                    cy={b.y}
-                    r={4.5}
-                    fill={selected ? SELECT_STROKE : HANDLE_FILL}
-                    stroke={HANDLE_STROKE}
-                    strokeWidth={1.25}
-                    className="pointer-events-auto cursor-move"
-                    onMouseDown={(e) =>
-                      startDrag(e, {
-                        kind: 'trend',
-                        id: drawing.id,
-                        end: 'end',
-                        moved: false
-                      })
-                    }
-                    onClick={
-                      canSelect ? (e) => selectDrawingOnClick(e, drawing.id) : undefined
-                    }
-                  />
-                </>
-              )}
-            </g>
+              selected={drawing.id === selectedDrawingId}
+              labelColor={chrome.hintText}
+              canSelect={canSelect}
+              canDraw={canDraw}
+              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+              onDragEnd={(end, e) =>
+                startDrag(e, { kind: 'fib', id: drawing.id, end, moved: false })
+              }
+              onDragBody={(e) =>
+                startDrag(e, { kind: 'fib', id: drawing.id, end: 'body', moved: false })
+              }
+            />
+          )
+        }
+
+        if (drawing.type === 'rect') {
+          const a = toXY(drawing.t1, drawing.p1)
+          const b = toXY(drawing.t2, drawing.p2)
+          if (!a || !b) return null
+          return (
+            <RectShape
+              key={drawing.id}
+              a={a}
+              b={b}
+              selected={drawing.id === selectedDrawingId}
+              canSelect={canSelect}
+              canDraw={canDraw}
+              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+              onDragHandle={(handle, e) =>
+                startDrag(e, { kind: 'rect', id: drawing.id, handle, moved: false })
+              }
+              onDragBody={(e) =>
+                startDrag(e, { kind: 'rect', id: drawing.id, handle: 'body', moved: false })
+              }
+            />
           )
         }
 
@@ -1132,16 +1242,62 @@ export default function DrawingOverlay({
         (() => {
           const a = toXY(pendingTrend.time, pendingTrend.price)
           if (!a) return null
+
+          const firstHandle = (
+            <circle
+              cx={a.x}
+              cy={a.y}
+              r={4.5}
+              fill={HANDLE_FILL}
+              stroke={HANDLE_STROKE}
+              strokeWidth={1.25}
+            />
+          )
+
+          if (drawTool === 'fib' && hover && series) {
+            const hoverPrice = series.coordinateToPrice(hover.y)
+            const levels =
+              hoverPrice != null && Number.isFinite(hoverPrice)
+                ? fibLevelsAt(pendingTrend.price, hoverPrice, (price) =>
+                    series.priceToCoordinate(price)
+                  )
+                : []
+            return (
+              <g key="pending">
+                <FibShape
+                  a={a}
+                  b={hover}
+                  levels={levels}
+                  selected={false}
+                  labelColor={chrome.hintText}
+                  canSelect={false}
+                  canDraw={false}
+                  showHandles={false}
+                />
+                {firstHandle}
+              </g>
+            )
+          }
+
+          if (drawTool === 'rect' && hover) {
+            return (
+              <g key="pending">
+                <RectShape
+                  a={a}
+                  b={hover}
+                  selected={false}
+                  canSelect={false}
+                  canDraw={false}
+                  showHandles={false}
+                />
+                {firstHandle}
+              </g>
+            )
+          }
+
           return (
             <g key="pending">
-              <circle
-                cx={a.x}
-                cy={a.y}
-                r={4.5}
-                fill={HANDLE_FILL}
-                stroke={HANDLE_STROKE}
-                strokeWidth={1.25}
-              />
+              {firstHandle}
               {hover && (
                 <line
                   x1={a.x}

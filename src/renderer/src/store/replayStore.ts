@@ -35,33 +35,45 @@ export type LevelSetOptions = {
 }
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
 import { isChartType, type ChartType } from '@/lib/chart/chartTypes'
+import {
+  cloneDrawing as cloneDrawingGeom,
+  isDrawTool,
+  isTwoPointTool,
+  remapDrawingTimes,
+  translateDrawing,
+  updateRectHandle as updateRectHandleGeom,
+  updateTwoPointEndpoint as updateTwoPointEndpointGeom,
+  type Drawing,
+  type DrawTool,
+  type Endpoint,
+  type RectHandle,
+  type TrendPoint
+} from '@/lib/chart/drawingGeometry'
 import { DEFAULT_SYMBOL } from '@shared/symbols'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, defaultSecondaryTimeframe, playheadCoverEnd, TIMEFRAMES } from '@shared/timeframes'
 
 export type ChartStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type ViewMode = 'live' | 'replay'
 export type ChartSyncKind = 'replace' | 'append'
-export type DrawTool = 'select' | 'hline' | 'trendline'
 export type DriverPane = 'primary' | 'secondary'
 export type { DataSource, ImportedDatasetMeta }
+export type {
+  Drawing,
+  DrawTool,
+  Endpoint,
+  FibDrawing,
+  HLineDrawing,
+  RectDrawing,
+  RectHandle,
+  TrendDrawing,
+  TrendPoint
+} from '@/lib/chart/drawingGeometry'
 
 export type ChartSync = {
   kind: ChartSyncKind
   fitContent: boolean
   revision: number
 }
-
-export type HLineDrawing = { id: string; type: 'hline'; price: number }
-export type TrendDrawing = {
-  id: string
-  type: 'trendline'
-  t1: number
-  p1: number
-  t2: number
-  p2: number
-}
-export type Drawing = HLineDrawing | TrendDrawing
-export type TrendPoint = { time: number; price: number }
 
 export type TradeMarker = {
   time: number
@@ -107,14 +119,7 @@ function emptyDrawingState(): {
 }
 
 function remapDrawingsToInterval(drawings: Drawing[], intervalSec: number): Drawing[] {
-  return drawings.map((drawing) => {
-    if (drawing.type === 'hline') return drawing
-    return {
-      ...drawing,
-      t1: alignTimeToInterval(drawing.t1, intervalSec),
-      t2: alignTimeToInterval(drawing.t2, intervalSec)
-    }
-  })
+  return drawings.map((drawing) => remapDrawingTimes(drawing, intervalSec))
 }
 
 function remapPendingTrendToInterval(
@@ -244,6 +249,7 @@ type ReplayStore = {
   chartType: ChartType
   drawTool: DrawTool
   drawings: Drawing[]
+  /** First-click anchor for two-point tools (trendline, fib, rect). */
   pendingTrend: TrendPoint | null
   /** Drawing selected with the Select tool — target for the Delete shortcut. */
   selectedDrawingId: string | null
@@ -270,12 +276,11 @@ type ReplayStore = {
   setDrawTool: (tool: DrawTool) => void
   addHorizontalLine: (price: number) => void
   updateHorizontalLine: (id: string, price: number) => void
-  addTrendPoint: (point: TrendPoint) => void
-  updateTrendLineEndpoint: (
-    id: string,
-    end: 'start' | 'end',
-    point: TrendPoint
-  ) => void
+  addTwoPoint: (point: TrendPoint) => void
+  updateTwoPointEndpoint: (id: string, end: Endpoint, point: TrendPoint) => void
+  updateRectHandle: (id: string, handle: RectHandle, point: TrendPoint) => void
+  cloneDrawing: (id: string) => string | null
+  moveDrawing: (id: string, origin: Drawing, dTime: number, dPrice: number) => void
   selectDrawing: (id: string | null) => void
   deleteDrawing: (id: string) => void
   clearDrawings: () => void
@@ -1429,7 +1434,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     setDrawTool(tool) {
-      if (tool !== 'select' && tool !== 'hline' && tool !== 'trendline') return
+      if (!isDrawTool(tool)) return
       set({ drawTool: tool, pendingTrend: null })
     },
 
@@ -1452,11 +1457,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }))
     },
 
-    addTrendPoint(point) {
+    addTwoPoint(point) {
       if (get().mode === 'replay' && get().replayStatus === 'ended') return
       if (!point || !Number.isFinite(point.time) || !Number.isFinite(point.price)) {
         return
       }
+
+      const tool = get().drawTool
+      if (!isTwoPointTool(tool)) return
 
       const pending = get().pendingTrend
       if (!pending) {
@@ -1471,7 +1479,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           ...s.drawings,
           {
             id: nextDrawingId(),
-            type: 'trendline',
+            type: tool,
             t1: pending.time,
             p1: pending.price,
             t2: point.time,
@@ -1481,17 +1489,49 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }))
     },
 
-    updateTrendLineEndpoint(id, end, point) {
+    updateTwoPointEndpoint(id, end, point) {
       if (get().mode === 'replay' && get().replayStatus === 'ended') return
       if (!id || !point) return
       if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) return
       set((s) => ({
         drawings: s.drawings.map((d) => {
-          if (d.type !== 'trendline' || d.id !== id) return d
-          return end === 'start'
-            ? { ...d, t1: point.time, p1: point.price }
-            : { ...d, t2: point.time, p2: point.price }
+          if ((d.type !== 'trendline' && d.type !== 'fib') || d.id !== id) return d
+          return updateTwoPointEndpointGeom(d, end, point)
         })
+      }))
+    },
+
+    updateRectHandle(id, handle, point) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || !point) return
+      if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) return
+      set((s) => ({
+        drawings: s.drawings.map((d) =>
+          d.type === 'rect' && d.id === id ? updateRectHandleGeom(d, handle, point) : d
+        )
+      }))
+    },
+
+    cloneDrawing(id) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return null
+      if (!id) return null
+      const source = get().drawings.find((d) => d.id === id)
+      if (!source) return null
+      const copy = cloneDrawingGeom(source, nextDrawingId())
+      set((s) => ({
+        drawings: [...s.drawings, copy],
+        selectedDrawingId: copy.id
+      }))
+      return copy.id
+    },
+
+    moveDrawing(id, origin, dTime, dPrice) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || origin.id !== id) return
+      if (!Number.isFinite(dTime) || !Number.isFinite(dPrice)) return
+      const next = translateDrawing(origin, dTime, dPrice)
+      set((s) => ({
+        drawings: s.drawings.map((d) => (d.id === id ? next : d))
       }))
     },
 
