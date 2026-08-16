@@ -17,8 +17,8 @@ export default function IndicatorsDropdown() {
             aria-label="Indicators"
             aria-expanded={open}
             className={`inline-flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium transition-colors ${
-              open || activeIndicators.length > 0
-                ? 'border-amber-500/70 bg-amber-950/40 text-amber-300'
+              open
+                ? 'border-amber-500/70'
                 : 'border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100'
             }`}
           >
@@ -47,15 +47,15 @@ export default function IndicatorsDropdown() {
               onClick={() => toggleIndicator(indicator.id)}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-zinc-800/80 hover:text-zinc-100"
             >
-              <span className="flex w-4 shrink-0 items-center justify-center">
-                {active && <Check className="h-3.5 w-3.5 text-amber-300" aria-hidden />}
-              </span>
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: indicator.color }}
                 aria-hidden
               />
               <span className="flex-1 font-medium">{indicator.label}</span>
+              <span className="flex w-4 shrink-0 items-center justify-center">
+                {active && <Check className="h-3.5 w-3.5 text-amber-300" aria-hidden />}
+              </span>
             </button>
           )
         })}
