@@ -27,9 +27,38 @@ import {
   type ChartType
 } from '@/lib/chart/chartTypes'
 import type { Candle } from '@shared/candleUtils'
+import { CHART_PALETTES, type ChartPalette } from '@/lib/theme'
+import { useThemeStore } from '@/store/themeStore'
 import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
 
 const DEFAULT_VISIBLE_BARS = 50
+
+function chartThemeOptions(palette: ChartPalette): {
+  layout: {
+    background: { type: ColorType.Solid; color: string }
+    textColor: string
+  }
+  grid: { vertLines: { color: string }; horzLines: { color: string } }
+  rightPriceScale: { borderColor: string }
+  timeScale: { borderColor: string }
+} {
+  return {
+    layout: {
+      background: { type: ColorType.Solid, color: palette.background },
+      textColor: palette.text
+    },
+    grid: {
+      vertLines: { color: palette.grid },
+      horzLines: { color: palette.grid }
+    },
+    rightPriceScale: {
+      borderColor: palette.scaleBorder
+    },
+    timeScale: {
+      borderColor: palette.scaleBorder
+    }
+  }
+}
 
 function focusLatestCandle(
   chart: IChartApi,
@@ -102,6 +131,7 @@ export default function CandleChart({
   tradeMarkers = null,
   onPriceScaleWidthChange
 }: CandleChartProps) {
+  const theme = useThemeStore((s) => s.theme)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
@@ -222,25 +252,16 @@ export default function CandleChart({
     const container = containerRef.current
     if (!container) return undefined
 
+    const palette = CHART_PALETTES[theme]
     const chart = createChart(container, {
       width: container.clientWidth,
       height: Math.max(container.clientHeight, 1),
-      layout: {
-        background: { type: ColorType.Solid, color: '#09090b' },
-        textColor: '#a1a1aa'
-      },
+      ...chartThemeOptions(palette),
       crosshair: {
         mode: CrosshairMode.Normal
       },
-      grid: {
-        vertLines: { color: '#27272a' },
-        horzLines: { color: '#27272a' }
-      },
-      rightPriceScale: {
-        borderColor: '#3f3f46'
-      },
       timeScale: {
-        borderColor: '#3f3f46',
+        borderColor: palette.scaleBorder,
         timeVisible: true,
         secondsVisible: false
       }
@@ -256,7 +277,7 @@ export default function CandleChart({
       lines: [
         {
           text: '',
-          color: 'rgba(255, 255, 255, 0.05)',
+          color: palette.watermark,
           fontSize: 72,
           fontFamily: 'Segoe UI, sans-serif',
           fontStyle: '600'
@@ -368,7 +389,7 @@ export default function CandleChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType])
 
-  // Keep the text watermark in sync with the selected symbol.
+  // Keep the text watermark in sync with the selected symbol and theme.
   useEffect(() => {
     const watermark = watermarkRef.current
     if (!watermark) return
@@ -376,14 +397,26 @@ export default function CandleChart({
       lines: [
         {
           text: symbol || '',
-          color: 'rgba(255, 255, 255, 0.05)',
+          color: CHART_PALETTES[theme].watermark,
           fontSize: 72,
           fontFamily: 'Segoe UI, sans-serif',
           fontStyle: '600'
         }
       ]
     })
-  }, [symbol])
+  }, [symbol, theme])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const palette = CHART_PALETTES[theme]
+    chart.applyOptions({
+      ...chartThemeOptions(palette),
+      timeScale: {
+        borderColor: palette.scaleBorder
+      }
+    })
+  }, [theme])
 
   useEffect(() => {
     if (mode !== 'live') return

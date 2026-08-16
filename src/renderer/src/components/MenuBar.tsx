@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight } from 'lucide-react'
+import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
 type MenuEntry =
@@ -99,6 +100,8 @@ export default function MenuBar() {
   const setShortcutsDialogOpen = useUiLayoutStore((s) => s.setShortcutsDialogOpen)
   const setAboutDialogOpen = useUiLayoutStore((s) => s.setAboutDialogOpen)
   const setImportDataDialogOpen = useUiLayoutStore((s) => s.setImportDataDialogOpen)
+  const theme = useThemeStore((s) => s.theme)
+  const setTheme = useThemeStore((s) => s.setTheme)
 
   const groups: MenuGroup[] = [
     {
@@ -147,6 +150,12 @@ export default function MenuBar() {
           shortcut: 'F',
           checked: chartFullscreen,
           onSelect: toggleChartFullscreen
+        },
+        {
+          type: 'item',
+          label: 'Light theme',
+          checked: theme === 'light',
+          onSelect: () => setTheme(theme === 'light' ? 'dark' : 'light')
         }
       ]
     },
