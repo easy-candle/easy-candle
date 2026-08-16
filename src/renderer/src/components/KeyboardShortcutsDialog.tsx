@@ -7,9 +7,10 @@ type Shortcut = { keys: string[]; description: string }
 const SHORTCUTS: Shortcut[] = [
   { keys: ['Space'], description: 'Play / pause replay' },
   { keys: ['ArrowRight'], description: 'Step forward one candle' },
-  { keys: ['ArrowLeft', 'Backspace'], description: 'Step backward one candle' },
+  { keys: ['ArrowLeft'], description: 'Step backward one candle' },
   { keys: ['Tab'], description: 'Toggle next-candle pane (split view)' },
   { keys: ['Escape'], description: 'Cancel drawing / return to select tool' },
+  { keys: ['Delete', 'Backspace'], description: 'Delete selected drawing' },
   { keys: ['F'], description: 'Toggle chart fullscreen' }
 ]
 

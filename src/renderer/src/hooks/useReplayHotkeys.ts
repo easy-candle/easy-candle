@@ -15,7 +15,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * Replay keyboard shortcuts:
  * - Space → play/pause (toggles; steps are handled by arrow keys)
  * - ArrowRight → step forward one candle (hold to keep stepping)
- * - ArrowLeft / Backspace → step backward one candle (hold to keep stepping)
+ * - ArrowLeft → step backward one candle (hold to keep stepping)
  * - Tab (split only) → toggle next-candle pane (left ↔ right)
  */
 export function useReplayHotkeys(): void {
@@ -42,7 +42,7 @@ export function useReplayHotkeys(): void {
         return
       }
 
-      if (event.key === 'ArrowLeft' || event.key === 'Backspace') {
+      if (event.key === 'ArrowLeft') {
         if (state.replayLoading || state.secondaryLoading) return
         const driverIndex =
           state.chartSplit && state.driverPane === 'secondary'

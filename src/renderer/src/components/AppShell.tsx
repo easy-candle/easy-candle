@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Maximize2, Minimize2, SquareSplitVertical, X } from 'lucide-react'
+import { Maximize2, Minimize2, Moon, SquareSplitVertical, Sun, X } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
+import ChartTypeSelect from '@/components/ChartTypeSelect'
 import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import FloatingDrawingBar from '@/components/FloatingDrawingBar'
@@ -21,6 +22,7 @@ import TradePanel from '@/components/TradePanel'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
 import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
+import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
 export default function AppShell({
@@ -49,6 +51,8 @@ export default function AppShell({
   const showDrawingToolbar = useUiLayoutStore((s) => s.showDrawingToolbar)
   const showReplayControls = useUiLayoutStore((s) => s.showReplayControls)
   const showPaperTrade = useUiLayoutStore((s) => s.showPaperTrade)
+  const theme = useThemeStore((s) => s.theme)
+  const toggleTheme = useThemeStore((s) => s.toggleTheme)
   const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
   const feedbackTimer = useRef<number | null>(null)
 
@@ -97,6 +101,7 @@ export default function AppShell({
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/90 bg-zinc-950/90 px-2 py-2 sm:px-2">
           <SymbolSelect />
           <TimeframeSelect />
+          <ChartTypeSelect />
           <IndicatorsDropdown />
           {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
           {!inReplay && <ReplayStartDialog />}
@@ -116,6 +121,12 @@ export default function AppShell({
               onClick={toggleChartFullscreen}
             >
               <Maximize2 className="h-4 w-4" />
+            </IconButton>
+            <IconButton
+              tooltip={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              onClick={toggleTheme}
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </IconButton>
           </div>
           {showStatusBar && <StatusBar />}

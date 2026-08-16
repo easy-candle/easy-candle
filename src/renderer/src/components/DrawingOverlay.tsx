@@ -5,7 +5,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent
 } from 'react'
-import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts'
+import type { IChartApi, ISeriesApi, SeriesType, Time } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import {
   isTimeInSeriesRange,
@@ -25,9 +25,11 @@ import {
   unrealizedPnl
 } from '@/lib/paperTrade'
 import { OVERLAY_LAYOUT, TRADE_OVERLAY } from '@/lib/tradeOverlayStyles'
+import { CHART_PALETTES } from '@/lib/theme'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
 import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
+import { useThemeStore } from '@/store/themeStore'
 
 type Point = { x: number; y: number }
 
@@ -35,6 +37,7 @@ const DRAW_STROKE = '#f23645'
 const DRAW_WIDTH = 2.5
 const HANDLE_FILL = '#2962ff'
 const HANDLE_STROKE = '#ffffff'
+const SELECT_STROKE = '#f59e0b'
 
 type DragState =
   | { kind: 'hline'; id: string; moved: boolean }
@@ -51,7 +54,7 @@ type LevelPreview = {
 
 type DrawingOverlayProps = {
   chart: IChartApi | null
-  series: ISeriesApi<'Candlestick'> | null
+  series: ISeriesApi<SeriesType> | null
   /** Pane timeframe — used to map shared drawing/trade times onto this chart. */
   paneTimeframe?: string
   /** This pane's playhead candle (for X placement on this time scale). */
@@ -66,7 +69,7 @@ function linkedLevelForDrag(
   side: 'long' | 'short',
   entryPrice: number,
   riskReward: number,
-  series: ISeriesApi<'Candlestick'>
+  series: ISeriesApi<SeriesType>
 ): Pick<LevelPreview, 'linkedPrice' | 'linkedY'> {
   const linkedPrice =
     kind === 'sl'
@@ -127,6 +130,7 @@ export default function DrawingOverlay({
   const drawings = useReplayStore((s) => s.drawings)
   const drawTool = useReplayStore((s) => s.drawTool)
   const pendingTrend = useReplayStore((s) => s.pendingTrend)
+  const selectedDrawingId = useReplayStore((s) => s.selectedDrawingId)
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const position = useReplayStore((s) => s.position)
   const markCandle = useReplayStore((s) => s.currentCandle)
@@ -135,11 +139,14 @@ export default function DrawingOverlay({
   const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
   const addTrendPoint = useReplayStore((s) => s.addTrendPoint)
   const updateTrendLineEndpoint = useReplayStore((s) => s.updateTrendLineEndpoint)
+  const selectDrawing = useReplayStore((s) => s.selectDrawing)
   const setTakeProfit = useReplayStore((s) => s.setTakeProfit)
   const setStopLoss = useReplayStore((s) => s.setStopLoss)
   const paperClose = useReplayStore((s) => s.paperClose)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
+  const theme = useThemeStore((s) => s.theme)
+  const chrome = CHART_PALETTES[theme]
 
   const intervalSeconds =
     TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
@@ -210,6 +217,18 @@ export default function DrawingOverlay({
 
   const canEditTrade = mode === 'replay' && replayStatus !== 'ended'
   const canDraw = !(mode === 'replay' && replayStatus === 'ended')
+  const canSelect = canDraw && drawTool === 'select'
+
+  // Clicks that reach the chart canvas (empty space) clear the current selection.
+  // Clicks on drawing elements stop propagation, so they never hit the canvas.
+  useEffect(() => {
+    if (!chart || !canSelect) return undefined
+    const handler = (): void => {
+      selectDrawing(null)
+    }
+    chart.subscribeClick(handler)
+    return () => chart.unsubscribeClick(handler)
+  }, [chart, canSelect, selectDrawing])
 
   const placing = canDraw && (drawTool === 'hline' || drawTool === 'trendline')
 
@@ -401,6 +420,16 @@ export default function DrawingOverlay({
     suppressClickRef.current = true
   }
 
+  function selectDrawingOnClick(event: ReactMouseEvent, id: string): void {
+    // A finished drag on a handle also emits a click — ignore those.
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    event.stopPropagation()
+    selectDrawing(id)
+  }
+
   // Touch version so React doesn't drop redraw deps for lint.
   void version
 
@@ -506,7 +535,7 @@ export default function DrawingOverlay({
           height={h}
           rx={OVERLAY_LAYOUT.radius}
           ry={OVERLAY_LAYOUT.radius}
-          fill={TRADE_OVERLAY.handleFill}
+          fill={chrome.handleFill}
           stroke={color}
           strokeWidth={1.15}
           strokeDasharray="3 2"
@@ -532,14 +561,14 @@ export default function DrawingOverlay({
               height={18}
               rx={3}
               ry={3}
-              fill="#1a1d24"
-              stroke="#3f4654"
+              fill={chrome.hintFill}
+              stroke={chrome.hintStroke}
               strokeWidth={1}
             />
             <text
               x={x + w - (kind === 'tp' ? 118 : 112) + 8}
               y={y - h / 2 - 9.5}
-              fill="#e5e7eb"
+              fill={chrome.hintText}
               fontSize={10}
               fontFamily={TRADE_OVERLAY.font}
               className="select-none"
@@ -597,7 +626,7 @@ export default function DrawingOverlay({
           height={h}
           rx={OVERLAY_LAYOUT.radius}
           ry={OVERLAY_LAYOUT.radius}
-          fill={TRADE_OVERLAY.handleFill}
+          fill={chrome.handleFill}
           stroke={border}
           strokeWidth={1.35}
           strokeDasharray={dashed ? '3 2' : undefined}
@@ -830,7 +859,7 @@ export default function DrawingOverlay({
                   cx={connectorX}
                   cy={tpY}
                   r={OVERLAY_LAYOUT.connectorR}
-                  fill={TRADE_OVERLAY.handleFill}
+                  fill={chrome.handleFill}
                   stroke={TRADE_OVERLAY.connector}
                   strokeWidth={1.25}
                 />
@@ -840,7 +869,7 @@ export default function DrawingOverlay({
                   cx={connectorX}
                   cy={slY}
                   r={OVERLAY_LAYOUT.connectorR}
-                  fill={TRADE_OVERLAY.handleFill}
+                  fill={chrome.handleFill}
                   stroke={TRADE_OVERLAY.connector}
                   strokeWidth={1.25}
                 />
@@ -974,6 +1003,7 @@ export default function DrawingOverlay({
         if (drawing.type === 'hline') {
           const y = series?.priceToCoordinate(drawing.price)
           if (y == null) return null
+          const selected = drawing.id === selectedDrawingId
           return (
             <g key={drawing.id}>
               <line
@@ -981,9 +1011,21 @@ export default function DrawingOverlay({
                 x2={width || '100%'}
                 y1={y}
                 y2={y}
-                stroke={DRAW_STROKE}
+                stroke={selected ? SELECT_STROKE : DRAW_STROKE}
                 strokeWidth={DRAW_WIDTH}
               />
+              {canSelect && (
+                <line
+                  x1={0}
+                  x2={width || '100%'}
+                  y1={y}
+                  y2={y}
+                  stroke="transparent"
+                  strokeWidth={14}
+                  className="pointer-events-auto cursor-pointer"
+                  onClick={(e) => selectDrawingOnClick(e, drawing.id)}
+                />
+              )}
               {canDraw && midX > 0 && (
                 <rect
                   x={midX - 4.5}
@@ -992,12 +1034,15 @@ export default function DrawingOverlay({
                   height={9}
                   rx={2}
                   ry={2}
-                  fill={HANDLE_FILL}
+                  fill={selected ? SELECT_STROKE : HANDLE_FILL}
                   stroke={HANDLE_STROKE}
                   strokeWidth={1.25}
                   className="pointer-events-auto cursor-ns-resize"
                   onMouseDown={(e) =>
                     startDrag(e, { kind: 'hline', id: drawing.id, moved: false })
+                  }
+                  onClick={
+                    canSelect ? (e) => selectDrawingOnClick(e, drawing.id) : undefined
                   }
                 />
               )}
@@ -1009,6 +1054,7 @@ export default function DrawingOverlay({
           const a = toXY(drawing.t1, drawing.p1)
           const b = toXY(drawing.t2, drawing.p2)
           if (!a || !b) return null
+          const selected = drawing.id === selectedDrawingId
           return (
             <g key={drawing.id}>
               <line
@@ -1016,16 +1062,28 @@ export default function DrawingOverlay({
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke={DRAW_STROKE}
+                stroke={selected ? SELECT_STROKE : DRAW_STROKE}
                 strokeWidth={DRAW_WIDTH}
               />
+              {canSelect && (
+                <line
+                  x1={a.x}
+                  y1={a.y}
+                  x2={b.x}
+                  y2={b.y}
+                  stroke="transparent"
+                  strokeWidth={14}
+                  className="pointer-events-auto cursor-pointer"
+                  onClick={(e) => selectDrawingOnClick(e, drawing.id)}
+                />
+              )}
               {canDraw && (
                 <>
                   <circle
                     cx={a.x}
                     cy={a.y}
                     r={4.5}
-                    fill={HANDLE_FILL}
+                    fill={selected ? SELECT_STROKE : HANDLE_FILL}
                     stroke={HANDLE_STROKE}
                     strokeWidth={1.25}
                     className="pointer-events-auto cursor-move"
@@ -1037,12 +1095,15 @@ export default function DrawingOverlay({
                         moved: false
                       })
                     }
+                    onClick={
+                      canSelect ? (e) => selectDrawingOnClick(e, drawing.id) : undefined
+                    }
                   />
                   <circle
                     cx={b.x}
                     cy={b.y}
                     r={4.5}
-                    fill={HANDLE_FILL}
+                    fill={selected ? SELECT_STROKE : HANDLE_FILL}
                     stroke={HANDLE_STROKE}
                     strokeWidth={1.25}
                     className="pointer-events-auto cursor-move"
@@ -1053,6 +1114,9 @@ export default function DrawingOverlay({
                         end: 'end',
                         moved: false
                       })
+                    }
+                    onClick={
+                      canSelect ? (e) => selectDrawingOnClick(e, drawing.id) : undefined
                     }
                   />
                 </>

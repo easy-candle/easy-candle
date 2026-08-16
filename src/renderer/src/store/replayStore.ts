@@ -34,6 +34,7 @@ export type LevelSetOptions = {
   linkRr?: boolean
 }
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
+import { isChartType, type ChartType } from '@/lib/chart/chartTypes'
 import { DEFAULT_SYMBOL } from '@shared/symbols'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, defaultSecondaryTimeframe, playheadCoverEnd, TIMEFRAMES } from '@shared/timeframes'
 
@@ -95,8 +96,14 @@ function emptyDrawingState(): {
   drawTool: DrawTool
   drawings: Drawing[]
   pendingTrend: null
+  selectedDrawingId: null
 } {
-  return { drawTool: 'select', drawings: [], pendingTrend: null }
+  return {
+    drawTool: 'select',
+    drawings: [],
+    pendingTrend: null,
+    selectedDrawingId: null
+  }
 }
 
 function remapDrawingsToInterval(drawings: Drawing[], intervalSec: number): Drawing[] {
@@ -233,9 +240,13 @@ type ReplayStore = {
   replayLoading: boolean
   replayMessage: string | null
   activeIndicators: string[]
+  /** Chart rendering style shared by both panes. */
+  chartType: ChartType
   drawTool: DrawTool
   drawings: Drawing[]
   pendingTrend: TrendPoint | null
+  /** Drawing selected with the Select tool — target for the Delete shortcut. */
+  selectedDrawingId: string | null
   position: Position | null
   closedTrades: ClosedTrade[]
   tradeMarkers: TradeMarker[]
@@ -255,6 +266,7 @@ type ReplayStore = {
   secondaryError: string | null
   secondaryLoading: boolean
   toggleIndicator: (id: string) => void
+  setChartType: (type: ChartType) => void
   setDrawTool: (tool: DrawTool) => void
   addHorizontalLine: (price: number) => void
   updateHorizontalLine: (id: string, price: number) => void
@@ -264,6 +276,8 @@ type ReplayStore = {
     end: 'start' | 'end',
     point: TrendPoint
   ) => void
+  selectDrawing: (id: string | null) => void
+  deleteDrawing: (id: string) => void
   clearDrawings: () => void
   paperBuy: () => void
   paperSell: () => void
@@ -1373,9 +1387,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     replayLoading: false,
     replayMessage: null,
     activeIndicators: [],
+    chartType: 'candlestick',
     drawTool: 'select',
     drawings: [],
     pendingTrend: null,
+    selectedDrawingId: null,
     position: null,
     closedTrades: [],
     tradeMarkers: [],
@@ -1404,6 +1420,12 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             : [...s.activeIndicators, id]
         }
       })
+    },
+
+    setChartType(type) {
+      if (!isChartType(type)) return
+      if (type === get().chartType) return
+      set({ chartType: type })
     },
 
     setDrawTool(tool) {
@@ -1474,7 +1496,20 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     clearDrawings() {
-      set({ drawings: [], pendingTrend: null })
+      set({ drawings: [], pendingTrend: null, selectedDrawingId: null })
+    },
+
+    selectDrawing(id) {
+      set({ selectedDrawingId: id })
+    },
+
+    deleteDrawing(id) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id) return
+      set((s) => ({
+        drawings: s.drawings.filter((drawing) => drawing.id !== id),
+        selectedDrawingId: s.selectedDrawingId === id ? null : s.selectedDrawingId
+      }))
     },
 
     paperBuy() {

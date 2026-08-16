@@ -16,10 +16,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * UI keyboard shortcuts (live + replay):
  * - F → toggle chart fullscreen
  * - Escape → cancel pending trend line / return to select tool
+ * - Delete / Backspace → delete the selected drawing
  */
 export function useUiHotkeys(): void {
   const toggleChartFullscreen = useUiLayoutStore((s) => s.toggleChartFullscreen)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
+  const deleteDrawing = useReplayStore((s) => s.deleteDrawing)
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
@@ -37,6 +39,15 @@ export function useUiHotkeys(): void {
 
       if (event.repeat) return
 
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        const state = useReplayStore.getState()
+        if (state.selectedDrawingId != null) {
+          event.preventDefault()
+          deleteDrawing(state.selectedDrawingId)
+        }
+        return
+      }
+
       if (event.key === 'f' || event.key === 'F') {
         event.preventDefault()
         toggleChartFullscreen()
@@ -45,5 +56,5 @@ export function useUiHotkeys(): void {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toggleChartFullscreen, setDrawTool])
+  }, [toggleChartFullscreen, setDrawTool, deleteDrawing])
 }
