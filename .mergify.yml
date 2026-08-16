@@ -3,7 +3,9 @@ queue_rules:
     queue_conditions:
       - "#approved-reviews-by>=1"
       - -draft
-    merge_conditions: []
+      - check-success = build
+    merge_conditions:
+      - check-success = build
     merge_method: merge
 
 merge_protections_settings:
@@ -15,3 +17,7 @@ merge_protections:
     success_conditions:
       - "#approved-reviews-by>=1"
       - -draft
+  - name: require-build
+    if: true
+    success_conditions:
+      - check-success = build
