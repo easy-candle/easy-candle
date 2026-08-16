@@ -103,7 +103,7 @@ export default function AppShell({
           <TimeframeSelect />
           <ChartTypeSelect />
           <IndicatorsDropdown />
-          {!inReplay && <CsvImportControls onFeedback={setImportFeedback} />}
+          {!inReplay && <ImportDataDialog onFeedback={setImportFeedback} />}
           {!inReplay && <ReplayStartDialog />}
           {showDrawingToolbar && <DrawingToolbar />}
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
