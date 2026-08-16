@@ -15,6 +15,7 @@ export default function App() {
   const currentCandle = useReplayStore((s) => s.currentCandle)
   const chartSync = useReplayStore((s) => s.chartSync)
   const activeIndicators = useReplayStore((s) => s.activeIndicators)
+  const chartType = useReplayStore((s) => s.chartType)
   const tradeMarkers = useReplayStore((s) => s.tradeMarkers)
   const loadCandles = useReplayStore((s) => s.loadCandles)
   const chartSplit = useReplayStore((s) => s.chartSplit)
@@ -63,6 +64,7 @@ export default function App() {
     mode,
     symbol,
     timeframe,
+    chartType,
     candles,
     visibleCandles,
     currentCandle,
@@ -76,6 +78,7 @@ export default function App() {
     mode,
     symbol,
     timeframe: secondaryTimeframe,
+    chartType,
     candles: secondaryCandles,
     visibleCandles: secondaryVisibleCandles,
     currentCandle: secondaryCurrentCandle,

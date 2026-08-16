@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  BarSeries,
   CandlestickSeries,
   ColorType,
   createChart,
@@ -12,12 +13,19 @@ import {
   type ISeriesMarkersPluginApi,
   type ITextWatermarkPluginApi,
   type SeriesMarker,
+  type SeriesType,
   type Time
 } from 'lightweight-charts'
 import DrawingOverlay from '@/components/DrawingOverlay'
 import OhlcLegend from '@/components/OhlcLegend'
 import wordmarkUrl from '@/assets/easycandle-wordmark.svg'
 import type { ChartOverlay } from '@/lib/indicators'
+import {
+  buildHeikinAshiPoint,
+  buildSeriesData,
+  toHeikinAshi,
+  type ChartType
+} from '@/lib/chart/chartTypes'
 import type { Candle } from '@shared/candleUtils'
 import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
 
@@ -39,10 +47,39 @@ function focusLatestCandle(
   })
 }
 
+function addSeries(chart: IChartApi, type: ChartType): ISeriesApi<SeriesType> {
+  switch (type) {
+    case 'line':
+      return chart.addSeries(LineSeries, {
+        color: '#22c55e',
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false
+      })
+    case 'bar':
+      return chart.addSeries(BarSeries, {
+        upColor: '#22c55e',
+        downColor: '#ef4444',
+        thinBars: false
+      })
+    case 'heikinashi':
+    case 'candlestick':
+    default:
+      return chart.addSeries(CandlestickSeries, {
+        upColor: '#22c55e',
+        downColor: '#ef4444',
+        borderVisible: false,
+        wickUpColor: '#22c55e',
+        wickDownColor: '#ef4444'
+      })
+  }
+}
+
 type CandleChartProps = {
   mode?: ViewMode
   symbol?: string
   timeframe?: string
+  chartType?: ChartType
   candles?: Candle[] | null
   visibleCandles?: Candle[] | null
   currentCandle?: Candle | null
@@ -56,6 +93,7 @@ export default function CandleChart({
   mode = 'live',
   symbol = '',
   timeframe = '',
+  chartType = 'candlestick',
   candles = null,
   visibleCandles = null,
   currentCandle = null,
@@ -66,7 +104,7 @@ export default function CandleChart({
 }: CandleChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
   const watermarkRef = useRef<ITextWatermarkPluginApi<Time> | null>(null)
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map())
@@ -74,14 +112,21 @@ export default function CandleChart({
   const priceScaleObserverRef = useRef<ResizeObserver | null>(null)
   const priceScaleCellRef = useRef<HTMLElement | null>(null)
   const priceScaleWidthRef = useRef(0)
+  const chartTypeRef = useRef(chartType)
+  const seriesTypeRef = useRef<ChartType>(chartType)
+  const haLastRef = useRef<Candle | null>(null)
   const [chartReady, setChartReady] = useState<{
     chart: IChartApi
-    series: ISeriesApi<'Candlestick'>
+    series: ISeriesApi<SeriesType>
   } | null>(null)
 
   useEffect(() => {
     onPriceScaleWidthChangeRef.current = onPriceScaleWidthChange
   }, [onPriceScaleWidthChange])
+
+  useEffect(() => {
+    chartTypeRef.current = chartType
+  }, [chartType])
 
   function reset(next: Candle[] = [], opts: { fitContent?: boolean } = {}): void {
     const series = seriesRef.current
@@ -89,7 +134,16 @@ export default function CandleChart({
     if (!series || !chart) return
 
     const data = next ?? []
-    series.setData(data as never)
+    const type = chartTypeRef.current
+
+    if (type === 'heikinashi') {
+      const ha = toHeikinAshi(data)
+      haLastRef.current = ha.length > 0 ? ha[ha.length - 1] : null
+    } else {
+      haLastRef.current = null
+    }
+
+    series.setData(buildSeriesData(type, data) as never)
 
     if (opts.fitContent !== false && data.length) {
       requestAnimationFrame(() => {
@@ -105,7 +159,27 @@ export default function CandleChart({
   function append(candle: Candle): void {
     const series = seriesRef.current
     if (!series || !candle) return
-    series.update(candle as never)
+
+    const type = chartTypeRef.current
+    let point: unknown
+
+    if (type === 'heikinashi') {
+      const ha = buildHeikinAshiPoint(haLastRef.current, candle)
+      haLastRef.current = ha
+      point = { time: ha.time as Time, open: ha.open, high: ha.high, low: ha.low, close: ha.close }
+    } else if (type === 'line') {
+      point = { time: candle.time as Time, value: candle.close }
+    } else {
+      point = {
+        time: candle.time as Time,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close
+      }
+    }
+
+    series.update(point as never)
   }
 
   function syncOverlays(nextOverlays: ChartOverlay[] | null | undefined): void {
@@ -172,13 +246,8 @@ export default function CandleChart({
       }
     })
 
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      borderVisible: false,
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444'
-    })
+    const series = addSeries(chart, chartType)
+    seriesTypeRef.current = chartType
 
     markersRef.current = createSeriesMarkers(series, [])
     watermarkRef.current = createTextWatermark(chart.panes()[0], {
@@ -252,7 +321,52 @@ export default function CandleChart({
       chartRef.current = null
       seriesRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Swap the series in place when the chart type changes so the crosshair,
+  // price scale, markers, and drawing overlay all keep working.
+  useEffect(() => {
+    const chart = chartRef.current
+    const previous = seriesRef.current
+    if (!chart) return
+    if (seriesTypeRef.current === chartType) return
+
+    const source = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
+    const data = source ?? []
+
+    const series = addSeries(chart, chartType)
+    seriesTypeRef.current = chartType
+    seriesRef.current = series
+
+    if (chartType === 'heikinashi') {
+      const ha = toHeikinAshi(data)
+      haLastRef.current = ha.length > 0 ? ha[ha.length - 1] : null
+    } else {
+      haLastRef.current = null
+    }
+
+    series.setData(buildSeriesData(chartType, data) as never)
+
+    markersRef.current = createSeriesMarkers(series, [])
+    applyTradeMarkers()
+
+    if (previous) {
+      chart.removeSeries(previous)
+    }
+
+    setChartReady({ chart, series })
+
+    if (data.length) {
+      requestAnimationFrame(() => {
+        if (chartRef.current !== chart || seriesRef.current !== series) return
+        series.priceScale().applyOptions({ autoScale: true })
+        chart.priceScale('right').applyOptions({ autoScale: true })
+        focusLatestCandle(chart, data.length)
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartType])
 
   // Keep the text watermark in sync with the selected symbol.
   useEffect(() => {
@@ -291,7 +405,7 @@ export default function CandleChart({
     syncOverlays(overlays)
   }, [overlays])
 
-  useEffect(() => {
+  function applyTradeMarkers(): void {
     const markersApi = markersRef.current
     if (!markersApi) return
     const markers = Array.isArray(tradeMarkers) ? tradeMarkers : []
@@ -301,6 +415,10 @@ export default function CandleChart({
       .filter((m) => knownTimes.has(m.time))
       .sort((a, b) => a.time - b.time) as SeriesMarker<Time>[]
     markersApi.setMarkers(sorted)
+  }
+
+  useEffect(() => {
+    applyTradeMarkers()
   }, [tradeMarkers, mode, candles, visibleCandles])
 
   const seriesCandles = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])

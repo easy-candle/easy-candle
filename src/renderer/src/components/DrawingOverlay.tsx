@@ -5,7 +5,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent
 } from 'react'
-import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts'
+import type { IChartApi, ISeriesApi, SeriesType, Time } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import {
   isTimeInSeriesRange,
@@ -52,7 +52,7 @@ type LevelPreview = {
 
 type DrawingOverlayProps = {
   chart: IChartApi | null
-  series: ISeriesApi<'Candlestick'> | null
+  series: ISeriesApi<SeriesType> | null
   /** Pane timeframe — used to map shared drawing/trade times onto this chart. */
   paneTimeframe?: string
   /** This pane's playhead candle (for X placement on this time scale). */
@@ -67,7 +67,7 @@ function linkedLevelForDrag(
   side: 'long' | 'short',
   entryPrice: number,
   riskReward: number,
-  series: ISeriesApi<'Candlestick'>
+  series: ISeriesApi<SeriesType>
 ): Pick<LevelPreview, 'linkedPrice' | 'linkedY'> {
   const linkedPrice =
     kind === 'sl'

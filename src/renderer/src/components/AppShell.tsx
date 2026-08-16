@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Maximize2, Minimize2, SquareSplitVertical, X } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
+import ChartTypeSelect from '@/components/ChartTypeSelect'
 import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import FloatingDrawingBar from '@/components/FloatingDrawingBar'
@@ -97,6 +98,7 @@ export default function AppShell({
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/90 bg-zinc-950/90 px-2 py-2 sm:px-2">
           <SymbolSelect />
           <TimeframeSelect />
+          <ChartTypeSelect />
           <IndicatorsDropdown />
           {!inReplay && <ImportDataDialog onFeedback={setImportFeedback} />}
           {!inReplay && <ReplayStartModal />}
