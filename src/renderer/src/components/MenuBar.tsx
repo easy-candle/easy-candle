@@ -98,6 +98,7 @@ export default function MenuBar() {
   const togglePaperTrade = useUiLayoutStore((s) => s.togglePaperTrade)
   const setShortcutsDialogOpen = useUiLayoutStore((s) => s.setShortcutsDialogOpen)
   const setAboutDialogOpen = useUiLayoutStore((s) => s.setAboutDialogOpen)
+  const setImportDataDialogOpen = useUiLayoutStore((s) => s.setImportDataDialogOpen)
 
   const groups: MenuGroup[] = [
     {
@@ -154,9 +155,8 @@ export default function MenuBar() {
       entries: [
         {
           type: 'item',
-          label: 'No chart options yet',
-          disabled: true,
-          onSelect: () => {}
+          label: 'Import Data',
+          onSelect: () => setImportDataDialogOpen(true)
         }
       ]
     },

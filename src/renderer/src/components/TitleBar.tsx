@@ -24,9 +24,9 @@ export default function TitleBar() {
         <img
           src={iconUrl}
           alt=""
-          width={18}
-          height={18}
-          className="h-[18px] w-[18px] rounded-sm border border-amber-500/30"
+          width={22}
+          height={22}
+          className="h-[22px] w-[22px] rounded-sm border border-amber-500/30"
           aria-hidden
         />
         <span className="text-xs font-semibold tracking-tight text-amber-400">Easy Candle</span>
