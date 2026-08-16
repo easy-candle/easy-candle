@@ -23,7 +23,13 @@ import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
-export default function AppShell({ children }: { children: ReactNode }) {
+export default function AppShell({
+  children,
+  priceScaleWidth = 0
+}: {
+  children: ReactNode
+  priceScaleWidth?: number
+}) {
   const status = useReplayStore((s) => s.status)
   const error = useReplayStore((s) => s.error)
   const mode = useReplayStore((s) => s.mode)
@@ -85,7 +91,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-zinc-950">
-      <TitleBar />
+      {!chartFullscreen && <TitleBar />}
 
       {!chartFullscreen && showMainToolbar && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/90 bg-zinc-950/90 px-2 py-2 sm:px-2">
@@ -181,7 +187,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {showDrawingToolbar && chartFullscreen && <FloatingDrawingBar />}
           {chartFullscreen && inReplay && <FloatingTradeBar />}
           {chartFullscreen && (
-            <div className="pointer-events-none absolute right-2 top-2 z-30">
+            <div
+              className={`pointer-events-none absolute top-2 z-30 ${chartSplit ? 'top-11' : ''}`}
+              style={{ right: Math.max(priceScaleWidth, 0) + 8 }}
+            >
               <IconButton
                 tooltip="Exit full-screen chart"
                 shortcut={['F']}
