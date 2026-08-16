@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { ExternalLink, X } from 'lucide-react'
 import iconUrl from '@/assets/easycandle-icon.svg'
+import { contributors } from '@/data/contributors'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+
+const REPO_URL = 'https://github.com/easy-candle/easy-candle'
 
 export default function AboutDialog() {
   const open = useUiLayoutStore((s) => s.aboutDialogOpen)
@@ -33,59 +36,98 @@ export default function AboutDialog() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="about-title"
-        className="w-full max-w-sm overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
+        className="relative w-full max-w-[22rem] overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-950 shadow-2xl shadow-black/50"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
-          <h2 id="about-title" className="text-sm font-semibold text-amber-400">
-            About
-          </h2>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setOpen(false)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-100"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-amber-500/[0.08] to-transparent"
+          aria-hidden
+        />
 
-        <div className="px-4 py-5 text-center">
-          <img
-            src={iconUrl}
-            alt=""
-            width={56}
-            height={56}
-            className="mx-auto h-14 w-14 rounded-lg border border-amber-500/30"
-            aria-hidden
-          />
-          <h3 className="mt-3 text-base font-semibold text-zinc-100">Easy Candle</h3>
-          {version && <p className="mt-0.5 text-xs text-zinc-500">Version {version}</p>}
-          <p className="mt-3 text-xs leading-relaxed text-zinc-400">
-            Binance candle replay desktop app for practicing paper trading.
-          </p>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={() => setOpen(false)}
+          className="absolute right-2.5 top-2.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
 
-          <div className="mt-4 space-y-1 text-[11px] text-zinc-500">
-            <p>
-              License <span className="text-zinc-300">MIT</span>
-            </p>
-            <p>
-              Repository{' '}
-              <a
-                href="https://github.com/easy-candle/easy-candle"
-                target="_blank"
-                rel="noreferrer"
-                className="text-sky-400/90 hover:text-sky-300"
-              >
-                github.com/easy-candle/easy-candle
-              </a>
-            </p>
+        <div className="relative pb-5 pl-6 pr-12 pt-6">
+          <div className="flex items-center gap-3.5">
+            <img
+              src={iconUrl}
+              alt=""
+              width={48}
+              height={48}
+              className="h-12 w-12 rounded-xl border border-amber-500/20 shadow-sm shadow-amber-950/40"
+              aria-hidden
+            />
+            <div className="min-w-0">
+              <h2 id="about-title" className="text-[15px] font-semibold tracking-tight text-zinc-100">
+                Easy Candle
+              </h2>
+              {version ? (
+                <p className="mt-1">
+                  <span className="inline-flex items-center rounded-full border border-zinc-700/80 bg-zinc-900 px-2 py-0.5 text-[10px] font-medium tabular-nums text-zinc-400">
+                    Version {version}
+                  </span>
+                </p>
+              ) : null}
+            </div>
           </div>
 
-          <p className="mt-4 text-[10px] uppercase tracking-[0.14em] text-zinc-600">
-            Credits · Easy Candle contributors
+          <p className="mt-4 text-[13px] leading-relaxed text-zinc-400">
+            Replay charts and paper-trade without risk.
           </p>
         </div>
+
+        <dl className="relative grid grid-cols-[5.5rem_1fr] items-center gap-x-3 gap-y-2.5 border-t border-zinc-800/80 px-6 py-4 text-xs">
+          <dt className="text-zinc-500">License</dt>
+          <dd className="font-medium text-zinc-200">MIT</dd>
+          <dt className="text-zinc-500">Source</dt>
+          <dd>
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-zinc-200 hover:text-amber-300"
+            >
+              GitHub
+              <ExternalLink className="h-3 w-3 text-zinc-500" aria-hidden />
+            </a>
+          </dd>
+        </dl>
+
+        {contributors.length > 0 && (
+          <div className="relative border-t border-zinc-800/80 px-6 py-4">
+            <h3 className="text-[11px] font-medium text-zinc-500">Contributors</h3>
+            <ul className="mt-3 flex flex-col gap-1">
+              {contributors.map((contributor) => (
+                <li key={contributor.login}>
+                  <a
+                    href={contributor.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2.5 rounded-lg px-1.5 py-1.5 -mx-1.5 hover:bg-zinc-900"
+                  >
+                    <img
+                      src={contributor.avatarSrc}
+                      alt=""
+                      width={28}
+                      height={28}
+                      className="h-7 w-7 rounded-full border border-zinc-700"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-200">
+                      {contributor.login}
+                    </span>
+                    <ExternalLink className="h-3 w-3 shrink-0 text-zinc-600" aria-hidden />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,6 +1,6 @@
 {
   "name": "easy-candle-electron",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Easy Candle — Binance candle replay desktop app",
   "main": "./out/main/index.js",
   "author": "Easy Candle",
@@ -22,6 +22,7 @@
     "build": "yarn typecheck && electron-vite build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "fetch-contributors": "node scripts/fetch-contributors.mjs",
     "postinstall": "electron-builder install-app-deps",
     "dist": "yarn build && electron-builder --publish never",
     "dist:win": "yarn build && electron-builder --win nsis --publish never",

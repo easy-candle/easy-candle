@@ -41,6 +41,11 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Snapshot contributors
+        run: yarn fetch-contributors
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build (no publish)
         run: yarn build && yarn electron-builder ${{ matrix.builder_args }} --publish never
 
