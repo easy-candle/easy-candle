@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import AppShell from '@/components/AppShell'
 import CandleChart from '@/components/CandleChart'
 import PaneChrome from '@/components/PaneChrome'
@@ -30,6 +30,8 @@ export default function App() {
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const setSecondaryTimeframe = useReplayStore((s) => s.setSecondaryTimeframe)
   const setDriverPane = useReplayStore((s) => s.setDriverPane)
+  const [primaryPriceScaleWidth, setPrimaryPriceScaleWidth] = useState(0)
+  const [secondaryPriceScaleWidth, setSecondaryPriceScaleWidth] = useState(0)
 
   useEffect(() => {
     void loadCandles()
@@ -66,7 +68,8 @@ export default function App() {
     currentCandle,
     chartSync,
     overlays,
-    tradeMarkers
+    tradeMarkers,
+    onPriceScaleWidthChange: setPrimaryPriceScaleWidth
   }
 
   const secondaryProps = {
@@ -78,14 +81,16 @@ export default function App() {
     currentCandle: secondaryCurrentCandle,
     chartSync: secondaryChartSync,
     overlays: secondaryOverlays,
-    tradeMarkers: secondaryMarkers
+    tradeMarkers: secondaryMarkers,
+    onPriceScaleWidthChange: setSecondaryPriceScaleWidth
   }
 
   const showDriver = mode === 'replay' && chartSplit
   const secondaryTfDisabled = secondaryLoading || replayLoading
+  const priceScaleWidth = chartSplit ? secondaryPriceScaleWidth : primaryPriceScaleWidth
 
   return (
-    <AppShell>
+    <AppShell priceScaleWidth={priceScaleWidth}>
       <div className={`flex h-full w-full ${chartSplit ? 'flex-row' : ''}`}>
         <div
           className={`relative min-h-0 min-w-0 ${chartSplit ? 'flex-1 border-r border-zinc-800' : 'h-full w-full'}`}
