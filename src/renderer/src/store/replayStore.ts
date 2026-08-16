@@ -34,6 +34,7 @@ export type LevelSetOptions = {
   linkRr?: boolean
 }
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
+import { isChartType, type ChartType } from '@/lib/chart/chartTypes'
 import { DEFAULT_SYMBOL } from '@shared/symbols'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, defaultSecondaryTimeframe, playheadCoverEnd, TIMEFRAMES } from '@shared/timeframes'
 
@@ -233,6 +234,8 @@ type ReplayStore = {
   replayLoading: boolean
   replayMessage: string | null
   activeIndicators: string[]
+  /** Chart rendering style shared by both panes. */
+  chartType: ChartType
   drawTool: DrawTool
   drawings: Drawing[]
   pendingTrend: TrendPoint | null
@@ -255,6 +258,7 @@ type ReplayStore = {
   secondaryError: string | null
   secondaryLoading: boolean
   toggleIndicator: (id: string) => void
+  setChartType: (type: ChartType) => void
   setDrawTool: (tool: DrawTool) => void
   addHorizontalLine: (price: number) => void
   updateHorizontalLine: (id: string, price: number) => void
@@ -1373,6 +1377,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     replayLoading: false,
     replayMessage: null,
     activeIndicators: [],
+    chartType: 'candlestick',
     drawTool: 'select',
     drawings: [],
     pendingTrend: null,
@@ -1404,6 +1409,12 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             : [...s.activeIndicators, id]
         }
       })
+    },
+
+    setChartType(type) {
+      if (!isChartType(type)) return
+      if (type === get().chartType) return
+      set({ chartType: type })
     },
 
     setDrawTool(tool) {
