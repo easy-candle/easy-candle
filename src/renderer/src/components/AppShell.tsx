@@ -5,7 +5,6 @@ import AboutDialog from '@/components/AboutDialog'
 import ChartTypeSelect from '@/components/ChartTypeSelect'
 import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
-import FloatingDrawingBar from '@/components/FloatingDrawingBar'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
 import FloatingTradeBar from '@/components/FloatingTradeBar'
 import IconButton from '@/components/IconButton'
@@ -105,7 +104,6 @@ export default function AppShell({
           <IndicatorsDropdown />
           {!inReplay && <ImportDataDialog onFeedback={setImportFeedback} />}
           {!inReplay && <ReplayStartDialog />}
-          {showDrawingToolbar && <DrawingToolbar />}
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
             <IconButton
               tooltip={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
@@ -183,61 +181,69 @@ export default function AppShell({
 
       <main
         className={`relative flex min-h-0 flex-1 flex-col ${
-          chartFullscreen ? 'p-0' : 'p-1.5 sm:p-2'
+          chartFullscreen
+            ? 'p-0'
+            : showDrawingToolbar
+              ? 'py-1.5 pr-1.5 sm:py-2 sm:pr-2'
+              : 'p-1.5 sm:p-2'
         }`}
       >
         <div
-          className={`relative min-h-0 flex-1 overflow-hidden bg-zinc-950 ${
+          className={`relative flex min-h-0 flex-1 overflow-hidden bg-zinc-950 ${
             chartFullscreen
               ? 'rounded-none border-0 shadow-none'
-              : 'rounded-sm border border-zinc-800 shadow-[inset_0_1px_0_0_rgba(63,63,70,0.35)]'
+              : showDrawingToolbar
+                ? 'rounded-r-sm border border-l-0 border-zinc-800 shadow-[inset_0_1px_0_0_rgba(63,63,70,0.35)]'
+                : 'rounded-sm border border-zinc-800 shadow-[inset_0_1px_0_0_rgba(63,63,70,0.35)]'
           }`}
         >
-          {children}
-          {showReplayControls && inReplay && <FloatingReplayBar />}
-          {showDrawingToolbar && chartFullscreen && <FloatingDrawingBar />}
-          {chartFullscreen && inReplay && <FloatingTradeBar />}
-          {chartFullscreen && (
-            <div
-              className={`pointer-events-none absolute top-2 z-30 ${chartSplit ? 'top-11' : ''}`}
-              style={{ right: Math.max(priceScaleWidth, 0) + 8 }}
-            >
-              <IconButton
-                tooltip="Exit full-screen chart"
-                shortcut={['F']}
-                onClick={() => setChartFullscreen(false)}
-                className="pointer-events-auto bg-zinc-950/90 shadow-lg shadow-black/40"
+          {showDrawingToolbar && <DrawingToolbar />}
+          <div className="relative h-full min-h-0 min-w-0 flex-1">
+            {children}
+            {showReplayControls && inReplay && <FloatingReplayBar />}
+            {chartFullscreen && inReplay && <FloatingTradeBar />}
+            {chartFullscreen && (
+              <div
+                className={`pointer-events-none absolute top-2 z-30 ${chartSplit ? 'top-11' : ''}`}
+                style={{ right: Math.max(priceScaleWidth, 0) + 8 }}
               >
-                <Minimize2 className="h-4 w-4" />
-              </IconButton>
-            </div>
-          )}
-          {(status === 'loading' || replayLoading) && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/75 text-sm text-zinc-400">
-              <span>{replayLoading ? 'Loading replay window…' : 'Loading candles…'}</span>
-              <span className="text-xs text-zinc-600">
-                {imported ? 'UTC · Imported CSV' : 'UTC · Binance klines'}
-              </span>
-            </div>
-          )}
-          {showEmptyLive && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/60 px-4 text-center text-sm text-zinc-400">
-              <span>
-                {imported
-                  ? 'No candles in the imported file.'
-                  : 'No candles for this symbol / timeframe.'}
-              </span>
-              {!imported && (
-                <button
-                  type="button"
-                  onClick={() => void loadCandles()}
-                  className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                <IconButton
+                  tooltip="Exit full-screen chart"
+                  shortcut={['F']}
+                  onClick={() => setChartFullscreen(false)}
+                  className="pointer-events-auto bg-zinc-950/90 shadow-lg shadow-black/40"
                 >
-                  Reload
-                </button>
-              )}
-            </div>
-          )}
+                  <Minimize2 className="h-4 w-4" />
+                </IconButton>
+              </div>
+            )}
+            {(status === 'loading' || replayLoading) && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/75 text-sm text-zinc-400">
+                <span>{replayLoading ? 'Loading replay window…' : 'Loading candles…'}</span>
+                <span className="text-xs text-zinc-600">
+                  {imported ? 'UTC · Imported CSV' : 'UTC · Binance klines'}
+                </span>
+              </div>
+            )}
+            {showEmptyLive && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/60 px-4 text-center text-sm text-zinc-400">
+                <span>
+                  {imported
+                    ? 'No candles in the imported file.'
+                    : 'No candles for this symbol / timeframe.'}
+                </span>
+                {!imported && (
+                  <button
+                    type="button"
+                    onClick={() => void loadCandles()}
+                    className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                  >
+                    Reload
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         {showPaperTrade && !chartFullscreen && <TradePanel />}
       </main>
