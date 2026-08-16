@@ -7,7 +7,6 @@ export type PanelPos = { x: number; y: number }
 type PersistedLayout = {
   replayControlsMinimized?: boolean
   replayControlsPos?: PanelPos
-  drawingToolbarPos?: PanelPos
   tradePanelPos?: PanelPos
   showMainToolbar?: boolean
   showStatusBar?: boolean
@@ -21,7 +20,6 @@ type UiLayoutState = {
   replayControlsMinimized: boolean
   /** null means use default placement (bottom-center) on first layout */
   replayControlsPos: PanelPos | null
-  drawingToolbarPos: PanelPos | null
   tradePanelPos: PanelPos | null
   showMainToolbar: boolean
   showStatusBar: boolean
@@ -35,7 +33,6 @@ type UiLayoutState = {
   setChartFullscreen: (value: boolean) => void
   setReplayControlsMinimized: (value: boolean) => void
   setReplayControlsPos: (pos: PanelPos) => void
-  setDrawingToolbarPos: (pos: PanelPos) => void
   setTradePanelPos: (pos: PanelPos) => void
   toggleMainToolbar: () => void
   toggleStatusBar: () => void
@@ -85,7 +82,6 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   chartFullscreen: false,
   replayControlsMinimized: Boolean(initial.replayControlsMinimized),
   replayControlsPos: isValidPos(initial.replayControlsPos) ? initial.replayControlsPos : null,
-  drawingToolbarPos: isValidPos(initial.drawingToolbarPos) ? initial.drawingToolbarPos : null,
   tradePanelPos: isValidPos(initial.tradePanelPos) ? initial.tradePanelPos : null,
   showMainToolbar: initial.showMainToolbar !== false,
   showStatusBar: initial.showStatusBar !== false,
@@ -116,13 +112,6 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
     if (current && current.x === pos.x && current.y === pos.y) return
     set({ replayControlsPos: pos })
     persist({ replayControlsPos: pos })
-  },
-
-  setDrawingToolbarPos: (pos) => {
-    const current = get().drawingToolbarPos
-    if (current && current.x === pos.x && current.y === pos.y) return
-    set({ drawingToolbarPos: pos })
-    persist({ drawingToolbarPos: pos })
   },
 
   setTradePanelPos: (pos) => {

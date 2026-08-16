@@ -6,7 +6,7 @@ type TooltipProps = {
   text?: string
   kbds?: string[]
   children: ReactNode
-  side?: 'top' | 'bottom'
+  side?: 'top' | 'bottom' | 'left' | 'right'
   sideOffset?: number
   disabled?: boolean
 }
@@ -69,11 +69,21 @@ export default function Tooltip({
     const triggerRect = trigger.getBoundingClientRect()
     const contentRect = content.getBoundingClientRect()
 
-    let left = triggerRect.left + triggerRect.width / 2 - contentRect.width / 2
-    let top =
-      side === 'top'
-        ? triggerRect.top - contentRect.height - sideOffset
-        : triggerRect.bottom + sideOffset
+    let left: number
+    let top: number
+    if (side === 'right') {
+      left = triggerRect.right + sideOffset
+      top = triggerRect.top + triggerRect.height / 2 - contentRect.height / 2
+    } else if (side === 'left') {
+      left = triggerRect.left - contentRect.width - sideOffset
+      top = triggerRect.top + triggerRect.height / 2 - contentRect.height / 2
+    } else if (side === 'top') {
+      left = triggerRect.left + triggerRect.width / 2 - contentRect.width / 2
+      top = triggerRect.top - contentRect.height - sideOffset
+    } else {
+      left = triggerRect.left + triggerRect.width / 2 - contentRect.width / 2
+      top = triggerRect.bottom + sideOffset
+    }
 
     left = Math.min(
       Math.max(left, VIEWPORT_MARGIN),
