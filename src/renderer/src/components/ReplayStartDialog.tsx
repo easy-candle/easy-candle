@@ -23,6 +23,7 @@ import {
   parseUtcParts,
   toUtcParts
 } from '@/lib/utcDateTime'
+import { findIndexAtOrBefore } from '@shared/candleUtils'
 import { TIMEFRAMES } from '@shared/timeframes'
 import { useReplayStore } from '@/store/replayStore'
 
@@ -44,7 +45,7 @@ function persistTab(tab: ReplayRangeMode): void {
   }
 }
 
-export default function ReplayStartModal() {
+export default function ReplayStartDialog() {
   const status = useReplayStore((s) => s.status)
   const mode = useReplayStore((s) => s.mode)
   const dataSource = useReplayStore((s) => s.dataSource)
@@ -53,13 +54,12 @@ export default function ReplayStartModal() {
   const timeframe = useReplayStore((s) => s.timeframe)
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const startReplayAt = useReplayStore((s) => s.startReplayAt)
-  const startImportedReplay = useReplayStore((s) => s.startImportedReplay)
   const startImportedReplayAt = useReplayStore((s) => s.startImportedReplayAt)
 
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<ReplayRangeMode>(() => loadTab())
-  const [date, setDate] = useState(() => defaultUtcParts(7).date)
-  const [time, setTime] = useState(() => defaultUtcParts(7).time)
+  const [date, setDate] = useState(() => defaultUtcParts(0).date)
+  const [time, setTime] = useState(() => defaultUtcParts(0).time)
   const [rangeValue, setRangeValue] = useState(DEFAULT_RANGE.value)
   const [rangeUnit, setRangeUnit] = useState<RangeUnit>(DEFAULT_RANGE.unit)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -81,7 +81,7 @@ export default function ReplayStartModal() {
   }, [open])
 
   function openModal(): void {
-    const parts = defaultUtcParts(7)
+    const parts = defaultUtcParts(0)
     setDate(parts.date)
     setTime(parts.time)
     setLocalError(null)
@@ -157,15 +157,23 @@ export default function ReplayStartModal() {
       return
     }
 
-    if (imported) {
-      startImportedReplay()
-      setOpen(false)
-      return
-    }
-
     const seconds = parseUtcParts(date, time)
     if (seconds == null) {
       setLocalError('Enter a valid UTC date and time.')
+      return
+    }
+
+    if (imported) {
+      const idx = findIndexAtOrBefore(importedCandles, seconds)
+      if (idx < 0) {
+        setLocalError('Selected time is before the start of the imported data.')
+        return
+      }
+      const candle = importedCandles[idx]
+      startImportedReplayAt(idx, {
+        message: `Manual replay · start ${formatUtcCandleTime(candle.time)}`
+      })
+      setOpen(false)
       return
     }
 
@@ -177,7 +185,16 @@ export default function ReplayStartModal() {
     setLocalError(null)
 
     if (tab === 'manual') {
-      if (imported) return
+      if (imported) {
+        if (importedCandles.length === 0) return
+        const firstTime = importedCandles[0].time
+        const lastTime = importedCandles[importedCandles.length - 1].time
+        const seconds = Math.max(firstTime, lastTime - rangeToSeconds(preset.value, preset.unit))
+        const parts = toUtcParts(seconds)
+        setDate(parts.date)
+        setTime(parts.time)
+        return
+      }
       const seconds = nowUtcSeconds() - rangeToSeconds(preset.value, preset.unit)
       const parts = toUtcParts(seconds)
       setDate(parts.date)
@@ -264,42 +281,43 @@ export default function ReplayStartModal() {
             </div>
 
             <div className="space-y-4 px-4 py-4">
-              {tab === 'manual' && !imported && (
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                      Start date (UTC)
-                    </span>
-                    <div className="mt-1 flex items-center gap-1.5">
-                      <CalendarClock className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+              {tab === 'manual' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                        Start date (UTC)
+                      </span>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <CalendarClock className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+                        <input
+                          type="date"
+                          value={date}
+                          aria-label="Replay start date UTC"
+                          onChange={(e) => setDate(e.target.value)}
+                          className="h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 outline-none focus:border-amber-500/60"
+                        />
+                      </div>
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                        Start time (UTC)
+                      </span>
                       <input
-                        type="date"
-                        value={date}
-                        aria-label="Replay start date UTC"
-                        onChange={(e) => setDate(e.target.value)}
-                        className="h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 outline-none focus:border-amber-500/60"
+                        type="time"
+                        value={time}
+                        aria-label="Replay start time UTC"
+                        onChange={(e) => setTime(e.target.value)}
+                        className="mt-1 h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 outline-none focus:border-amber-500/60"
                       />
-                    </div>
-                  </label>
-                  <label className="block">
-                    <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                      Start time (UTC)
-                    </span>
-                    <input
-                      type="time"
-                      value={time}
-                      aria-label="Replay start time UTC"
-                      onChange={(e) => setTime(e.target.value)}
-                      className="mt-1 h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 outline-none focus:border-amber-500/60"
-                    />
-                  </label>
+                    </label>
+                  </div>
+                  {imported && (
+                    <p className="text-xs text-amber-500/80">
+                      Replays from the closest imported candle at or before the selected time.
+                    </p>
+                  )}
                 </div>
-              )}
-
-              {tab === 'manual' && imported && (
-                <p className="text-xs text-amber-500/80">
-                  Replay from the start of the imported file.
-                </p>
               )}
 
               {tab === 'random' && (
