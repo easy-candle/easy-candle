@@ -48,6 +48,7 @@ type CandleChartProps = {
   chartSync?: ChartSync | null
   overlays?: ChartOverlay[] | null
   tradeMarkers?: TradeMarker[] | null
+  onPriceScaleWidthChange?: (width: number) => void
 }
 
 export default function CandleChart({
@@ -59,7 +60,8 @@ export default function CandleChart({
   currentCandle = null,
   chartSync = null,
   overlays = null,
-  tradeMarkers = null
+  tradeMarkers = null,
+  onPriceScaleWidthChange
 }: CandleChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -67,10 +69,18 @@ export default function CandleChart({
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
   const watermarkRef = useRef<ITextWatermarkPluginApi<Time> | null>(null)
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map())
+  const onPriceScaleWidthChangeRef = useRef(onPriceScaleWidthChange)
+  const priceScaleObserverRef = useRef<ResizeObserver | null>(null)
+  const priceScaleCellRef = useRef<HTMLElement | null>(null)
+  const priceScaleWidthRef = useRef(0)
   const [chartReady, setChartReady] = useState<{
     chart: IChartApi
     series: ISeriesApi<'Candlestick'>
   } | null>(null)
+
+  useEffect(() => {
+    onPriceScaleWidthChangeRef.current = onPriceScaleWidthChange
+  }, [onPriceScaleWidthChange])
 
   function reset(next: Candle[] = [], opts: { fitContent?: boolean } = {}): void {
     const series = seriesRef.current
@@ -188,6 +198,34 @@ export default function CandleChart({
     seriesRef.current = series
     setChartReady({ chart, series })
 
+    function getPriceScaleCell(): HTMLElement | null {
+      const paneEl = chart.panes()[0]?.getHTMLElement()
+      const cell = paneEl?.lastElementChild
+      return cell instanceof HTMLElement ? cell : null
+    }
+
+    function reportPriceScaleWidth(): void {
+      const cell = getPriceScaleCell()
+      const width = cell ? cell.offsetWidth : 0
+      if (width === priceScaleWidthRef.current) return
+      priceScaleWidthRef.current = width
+      onPriceScaleWidthChangeRef.current?.(width)
+    }
+
+    function attachPriceScaleObserver(): void {
+      const cell = getPriceScaleCell()
+      if (!cell) return
+      if (priceScaleCellRef.current === cell) return
+      priceScaleObserverRef.current?.disconnect()
+      const observer = new ResizeObserver(() => reportPriceScaleWidth())
+      observer.observe(cell)
+      priceScaleObserverRef.current = observer
+      priceScaleCellRef.current = cell
+      reportPriceScaleWidth()
+    }
+
+    attachPriceScaleObserver()
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (!entry) return
@@ -195,12 +233,16 @@ export default function CandleChart({
       if (width > 0 && height > 0) {
         chart.applyOptions({ width, height })
       }
+      attachPriceScaleObserver()
     })
 
     observer.observe(container)
 
     return () => {
       observer.disconnect()
+      priceScaleObserverRef.current?.disconnect()
+      priceScaleObserverRef.current = null
+      priceScaleCellRef.current = null
       overlaySeriesRef.current.clear()
       markersRef.current = null
       watermarkRef.current = null
