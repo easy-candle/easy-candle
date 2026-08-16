@@ -25,9 +25,11 @@ import {
   unrealizedPnl
 } from '@/lib/paperTrade'
 import { OVERLAY_LAYOUT, TRADE_OVERLAY } from '@/lib/tradeOverlayStyles'
+import { CHART_PALETTES } from '@/lib/theme'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
 import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
+import { useThemeStore } from '@/store/themeStore'
 
 type Point = { x: number; y: number }
 
@@ -143,6 +145,8 @@ export default function DrawingOverlay({
   const paperClose = useReplayStore((s) => s.paperClose)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
+  const theme = useThemeStore((s) => s.theme)
+  const chrome = CHART_PALETTES[theme]
 
   const intervalSeconds =
     TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
@@ -531,7 +535,7 @@ export default function DrawingOverlay({
           height={h}
           rx={OVERLAY_LAYOUT.radius}
           ry={OVERLAY_LAYOUT.radius}
-          fill={TRADE_OVERLAY.handleFill}
+          fill={chrome.handleFill}
           stroke={color}
           strokeWidth={1.15}
           strokeDasharray="3 2"
@@ -557,14 +561,14 @@ export default function DrawingOverlay({
               height={18}
               rx={3}
               ry={3}
-              fill="#1a1d24"
-              stroke="#3f4654"
+              fill={chrome.hintFill}
+              stroke={chrome.hintStroke}
               strokeWidth={1}
             />
             <text
               x={x + w - (kind === 'tp' ? 118 : 112) + 8}
               y={y - h / 2 - 9.5}
-              fill="#e5e7eb"
+              fill={chrome.hintText}
               fontSize={10}
               fontFamily={TRADE_OVERLAY.font}
               className="select-none"
@@ -622,7 +626,7 @@ export default function DrawingOverlay({
           height={h}
           rx={OVERLAY_LAYOUT.radius}
           ry={OVERLAY_LAYOUT.radius}
-          fill={TRADE_OVERLAY.handleFill}
+          fill={chrome.handleFill}
           stroke={border}
           strokeWidth={1.35}
           strokeDasharray={dashed ? '3 2' : undefined}
@@ -855,7 +859,7 @@ export default function DrawingOverlay({
                   cx={connectorX}
                   cy={tpY}
                   r={OVERLAY_LAYOUT.connectorR}
-                  fill={TRADE_OVERLAY.handleFill}
+                  fill={chrome.handleFill}
                   stroke={TRADE_OVERLAY.connector}
                   strokeWidth={1.25}
                 />
@@ -865,7 +869,7 @@ export default function DrawingOverlay({
                   cx={connectorX}
                   cy={slY}
                   r={OVERLAY_LAYOUT.connectorR}
-                  fill={TRADE_OVERLAY.handleFill}
+                  fill={chrome.handleFill}
                   stroke={TRADE_OVERLAY.connector}
                   strokeWidth={1.25}
                 />

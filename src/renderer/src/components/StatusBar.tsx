@@ -37,7 +37,7 @@ function compact(parts: Array<string | null>): string[] {
 function StatusPill({ tone, children }: { tone: 'default' | 'warn'; children: ReactNode }) {
   const toneClass = tone === 'warn' ? 'text-amber-400/90' : 'text-zinc-400'
   return (
-    <span className={`p-1.5 bg-black inline-flex items-center gap-1.5 font-medium tabular-nums ${toneClass}`}>
+    <span className={`inline-flex items-center gap-1.5 bg-zinc-950 p-1.5 font-medium tabular-nums ${toneClass}`}>
       {children}
     </span>
   )
