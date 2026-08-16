@@ -27,13 +27,13 @@ export default function PaneChrome({
   driverDisabled = false
 }: PaneChromeProps) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] flex items-center justify-between gap-2 bg-gradient-to-b from-zinc-950/90 to-transparent px-2 py-1.5">
+    <div className="pointer-events-none absolute inset-x-0 top-0 border-b border-b-zinc-800 z-[2] flex items-center justify-between gap-2 bg-gradient-to-b from-zinc-950/90 to-transparent px-2 py-1.5">
       <div className="pointer-events-auto flex min-w-0 items-center gap-1.5">
         <span className="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500">
           {label}
         </span>
         {timeframeEditable && onTimeframeChange ? (
-          <label className="flex h-7 items-center gap-1 rounded border border-zinc-700 bg-zinc-900/90 px-1.5 text-[11px] text-zinc-400">
+          <label className="flex h-6 items-center gap-1 rounded border border-zinc-700 bg-zinc-900/90 px-1.5 text-[11px] text-zinc-400">
             <Clock3 className="h-3 w-3 shrink-0 text-zinc-500" aria-hidden />
             <span className="sr-only">{label} timeframe</span>
             <select
