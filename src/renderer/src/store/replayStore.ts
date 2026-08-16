@@ -95,8 +95,14 @@ function emptyDrawingState(): {
   drawTool: DrawTool
   drawings: Drawing[]
   pendingTrend: null
+  selectedDrawingId: null
 } {
-  return { drawTool: 'select', drawings: [], pendingTrend: null }
+  return {
+    drawTool: 'select',
+    drawings: [],
+    pendingTrend: null,
+    selectedDrawingId: null
+  }
 }
 
 function remapDrawingsToInterval(drawings: Drawing[], intervalSec: number): Drawing[] {
@@ -236,6 +242,8 @@ type ReplayStore = {
   drawTool: DrawTool
   drawings: Drawing[]
   pendingTrend: TrendPoint | null
+  /** Drawing selected with the Select tool — target for the Delete shortcut. */
+  selectedDrawingId: string | null
   position: Position | null
   closedTrades: ClosedTrade[]
   tradeMarkers: TradeMarker[]
@@ -264,6 +272,8 @@ type ReplayStore = {
     end: 'start' | 'end',
     point: TrendPoint
   ) => void
+  selectDrawing: (id: string | null) => void
+  deleteDrawing: (id: string) => void
   clearDrawings: () => void
   paperBuy: () => void
   paperSell: () => void
@@ -1376,6 +1386,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     drawTool: 'select',
     drawings: [],
     pendingTrend: null,
+    selectedDrawingId: null,
     position: null,
     closedTrades: [],
     tradeMarkers: [],
@@ -1474,7 +1485,20 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     clearDrawings() {
-      set({ drawings: [], pendingTrend: null })
+      set({ drawings: [], pendingTrend: null, selectedDrawingId: null })
+    },
+
+    selectDrawing(id) {
+      set({ selectedDrawingId: id })
+    },
+
+    deleteDrawing(id) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id) return
+      set((s) => ({
+        drawings: s.drawings.filter((drawing) => drawing.id !== id),
+        selectedDrawingId: s.selectedDrawingId === id ? null : s.selectedDrawingId
+      }))
     },
 
     paperBuy() {
