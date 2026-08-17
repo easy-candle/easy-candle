@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type ReactElement, useMemo } from 'react'
 import { ChartCandlestick, Check, ChevronDown, Search, Settings2, X } from 'lucide-react'
 import { SYMBOL_GROUPS, SYMBOLS } from '@shared/symbols'
 import Dropdown from '@/components/Dropdown'
+import { isMetatraderImport } from '@shared/importTypes'
 import { useReplayStore } from '@/store/replayStore'
 import { useSymbolVisibilityStore } from '@/store/symbolVisibilityStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
@@ -44,6 +45,15 @@ export default function SymbolSelect(): ReactElement {
 
   const disabled = status === 'loading' || replayLoading || mode === 'replay'
   const imported = dataSource === 'imported'
+
+  const mtImports = useMemo(
+    () => importedList.filter((entry) => isMetatraderImport(entry)),
+    [importedList]
+  )
+  const csvImports = useMemo(
+    () => importedList.filter((entry) => !isMetatraderImport(entry)),
+    [importedList]
+  )
 
   useEffect(() => {
     void refreshImportedList()

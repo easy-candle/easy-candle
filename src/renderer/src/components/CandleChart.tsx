@@ -156,12 +156,16 @@ export default function CandleChart({
   const chartTypeRef = useRef(chartType)
   const seriesTypeRef = useRef<ChartType>(chartType)
   const haLastRef = useRef<Candle | null>(null)
+<<<<<<< HEAD
   const pricePrecision = useMemo(
     () => resolvePricePrecision(symbol, candles ?? visibleCandles),
     [symbol, candles, visibleCandles]
   )
   const pricePrecisionRef = useRef(pricePrecision)
   pricePrecisionRef.current = pricePrecision
+=======
+  const haPrevRef = useRef<Candle | null>(null)
+>>>>>>> 3961e3c (Add MetaTrader integration and enhance import functionality)
   const [chartReady, setChartReady] = useState<{
     chart: IChartApi
     series: ISeriesApi<SeriesType>
@@ -186,8 +190,10 @@ export default function CandleChart({
     if (type === 'heikinashi') {
       const ha = toHeikinAshi(data)
       haLastRef.current = ha.length > 0 ? ha[ha.length - 1] : null
+      haPrevRef.current = ha.length > 1 ? ha[ha.length - 2] : null
     } else {
       haLastRef.current = null
+      haPrevRef.current = null
     }
 
     series.setData(buildSeriesData(type, data) as never)
@@ -212,7 +218,13 @@ export default function CandleChart({
     let point: unknown
 
     if (type === 'heikinashi') {
-      const ha = buildHeikinAshiPoint(haLastRef.current, candle)
+      const lastHa = haLastRef.current
+      const prev =
+        lastHa && lastHa.time === candle.time ? haPrevRef.current : lastHa
+      if (lastHa && lastHa.time !== candle.time) {
+        haPrevRef.current = lastHa
+      }
+      const ha = buildHeikinAshiPoint(prev, candle)
       haLastRef.current = ha
       point = { time: ha.time as Time, open: ha.open, high: ha.high, low: ha.low, close: ha.close }
     } else if (type === 'line') {
@@ -408,8 +420,10 @@ export default function CandleChart({
     if (chartType === 'heikinashi') {
       const ha = toHeikinAshi(data)
       haLastRef.current = ha.length > 0 ? ha[ha.length - 1] : null
+      haPrevRef.current = ha.length > 1 ? ha[ha.length - 2] : null
     } else {
       haLastRef.current = null
+      haPrevRef.current = null
     }
 
     series.setData(buildSeriesData(chartType, data) as never)
@@ -515,8 +529,12 @@ export default function CandleChart({
 
   useEffect(() => {
     if (mode !== 'live') return
-    reset(candles ?? [], { fitContent: true })
-  }, [mode, candles, symbol])
+    if (chartSync?.kind === 'append' && currentCandle) {
+      append(currentCandle)
+      return
+    }
+    reset(candles ?? [], { fitContent: chartSync?.fitContent !== false })
+  }, [mode, candles, symbol, chartSync?.kind, chartSync?.revision, currentCandle])
 
   useEffect(() => {
     if (mode !== 'replay' || !chartSync) return

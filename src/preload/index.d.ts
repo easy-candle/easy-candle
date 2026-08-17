@@ -9,6 +9,7 @@ import type {
   ImportSaveResult
 } from '../shared/importTypes'
 import type { KlinesFetchParams, KlinesFetchResult } from '../shared/klinesTypes'
+import type { MtBridgeIpcEvent, MtBridgeStatusResult, MtPreviewLoadResult } from '../shared/mtBridgeTypes'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
@@ -18,6 +19,11 @@ import type {
 
 interface EasyCandleApi {
   fetchKlines: (params: KlinesFetchParams) => Promise<KlinesFetchResult>
+  mtBridgeStart: () => Promise<MtBridgeStatusResult>
+  mtBridgeStop: () => Promise<MtBridgeStatusResult>
+  mtBridgeStatus: () => Promise<MtBridgeStatusResult>
+  mtBridgePreview: () => Promise<MtPreviewLoadResult>
+  onMtBridgeEvent: (callback: (payload: MtBridgeIpcEvent) => void) => () => void
   getAppVersion: () => Promise<string>
   minimizeWindow: () => void
   toggleMaximizeWindow: () => void
