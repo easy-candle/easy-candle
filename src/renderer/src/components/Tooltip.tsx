@@ -119,7 +119,7 @@ export default function Tooltip({
             ref={contentRef}
             role="tooltip"
             style={{ left: pos.left, top: pos.top, visibility: visible ? 'visible' : 'hidden' }}
-            className="pointer-events-none fixed z-[60] flex h-6 max-w-[80vw] select-none items-center gap-1 whitespace-nowrap rounded-sm border border-zinc-600/50 bg-zinc-800 px-1.5 py-1 text-xs text-zinc-100 shadow-lg shadow-black/40"
+            className="pointer-events-none fixed z-[60] flex h-6 max-w-[80vw] select-none items-center gap-1 whitespace-nowrap rounded-sm border border-zinc-600/50 bg-white dark:bg-zinc-800 px-1.5 py-1 text-xs text-zinc-100 shadow-lg shadow-black/10"
           >
             {text && <span className="truncate">{text}</span>}
             {kbds.length > 0 && (
