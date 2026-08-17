@@ -181,37 +181,31 @@ export default function AppShell({
 
       <main
         className={`relative flex min-h-0 flex-1 flex-col ${
-          chartFullscreen
-            ? 'p-0'
-            : showDrawingToolbar
-              ? 'py-1.5 pr-1.5 sm:py-2 sm:pr-2'
-              : 'p-1.5 sm:p-2'
+          chartFullscreen ? 'p-0' : showDrawingToolbar ? 'py-1.5 px-2 sm:py-2' : 'p-1.5 sm:p-2'
         }`}
       >
         <div
-          className={`relative flex min-h-0 flex-1 overflow-hidden bg-zinc-950 ${
+          className={`relative flex gap-1 min-h-0 flex-1 overflow-hidden bg-zinc-950 ${
             chartFullscreen
               ? 'rounded-none border-0 shadow-none'
-              : showDrawingToolbar
-                ? 'rounded-r-sm border border-l-0 border-zinc-800 shadow-[inset_0_1px_0_0_rgba(63,63,70,0.35)]'
-                : 'rounded-sm border border-zinc-800 shadow-[inset_0_1px_0_0_rgba(63,63,70,0.35)]'
+              : ''
           }`}
         >
           {showDrawingToolbar && <DrawingToolbar />}
-          <div className="relative h-full min-h-0 min-w-0 flex-1">
+          <div className="relative h-full min-h-0 min-w-0 flex-1 rounded-r-sm border border-zinc-800">
             {children}
             {showReplayControls && inReplay && <FloatingReplayBar />}
             {chartFullscreen && inReplay && <FloatingTradeBar />}
             {chartFullscreen && (
               <div
-                className={`pointer-events-none absolute top-2 z-30 ${chartSplit ? 'top-11' : ''}`}
+                className={`pointer-events-none absolute top-2 z-30 ${chartSplit ? 'top-[2.8rem]' : ''}`}
                 style={{ right: Math.max(priceScaleWidth, 0) + 8 }}
               >
                 <IconButton
                   tooltip="Exit full-screen chart"
                   shortcut={['F']}
                   onClick={() => setChartFullscreen(false)}
-                  className="pointer-events-auto bg-zinc-950/90 shadow-lg shadow-black/40"
+                  className="pointer-events-auto bg-zinc-950/90"
                 >
                   <Minimize2 className="h-4 w-4" />
                 </IconButton>

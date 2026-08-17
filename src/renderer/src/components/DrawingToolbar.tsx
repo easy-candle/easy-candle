@@ -21,7 +21,7 @@ export default function DrawingToolbar() {
     <div
       role="toolbar"
       aria-label="Drawing tools"
-      className="flex h-full w-[52px] shrink-0 flex-col items-center gap-0.5 border-r border-zinc-800 bg-zinc-900/60 px-1.5 py-2"
+      className="flex h-full w-[49px] rounded-sm shrink-0 flex-col items-center gap-0.5 border border-zinc-800 bg-zinc-900/60 px-1.5 py-2"
     >
       <IconButton
         variant="ghost"
@@ -31,7 +31,7 @@ export default function DrawingToolbar() {
         disabled={disabled}
         onClick={() => setDrawTool('select')}
       >
-        <MousePointer2 className="h-8 w-8" strokeWidth={1.25} />
+        <MousePointer2 className="w-6 h-6" strokeWidth={1.25} />
       </IconButton>
       <div className="my-1 h-px w-7 bg-zinc-800" aria-hidden />
       <IconButton
@@ -42,7 +42,7 @@ export default function DrawingToolbar() {
         disabled={disabled}
         onClick={() => setDrawTool('hline')}
       >
-        <DrawingToolIcon svg={hlineIcon} className="h-8 w-8" />
+        <DrawingToolIcon svg={hlineIcon} className="w-6 h-6" />
       </IconButton>
       <IconButton
         variant="ghost"
@@ -52,7 +52,7 @@ export default function DrawingToolbar() {
         disabled={disabled}
         onClick={() => setDrawTool('trendline')}
       >
-        <DrawingToolIcon svg={trendlineIcon} className="h-8 w-8" />
+        <DrawingToolIcon svg={trendlineIcon} className="w-6 h-6" />
       </IconButton>
       <IconButton
         variant="ghost"
@@ -62,7 +62,7 @@ export default function DrawingToolbar() {
         disabled={disabled}
         onClick={() => setDrawTool('fib')}
       >
-        <DrawingToolIcon svg={fibonacciIcon} className="h-8 w-8" />
+        <DrawingToolIcon svg={fibonacciIcon} className="w-6 h-6" />
       </IconButton>
       <IconButton
         variant="ghost"
@@ -72,7 +72,7 @@ export default function DrawingToolbar() {
         disabled={disabled}
         onClick={() => setDrawTool('rect')}
       >
-        <DrawingToolIcon svg={rectangleIcon} className="h-8 w-8" />
+        <DrawingToolIcon svg={rectangleIcon} className="w-6 h-6" />
       </IconButton>
       <div className="my-1 h-px w-7 bg-zinc-800" aria-hidden />
       <IconButton
@@ -83,7 +83,7 @@ export default function DrawingToolbar() {
         onClick={clearDrawings}
         tone="danger"
       >
-        <Trash2 className="h-8 w-8" strokeWidth={1.25} />
+        <Trash2 className="w-6 h-6" strokeWidth={1.25} />
       </IconButton>
     </div>
   )

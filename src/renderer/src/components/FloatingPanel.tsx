@@ -212,7 +212,7 @@ export default function FloatingPanel({
   return (
     <div
       ref={panelRef}
-      className={`pointer-events-auto absolute z-20 max-w-[min(100%,42rem)] rounded border border-zinc-700/90 bg-zinc-950/95 shadow-lg shadow-black/50 backdrop-blur-sm ${className}`}
+      className={`pointer-events-auto absolute z-20 max-w-[min(100%,42rem)] rounded border border-zinc-700/90 bg-zinc-950/95 shadow-lg dark:shadow-black/50 backdrop-blur-sm ${className}`}
       style={style}
     >
       <div className="flex items-center gap-1 border-b border-zinc-800/90 px-1.5 py-1">
