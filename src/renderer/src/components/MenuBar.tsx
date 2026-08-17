@@ -268,7 +268,7 @@ export default function MenuBar() {
             {open && (
               <div
                 role="menu"
-                className="absolute left-0 top-full z-50 min-w-[13rem] rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl shadow-black/50"
+                className="absolute left-0 top-full z-50 min-w-[13rem] rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl shadow-black/10"
               >
                 {group.entries.map((entry, entryIndex) => (
                   <MenuEntryView

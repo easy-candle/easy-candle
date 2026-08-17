@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BarSeries,
   CandlestickSeries,
@@ -27,6 +27,7 @@ import {
   type ChartType
 } from '@/lib/chart/chartTypes'
 import type { Candle } from '@shared/candleUtils'
+import { resolvePricePrecision, toChartPriceFormat } from '@shared/pricePrecision'
 import { CHART_PALETTES, type ChartPalette } from '@/lib/theme'
 import { useThemeStore } from '@/store/themeStore'
 import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
@@ -76,20 +77,23 @@ function focusLatestCandle(
   })
 }
 
-function addSeries(chart: IChartApi, type: ChartType): ISeriesApi<SeriesType> {
+function addSeries(chart: IChartApi, type: ChartType, precision: number): ISeriesApi<SeriesType> {
+  const priceFormat = toChartPriceFormat(precision)
   switch (type) {
     case 'line':
       return chart.addSeries(LineSeries, {
         color: '#22c55e',
         lineWidth: 2,
         priceLineVisible: false,
-        lastValueVisible: false
+        lastValueVisible: false,
+        priceFormat
       })
     case 'bar':
       return chart.addSeries(BarSeries, {
         upColor: '#22c55e',
         downColor: '#ef4444',
-        thinBars: false
+        thinBars: false,
+        priceFormat
       })
     case 'heikinashi':
     case 'candlestick':
@@ -99,7 +103,8 @@ function addSeries(chart: IChartApi, type: ChartType): ISeriesApi<SeriesType> {
         downColor: '#ef4444',
         borderVisible: false,
         wickUpColor: '#22c55e',
-        wickDownColor: '#ef4444'
+        wickDownColor: '#ef4444',
+        priceFormat
       })
   }
 }
@@ -145,6 +150,12 @@ export default function CandleChart({
   const chartTypeRef = useRef(chartType)
   const seriesTypeRef = useRef<ChartType>(chartType)
   const haLastRef = useRef<Candle | null>(null)
+  const pricePrecision = useMemo(
+    () => resolvePricePrecision(symbol, candles ?? visibleCandles),
+    [symbol, candles, visibleCandles]
+  )
+  const pricePrecisionRef = useRef(pricePrecision)
+  pricePrecisionRef.current = pricePrecision
   const [chartReady, setChartReady] = useState<{
     chart: IChartApi
     series: ISeriesApi<SeriesType>
@@ -237,7 +248,8 @@ export default function CandleChart({
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: false,
-          crosshairMarkerVisible: false
+          crosshairMarkerVisible: false,
+          priceFormat: toChartPriceFormat(pricePrecisionRef.current)
         })
         map.set(overlay.id, series)
       } else if (overlay.color) {
@@ -267,7 +279,7 @@ export default function CandleChart({
       }
     })
 
-    const series = addSeries(chart, chartType)
+    const series = addSeries(chart, chartType, pricePrecisionRef.current)
     seriesTypeRef.current = chartType
 
     markersRef.current = createSeriesMarkers(series, [])
@@ -356,7 +368,7 @@ export default function CandleChart({
     const source = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
     const data = source ?? []
 
-    const series = addSeries(chart, chartType)
+    const series = addSeries(chart, chartType, pricePrecisionRef.current)
     seriesTypeRef.current = chartType
     seriesRef.current = series
 
@@ -419,6 +431,14 @@ export default function CandleChart({
   }, [theme])
 
   useEffect(() => {
+    const format = toChartPriceFormat(pricePrecision)
+    seriesRef.current?.applyOptions({ priceFormat: format })
+    for (const overlay of overlaySeriesRef.current.values()) {
+      overlay.applyOptions({ priceFormat: format })
+    }
+  }, [pricePrecision])
+
+  useEffect(() => {
     if (mode !== 'live') return
     reset(candles ?? [], { fitContent: true })
   }, [mode, candles, symbol])
@@ -468,13 +488,19 @@ export default function CandleChart({
       />
       {chartReady && (
         <>
-          <OhlcLegend chart={chartReady.chart} series={chartReady.series} candles={seriesCandles} />
+          <OhlcLegend
+            chart={chartReady.chart}
+            series={chartReady.series}
+            candles={seriesCandles}
+            pricePrecision={pricePrecision}
+          />
           <DrawingOverlay
             chart={chartReady.chart}
             series={chartReady.series}
             paneTimeframe={timeframe}
             paneCurrentCandle={currentCandle}
             paneCandles={seriesCandles}
+            pricePrecision={pricePrecision}
           />
         </>
       )}

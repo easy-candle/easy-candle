@@ -91,7 +91,7 @@ export default function ChartTypeSelect() {
             <div
               key={entry.id}
               className={`group flex items-center ${
-                active ? 'bg-amber-950/40' : 'hover:bg-zinc-800/80'
+                active ? 'bg-amber-950/10 dark:bg-amber-950/40' : 'hover:bg-zinc-800/80'
               }`}
             >
               <button
@@ -140,8 +140,8 @@ export default function ChartTypeSelect() {
                   aria-label={label}
                   className={`inline-flex h-5 w-6 items-center justify-center rounded px-1 transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                     id === chartType
-                      ? 'bg-amber-950/40 text-amber-300'
-                      : 'border-zinc-950/90 bg-zinc-950/90 text-zinc-400 hover:text-zinc-200'
+                      ? 'bg-amber-950/10 dark:bg-amber-950/40 text-amber-300'
+                      : 'border-zinc-950/90 text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" aria-hidden />

@@ -18,6 +18,8 @@ import {
   unrealizedPnl
 } from '@/lib/paperTrade'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import { formatAssetPrice } from '@shared/pricePrecision'
+import { usePricePrecision } from '@/hooks/usePricePrecision'
 import { useReplayStore } from '@/store/replayStore'
 import Tooltip from "@/components/Tooltip";
 
@@ -36,6 +38,7 @@ export default function TradePanel() {
   const paperSell = useReplayStore((s) => s.paperSell)
   const paperClose = useReplayStore((s) => s.paperClose)
   const setRiskReward = useReplayStore((s) => s.setRiskReward)
+  const pricePrecision = usePricePrecision()
 
   if (mode !== 'replay') return null
 
@@ -216,17 +219,19 @@ export default function TradePanel() {
                     {position.side.toUpperCase()}
                   </span>
                   <span className="text-zinc-400">
-                    Entry {position.entryPrice.toFixed(2)} ·{' '}
+                    Entry {formatAssetPrice(position.entryPrice, pricePrecision)} ·{' '}
                     {formatUtcCandleTime(position.entryTime)}
                   </span>
                   {position.takeProfit != null && (
                     <span className="text-teal-400/90">
-                      TP {position.takeProfit.toFixed(2)}
+                      TP {formatAssetPrice(position.takeProfit, pricePrecision)}
                       {openRr != null ? ` · ${formatRiskReward(openRr)}` : ` · ${rrLabel}`}
                     </span>
                   )}
                   {position.stopLoss != null && (
-                    <span className="text-orange-400/90">SL {position.stopLoss.toFixed(2)}</span>
+                    <span className="text-orange-400/90">
+                      SL {formatAssetPrice(position.stopLoss, pricePrecision)}
+                    </span>
                   )}
                   <span
                     className={`ml-auto font-medium ${
@@ -259,7 +264,8 @@ export default function TradePanel() {
                     {formatExitReason(trade.exitReason)}
                   </span>
                   <span>
-                    {trade.entryPrice.toFixed(2)} → {trade.exitPrice.toFixed(2)}
+                    {formatAssetPrice(trade.entryPrice, pricePrecision)} →{' '}
+                    {formatAssetPrice(trade.exitPrice, pricePrecision)}
                   </span>
                   <span className="text-zinc-600">
                     {formatUtcCandleTime(trade.entryTime)} → {formatUtcCandleTime(trade.exitTime)}

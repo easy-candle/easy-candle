@@ -24,10 +24,10 @@ export default function TitleBar() {
           alt=""
           width={22}
           height={22}
-          className="h-[22px] w-[22px] rounded-sm border border-amber-500/30"
+          className="h-[22px] w-[22px] rounded-sm"
           aria-hidden
         />
-        <span className="text-xs font-semibold tracking-tight text-amber-400">Easy Candle</span>
+        <span className="text-xs font-bold tracking-tight text-amber-400">Easy Candle</span>
       </div>
 
       <div className="flex items-stretch">

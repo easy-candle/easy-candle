@@ -3,6 +3,7 @@ import { ChevronDown, Clock3, Star } from 'lucide-react'
 import { TIMEFRAME_IDS, TIMEFRAMES } from '@shared/timeframes'
 import Dropdown from '@/components/Dropdown'
 import { useReplayStore } from '@/store/replayStore'
+import Tooltip from '@/components/Tooltip'
 
 const FAVORITES_STORAGE_KEY = 'easy-candle:timeframe-favorites'
 
@@ -88,7 +89,7 @@ export default function TimeframeSelect() {
             <div
               key={id}
               className={`group flex items-center ${
-                id === timeframe ? 'bg-amber-950/40' : 'hover:bg-zinc-800/80'
+                id === timeframe ? 'bg-amber-950/10 dark:bg-amber-950/40' : 'hover:bg-zinc-800/80'
               }`}
             >
               <button
@@ -96,9 +97,7 @@ export default function TimeframeSelect() {
                 role="menuitem"
                 onClick={() => setTimeframe(id)}
                 className={`flex-1 px-3 py-2 text-left text-xs transition-colors ${
-                  id === timeframe
-                    ? 'text-amber-300'
-                    : 'text-zinc-300 group-hover:text-zinc-100'
+                  id === timeframe ? 'text-amber-300' : 'text-zinc-300 group-hover:text-zinc-100'
                 }`}
               >
                 {TIMEFRAMES[id].label}
@@ -122,20 +121,20 @@ export default function TimeframeSelect() {
       {favoriteIds.length > 0 && (
         <div className="flex h-8 items-center rounded border px-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 border-zinc-700 bg-zinc-900/80 gap-1">
           {favoriteIds.map((id) => (
-            <button
-              key={id}
-              type="button"
-              disabled={disabled}
-              title={TIMEFRAMES[id].label}
-              onClick={() => setTimeframe(id)}
-              className={`inline-flex h-5 items-center rounded px-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                id === timeframe
-                  ? 'bg-amber-950/40 text-amber-300'
-                  : 'border-zinc-950/90 bg-zinc-950/90 text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              {TIMEFRAMES[id].label}
-            </button>
+            <Tooltip text={TIMEFRAMES[id].label} key={id}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => setTimeframe(id)}
+                className={`inline-flex h-5 items-center rounded px-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                  id === timeframe
+                    ? 'bg-amber-950/10 dark:bg-amber-950/40 text-amber-300'
+                    : 'border-zinc-950/90 text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {TIMEFRAMES[id].label}
+              </button>
+            </Tooltip>
           ))}
         </div>
       )}
