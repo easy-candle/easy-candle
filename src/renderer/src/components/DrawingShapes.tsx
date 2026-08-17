@@ -5,6 +5,7 @@ import {
   formatFibLevel,
   type RectHandle
 } from '@/lib/chart/drawingGeometry'
+import { DEFAULT_PRICE_PRECISION, formatAssetPrice } from '@shared/pricePrecision'
 
 export const DRAW_STROKE = '#f23645'
 export const DRAW_WIDTH = 2.5
@@ -23,11 +24,6 @@ type HandleEvents = {
 
 function ink(selected: boolean): string {
   return selected ? SELECT_STROKE : DRAW_STROKE
-}
-
-function formatPrice(value: number): string {
-  if (!Number.isFinite(value)) return '—'
-  return Math.abs(value) >= 1 ? value.toFixed(2) : value.toFixed(6)
 }
 
 export function HandleDot({
@@ -228,6 +224,7 @@ export function FibShape({
   canSelect,
   canDraw,
   showHandles = true,
+  pricePrecision = DEFAULT_PRICE_PRECISION,
   onSelect,
   onDragEnd,
   onDragBody
@@ -240,6 +237,7 @@ export function FibShape({
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  pricePrecision?: number
   onSelect?: (event: ReactMouseEvent) => void
   onDragEnd?: (end: 'start' | 'end', event: ReactMouseEvent) => void
   onDragBody?: (event: ReactMouseEvent) => void
@@ -287,7 +285,7 @@ export function FibShape({
             fontFamily="ui-sans-serif, system-ui, sans-serif"
             className="pointer-events-none select-none"
           >
-            {formatFibLevel(level.ratio)} ({formatPrice(level.price)})
+            {formatFibLevel(level.ratio)} ({formatAssetPrice(level.price, pricePrecision)})
           </text>
         </g>
       ))}

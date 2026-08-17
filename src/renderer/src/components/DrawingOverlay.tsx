@@ -48,6 +48,7 @@ import { OVERLAY_LAYOUT, TRADE_OVERLAY } from '@/lib/tradeOverlayStyles'
 import { CHART_PALETTES } from '@/lib/theme'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
 import type { Candle } from '@shared/candleUtils'
+import { DEFAULT_PRICE_PRECISION } from '@shared/pricePrecision'
 import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 
@@ -100,6 +101,7 @@ type DrawingOverlayProps = {
   paneCurrentCandle?: Candle | null
   /** Series bars on this pane — used to extrapolate times in empty chart space. */
   paneCandles?: Candle[]
+  pricePrecision?: number
 }
 
 function linkedLevelForDrag(
@@ -164,7 +166,8 @@ export default function DrawingOverlay({
   series,
   paneTimeframe,
   paneCurrentCandle = null,
-  paneCandles = []
+  paneCandles = [],
+  pricePrecision = DEFAULT_PRICE_PRECISION
 }: DrawingOverlayProps) {
   const drawings = useReplayStore((s) => s.drawings)
   const drawTool = useReplayStore((s) => s.drawTool)
@@ -1201,6 +1204,7 @@ export default function DrawingOverlay({
               labelColor={chrome.hintText}
               canSelect={canSelect}
               canDraw={canDraw}
+              pricePrecision={pricePrecision}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
               onDragEnd={(end, e) =>
                 startDrag(e, { kind: 'fib', id: drawing.id, end, moved: false })
@@ -1273,6 +1277,7 @@ export default function DrawingOverlay({
                   canSelect={false}
                   canDraw={false}
                   showHandles={false}
+                  pricePrecision={pricePrecision}
                 />
                 {firstHandle}
               </g>

@@ -11,18 +11,12 @@ import type {
 } from 'lightweight-charts'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import type { Candle } from '@shared/candleUtils'
+import { formatAssetPrice } from '@shared/pricePrecision'
 
 const UP_COLOR = '#22c55e'
 const DOWN_COLOR = '#ef4444'
 
 type LegendBar = BarData<Time> | LineData<Time>
-
-function formatPrice(value: number): string {
-  if (!Number.isFinite(value)) return '—'
-  const abs = Math.abs(value)
-  if (abs >= 1) return value.toFixed(2)
-  return value.toFixed(6)
-}
 
 function toBar(candle: Candle): BarData<Time> {
   return {
@@ -47,9 +41,15 @@ type OhlcLegendProps = {
   series: ISeriesApi<SeriesType>
   /** Series bars on this pane — used to default to the latest candle. */
   candles: Candle[]
+  pricePrecision: number
 }
 
-export default function OhlcLegend({ chart, series, candles }: OhlcLegendProps): ReactNode {
+export default function OhlcLegend({
+  chart,
+  series,
+  candles,
+  pricePrecision
+}: OhlcLegendProps): ReactNode {
   const [bar, setBar] = useState<LegendBar | null>(null)
   const pinnedTimeRef = useRef<number | null>(null)
 
@@ -92,7 +92,7 @@ export default function OhlcLegend({ chart, series, candles }: OhlcLegendProps):
       {line ? (
         <span className="flex items-center gap-1">
           <span className="text-zinc-500">Price</span>
-          <span style={{ color: UP_COLOR }}>{formatPrice(bar.value)}</span>
+          <span style={{ color: UP_COLOR }}>{formatAssetPrice(bar.value, pricePrecision)}</span>
         </span>
       ) : (
         (() => {
@@ -103,19 +103,19 @@ export default function OhlcLegend({ chart, series, candles }: OhlcLegendProps):
             <>
               <span className="flex items-center gap-1">
                 <span className="text-zinc-500">O</span>
-                <span style={{ color }}>{formatPrice(ohlc.open)}</span>
+                <span style={{ color }}>{formatAssetPrice(ohlc.open, pricePrecision)}</span>
               </span>
               <span className="flex items-center gap-1">
                 <span className="text-zinc-500">H</span>
-                <span style={{ color }}>{formatPrice(ohlc.high)}</span>
+                <span style={{ color }}>{formatAssetPrice(ohlc.high, pricePrecision)}</span>
               </span>
               <span className="flex items-center gap-1">
                 <span className="text-zinc-500">L</span>
-                <span style={{ color }}>{formatPrice(ohlc.low)}</span>
+                <span style={{ color }}>{formatAssetPrice(ohlc.low, pricePrecision)}</span>
               </span>
               <span className="flex items-center gap-1">
                 <span className="text-zinc-500">C</span>
-                <span style={{ color }}>{formatPrice(ohlc.close)}</span>
+                <span style={{ color }}>{formatAssetPrice(ohlc.close, pricePrecision)}</span>
               </span>
             </>
           )

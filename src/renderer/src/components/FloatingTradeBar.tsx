@@ -2,6 +2,8 @@ import { ArrowDownCircle, ArrowUpCircle, CircleX, Minus, Plus } from 'lucide-rea
 import FloatingPanel from '@/components/FloatingPanel'
 import IconButton from '@/components/IconButton'
 import { formatPnl, formatRiskReward, unrealizedPnl } from '@/lib/paperTrade'
+import { formatAssetPrice } from '@shared/pricePrecision'
+import { usePricePrecision } from '@/hooks/usePricePrecision'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
@@ -18,6 +20,7 @@ export default function FloatingTradeBar() {
   const paperSell = useReplayStore((s) => s.paperSell)
   const paperClose = useReplayStore((s) => s.paperClose)
   const setRiskReward = useReplayStore((s) => s.setRiskReward)
+  const pricePrecision = usePricePrecision()
 
   const pos = useUiLayoutStore((s) => s.tradePanelPos)
   const setTradePanelPos = useUiLayoutStore((s) => s.setTradePanelPos)
@@ -123,7 +126,9 @@ export default function FloatingTradeBar() {
             >
               {position.side.toUpperCase()}
             </span>
-            <span className="text-zinc-500">@ {position.entryPrice.toFixed(2)}</span>
+            <span className="text-zinc-500">
+              @ {formatAssetPrice(position.entryPrice, pricePrecision)}
+            </span>
             <span
               className={`ml-auto font-medium ${
                 openPnl != null && openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'

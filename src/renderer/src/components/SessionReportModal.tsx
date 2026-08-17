@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Download, X } from 'lucide-react'
 import { formatExitReason, formatPnl, formatWinRate, tradesToCsv, type SideReport } from '@/lib/paperTrade'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import { formatAssetPrice, resolvePricePrecision } from '@shared/pricePrecision'
 import { useReplayStore } from '@/store/replayStore'
 
 function ReportBlock({ title, report }: { title: string; report: SideReport }) {
@@ -65,6 +66,15 @@ export default function SessionReportModal() {
   if (!sessionReport) return null
 
   const { symbol, timeframe, trades, summary, closedOpenOnExit } = sessionReport
+  const pricePrecision = resolvePricePrecision(
+    symbol,
+    trades.map((trade) => ({
+      open: trade.entryPrice,
+      high: trade.entryPrice,
+      low: trade.exitPrice,
+      close: trade.exitPrice
+    }))
+  )
 
   function exportCsv(): void {
     const csv = tradesToCsv(trades)
@@ -141,7 +151,8 @@ export default function SessionReportModal() {
                   {formatExitReason(trade.exitReason)}
                 </span>
                 <span>
-                  {trade.entryPrice.toFixed(2)} → {trade.exitPrice.toFixed(2)}
+                  {formatAssetPrice(trade.entryPrice, pricePrecision)} →{' '}
+                  {formatAssetPrice(trade.exitPrice, pricePrecision)}
                 </span>
                 <span className="text-zinc-600">
                   {formatUtcCandleTime(trade.entryTime)} → {formatUtcCandleTime(trade.exitTime)}
