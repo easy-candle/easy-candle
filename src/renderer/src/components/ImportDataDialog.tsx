@@ -10,6 +10,7 @@ import type { ImportedDatasetMeta } from '@shared/importTypes'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import { api } from '@/lib/api'
 
 export type ImportFeedback = {
   tone: 'error' | 'info'
@@ -117,7 +118,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     setModalError(null)
 
     try {
-      const read = await window.api.readImportFile(path)
+      const read = await api.readImportFile(path)
       if (!read.ok) {
         showInline('error', read.error)
         return
@@ -134,13 +135,13 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
       let existingSymbol: string | undefined
 
       if (symbolHint) {
-        const listed = await window.api.listImports()
+        const listed = await api.listImports()
         if (listed.ok) {
           const existing = listed.imports.find(
             (entry) => normalizeSymbol(entry.symbol) === symbolHint
           )
           if (existing) {
-            const loaded = await window.api.loadImport(existing.id, '1m')
+            const loaded = await api.loadImport(existing.id, '1m')
             if (loaded.ok) {
               if (!hasNewerCandles(loaded.candles, parsed.candles)) {
                 showInline(
@@ -177,7 +178,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
   async function onImportNew(): Promise<void> {
     setMessage(null)
     setModalError(null)
-    const dialog = await window.api.openImportDialog()
+    const dialog = await api.openImportDialog()
     if (!dialog.ok) {
       if (!dialog.canceled && dialog.error) showInline('error', dialog.error)
       return
@@ -197,11 +198,11 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
 
       // Symbol typed in the modal may match an existing import even when the file name did not.
       if (!replaceId) {
-        const listed = await window.api.listImports()
+        const listed = await api.listImports()
         if (listed.ok) {
           const existing = listed.imports.find((entry) => normalizeSymbol(entry.symbol) === symbol)
           if (existing) {
-            const loaded = await window.api.loadImport(existing.id, '1m')
+            const loaded = await api.loadImport(existing.id, '1m')
             if (loaded.ok && !hasNewerCandles(loaded.candles, pending.candles)) {
               setModalError(
                 `${existing.symbol} is already imported through ${formatUtcCandleTime(existing.lastTime)}. This file has no newer candles.`
@@ -214,7 +215,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
       }
 
       const candlesByTimeframe = buildImportTimeframes(pending.candles)
-      const savedResult = await window.api.saveImport({
+      const savedResult = await api.saveImport({
         content: pending.content,
         originalFileName: pending.fileName,
         symbol,
@@ -259,7 +260,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     setBusy(true)
     setMessage(null)
     try {
-      const result = await window.api.deleteImport(id)
+      const result = await api.deleteImport(id)
       if (!result.ok) {
         showInline('error', result.error)
         return

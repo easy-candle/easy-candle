@@ -3,6 +3,7 @@ import { ExternalLink, X } from 'lucide-react'
 import iconUrl from '@/assets/easycandle-icon.svg'
 import { contributors } from '@/data/contributors'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { api } from '@/lib/api'
 
 const REPO_URL = 'https://github.com/easy-candle/easy-candle'
 
@@ -14,7 +15,7 @@ export default function AboutDialog() {
   useEffect(() => {
     if (!open) return
 
-    void window.api.getAppVersion().then(setVersion)
+    void api.getAppVersion().then(setVersion)
 
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') setOpen(false)

@@ -1,19 +1,27 @@
-# Easy Candle (Electron)
+# Easy Candle
 
 Desktop port of Easy Candle — Binance candle chart with UTC replay, indicators, drawings, and paper trading.
 
 ## Stack
 
-- Electron + electron-vite
+- Tauri 2 + Vite
 - React 19 + TypeScript
 - Zustand, lightweight-charts, Tailwind CSS
-- electron-builder + electron-updater (GitHub Releases)
+- Rust backend commands (klines via reqwest, import store, updater)
+
+## Prerequisites
+
+- Node.js 20+ and Yarn
+- Rust (stable) via [rustup](https://rustup.rs)
+- Windows: Visual Studio 2022 Build Tools with the "Desktop development with C++" workload
+- Linux: WebKitGTK 4.1 dev packages (see `.github/workflows/ci.yml`)
+- macOS: Xcode command line tools
 
 ## Develop
 
 ```bash
 yarn install
-yarn dev
+yarn tauri dev
 ```
 
 ## Test
@@ -22,40 +30,46 @@ yarn dev
 yarn test
 ```
 
+Rust unit tests (MT text decoder):
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
 ## Package locally (no publish)
 
 ```bash
-yarn dist          # current platform
-yarn dist:win      # Windows NSIS (GitHub Releases installer)
-yarn dist:win:appx # Windows AppX for Microsoft Store (local only)
-yarn dist:mac
-yarn dist:linux
+yarn dist          # default bundles for current platform
+yarn dist:win      # Windows NSIS
+yarn dist:mac      # macOS app + dmg
+yarn dist:linux    # Linux AppImage + deb
 ```
 
-Artifacts land in `release/`.
-
-### Microsoft Store (AppX) — local only
-
-GitHub Releases stay **NSIS-only**. Build the Store package on a Windows machine:
-
-```bash
-yarn dist:win:appx
-```
-
-Upload the `.appx` from `release/` in Partner Center (MSIX/AppX product). Before submission, set `appx.identityName` and `appx.publisher` in `electron-builder.yml` to match Partner Center package identity.
-
-Store / AppX builds skip GitHub `electron-updater` (`process.windowsStore`); the Store delivers updates for that install. NSIS installs keep GitHub auto-update.
+Artifacts land in `src-tauri/target/release/bundle/`.
 
 ## Release (auto-build + auto-update)
 
 Publishes to [easy-candle/easy-candle](https://github.com/easy-candle/easy-candle) GitHub Releases.
 
-1. Bump `version` in `package.json`
-2. Commit and tag: `git tag v2.0.2 && git push origin v2.0.2`
-3. GitHub Actions builds Windows (**NSIS** x64 only), macOS (zip arm64), and Linux (AppImage x64) **in parallel with `--publish never`**
-4. A single `publish` job then creates one GitHub Release and uploads all installers + `latest*.yml` update metadata (avoids multi-job release races)
-5. NSIS/macOS/Linux packaged apps check for updates on startup, ask before downloading, show progress, then offer restart (or install on quit)
+1. Bump `version` in `package.json` **and** `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`
+2. Commit and tag: `git tag v2.6.0 && git push origin v2.6.0`
+3. GitHub Actions builds Windows (NSIS x64), macOS (aarch64 app + dmg), and Linux (AppImage + deb) **in parallel** and creates one GitHub Release
+4. `tauri-action` uploads installers plus the signed updater manifest (`latest.json`) used by `tauri-plugin-updater`
 
-Requires `contents: write` on the workflow (already set) so `GITHUB_TOKEN` can create the release.
+### Auto-update signing
 
-If a previous tag’s release is incomplete, delete that GitHub Release before tagging a new version.
+Releases are signed so the in-app updater can verify them. Requires two repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — the base64 private key (no password)
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — optional password (empty for the generated key)
+
+Generate a keypair locally (never commit the private key):
+
+```bash
+yarn tauri signer generate -w ~/.tauri/easy-candle.key
+yarn tauri signer print -w ~/.tauri/easy-candle.key.pub
+```
+
+Copy the printed public key into `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`.
+
+If the secrets are missing, release builds still succeed but the updater manifest is not produced and the app will show "You are up to date".

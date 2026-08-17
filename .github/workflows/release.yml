@@ -9,23 +9,22 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  publish:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            # NSIS only — AppX/MSIX is built locally for Microsoft Store (yarn dist:win:appx).
-            builder_args: --win nsis
+          - platform: windows-latest
+            args: --target x86_64-pc-windows-msvc --bundles nsis
             artifact: windows
-          - os: macos-latest
-            builder_args: --mac
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin --bundles app,dmg
             artifact: macos
-          - os: ubuntu-latest
-            builder_args: --linux
+          - platform: ubuntu-latest
+            args: --target x86_64-unknown-linux-gnu --bundles appimage,deb
             artifact: linux
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
 
     steps:
@@ -38,6 +37,21 @@ jobs:
           node-version: 22
           cache: yarn
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
@@ -46,44 +60,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build (no publish)
-        run: yarn build && yarn electron-builder ${{ matrix.builder_args }} --publish never
-
-      - name: Upload dist artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-${{ matrix.artifact }}
-          if-no-files-found: error
-          path: |
-            release/*.exe
-            release/*.zip
-            release/*.AppImage
-            release/*.dmg
-            release/*.blockmap
-            release/*.yml
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Download all dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-          pattern: dist-*
-
-      - name: List release files
-        run: ls -la dist
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          files: dist/*
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'Easy Candle v__VERSION__'
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}

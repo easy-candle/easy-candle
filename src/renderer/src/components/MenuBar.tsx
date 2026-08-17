@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight } from 'lucide-react'
+import { check } from '@tauri-apps/plugin-updater'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
@@ -201,16 +202,16 @@ export default function MenuBar() {
   }
 
   async function checkForUpdates(): Promise<void> {
+    if (import.meta.env.DEV) {
+      showNotice('Updates are disabled in this build')
+      return
+    }
     try {
-      const result = await window.api.checkForUpdates()
-      if (!result.ok) {
-        showNotice(result.error || 'Update check failed')
-      } else if (result.skipped) {
-        showNotice('Updates are disabled in this build')
-      } else if (result.version) {
-        showNotice(`Update available: v${result.version}`)
-      } else {
+      const update = await check()
+      if (!update) {
         showNotice('You are up to date')
+      } else {
+        showNotice(`Update available: v${update.version}`)
       }
     } catch {
       showNotice('Update check failed')

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Download, RefreshCw, X } from 'lucide-react'
+import { check, type Update } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
-  UpdateErrorInfo,
   UpdateProgressInfo
 } from '@shared/updaterTypes'
 
@@ -28,42 +29,41 @@ export default function UpdateModal() {
   const [downloaded, setDownloaded] = useState<UpdateDownloadedInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const updateRef = useRef<Update | null>(null)
 
   useEffect(() => {
-    const offAvailable = window.api.onUpdateAvailable((next) => {
-      setInfo(next)
-      setProgress(null)
-      setDownloaded(null)
-      setError(null)
-      setPhase('available')
-    })
-    const offProgress = window.api.onUpdateProgress((next) => {
-      setProgress(next)
-      setPhase('downloading')
-    })
-    const offDownloaded = window.api.onUpdateDownloaded((next) => {
-      setDownloaded(next)
-      setProgress((prev) =>
-        prev
-          ? { ...prev, percent: 100 }
-          : { percent: 100, transferred: 0, total: 0, bytesPerSecond: 0 }
-      )
-      setPhase('downloaded')
-      setBusy(false)
-    })
-    const offError = window.api.onUpdateError((next: UpdateErrorInfo) => {
-      setError(next.message)
-      setPhase('error')
-      setBusy(false)
-    })
+    let active = true
 
-    void window.api.checkForUpdates()
+    async function run(): Promise<void> {
+      if (import.meta.env.DEV) return
+
+      try {
+        const update = await check()
+        if (!active) return
+        updateRef.current = update
+        if (!update) return
+        const payload: UpdateAvailableInfo = {
+          version: update.version,
+          releaseName: null,
+          releaseNotes: update.body ?? null
+        }
+        setInfo(payload)
+        setProgress(null)
+        setDownloaded(null)
+        setError(null)
+        setPhase('available')
+      } catch (err) {
+        if (!active) return
+        const message = err instanceof Error ? err.message : String(err)
+        setError(message)
+        setPhase('error')
+      }
+    }
+
+    void run()
 
     return () => {
-      offAvailable()
-      offProgress()
-      offDownloaded()
-      offError()
+      active = false
     }
   }, [])
 
@@ -73,20 +73,60 @@ export default function UpdateModal() {
   const percent = Math.max(0, Math.min(100, progress?.percent ?? 0))
 
   async function onDownload(): Promise<void> {
+    const update = updateRef.current
+    if (!update) return
     setBusy(true)
     setError(null)
     setPhase('downloading')
-    const result = await window.api.downloadUpdate()
-    if (!result.ok) {
-      setError(result.error || 'Download failed')
+
+    let downloadedBytes = 0
+    let totalBytes = 0
+    const startedAt = Date.now()
+
+    try {
+      await update.download((event) => {
+        if (event.event === 'Started' && event.data.contentLength != null) {
+          totalBytes = event.data.contentLength
+        } else if (event.event === 'Progress') {
+          downloadedBytes += event.data.chunkLength
+          const elapsed = Math.max(1, (Date.now() - startedAt) / 1000)
+          setProgress({
+            percent: totalBytes > 0 ? (downloadedBytes / totalBytes) * 100 : 0,
+            transferred: downloadedBytes,
+            total: totalBytes,
+            bytesPerSecond: downloadedBytes / elapsed
+          })
+        }
+      })
+      setProgress((prev) =>
+        prev
+          ? { ...prev, percent: 100, transferred: totalBytes }
+          : { percent: 100, transferred: totalBytes, total: totalBytes, bytesPerSecond: 0 }
+      )
+      setDownloaded({ version: update.version })
+      setPhase('downloaded')
+      setBusy(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Download failed'
+      setError(message)
       setPhase('error')
       setBusy(false)
     }
   }
 
   async function onInstall(): Promise<void> {
+    const update = updateRef.current
+    if (!update) return
     setBusy(true)
-    await window.api.installUpdate()
+    try {
+      await update.install()
+      await relaunch()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Install failed'
+      setError(message)
+      setPhase('error')
+      setBusy(false)
+    }
   }
 
   function onLater(): void {

@@ -7,6 +7,7 @@ import {
   PREFETCH_BATCH_SIZE
 } from '@/lib/binance'
 import { dedupeCandlesByTime, findIndexAtOrBefore, type Candle } from '@shared/candleUtils'
+import { api } from '@/lib/api'
 import type { DataSource, ImportedDatasetMeta } from '@shared/importTypes'
 import { getIndicator } from '@/lib/indicators'
 import {
@@ -570,7 +571,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     id: string,
     timeframe: string
   ): Promise<{ meta: ImportedDatasetMeta; candles: Candle[] } | null> {
-    const loaded = await window.api.loadImport(id, timeframe)
+    const loaded = await api.loadImport(id, timeframe)
     if (!loaded.ok) return null
     return { meta: loaded.meta, candles: dedupeCandlesByTime(loaded.candles) }
   }
@@ -1851,7 +1852,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     async refreshImportedList() {
-      const result = await window.api.listImports()
+      const result = await api.listImports()
       if (!result.ok) return
       set({ importedList: result.imports })
     },
@@ -1861,7 +1862,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (get().mode === 'replay') return
 
       set({ status: 'loading', error: null })
-      const loaded = await window.api.loadImport(id, timeframe)
+      const loaded = await api.loadImport(id, timeframe)
       if (!loaded.ok) {
         set({ status: 'error', error: loaded.error })
         return

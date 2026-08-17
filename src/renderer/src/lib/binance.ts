@@ -1,5 +1,6 @@
 import { clampKlineLimit, dedupeCandlesByTime, type Candle } from '@shared/candleUtils'
 import type { KlinesFetchParams } from '@shared/klinesTypes'
+import { api } from '@/lib/api'
 
 /** Default pages (×1000) for the live chart history window. */
 export const DEFAULT_HISTORY_PAGES = 2
@@ -16,7 +17,7 @@ export const PREFETCH_BATCH_SIZE = 500
 /** Max forward pages when filling a replay/jump window. */
 const MAX_RANGE_PAGES = 8
 
-/** Client-side: fetch one page via Electron main-process IPC. */
+/** Client-side: fetch one page via the Tauri klines command. */
 export async function fetchCandlesPage(params: {
   symbol: string
   interval: string
@@ -38,7 +39,7 @@ export async function fetchCandlesPage(params: {
     request.endTime = params.endTime
   }
 
-  const result = await window.api.fetchKlines(request)
+  const result = await api.fetchKlines(request)
 
   if (!result.ok) {
     if (result.status === 429 || result.status === 503) {

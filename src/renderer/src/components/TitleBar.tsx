@@ -1,24 +1,22 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import MenuBar from '@/components/MenuBar'
 import iconUrl from '@/assets/easycandle-icon.svg'
-
-const DRAG_REGION = { WebkitAppRegion: 'drag' } as CSSProperties
-const NO_DRAG_REGION = { WebkitAppRegion: 'no-drag' } as CSSProperties
+import { api } from '@/lib/api'
 
 export default function TitleBar() {
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
-    void window.api.isWindowMaximized().then(setMaximized)
-    return window.api.onWindowMaximizedChange(setMaximized)
+    void api.isWindowMaximized().then(setMaximized)
+    return api.onWindowMaximizedChange(setMaximized)
   }, [])
 
   return (
     <div
+      data-tauri-drag-region
       className="flex h-9 shrink-0 select-none items-stretch border-b border-zinc-800 bg-zinc-950/90"
-      style={DRAG_REGION}
-      onDoubleClick={() => window.api.toggleMaximizeWindow()}
+      onDoubleClick={() => api.toggleMaximizeWindow()}
     >
       <div className="flex items-center gap-2 px-2">
         <img
@@ -32,15 +30,15 @@ export default function TitleBar() {
         <span className="text-xs font-semibold tracking-tight text-amber-400">Easy Candle</span>
       </div>
 
-      <div className="flex items-stretch" style={NO_DRAG_REGION}>
+      <div className="flex items-stretch">
         <MenuBar />
       </div>
 
-      <div className="ml-auto flex items-stretch" style={NO_DRAG_REGION}>
+      <div className="ml-auto flex items-stretch">
         <button
           type="button"
           aria-label="Minimize"
-          onClick={() => window.api.minimizeWindow()}
+          onClick={() => api.minimizeWindow()}
           className="inline-flex h-full w-11 items-center justify-center text-zinc-400 transition-colors hover:bg-zinc-700/60 hover:text-zinc-100"
         >
           <Minus className="h-3.5 w-3.5" aria-hidden />
@@ -48,7 +46,7 @@ export default function TitleBar() {
         <button
           type="button"
           aria-label={maximized ? 'Restore' : 'Maximize'}
-          onClick={() => window.api.toggleMaximizeWindow()}
+          onClick={() => api.toggleMaximizeWindow()}
           className="inline-flex h-full w-11 items-center justify-center text-zinc-400 transition-colors hover:bg-zinc-700/60 hover:text-zinc-100"
         >
           {maximized ? (
@@ -60,7 +58,7 @@ export default function TitleBar() {
         <button
           type="button"
           aria-label="Close"
-          onClick={() => window.api.closeWindow()}
+          onClick={() => api.closeWindow()}
           className="inline-flex h-full w-11 items-center justify-center text-zinc-400 transition-colors hover:bg-red-600 hover:text-white"
         >
           <X className="h-4 w-4" aria-hidden />
