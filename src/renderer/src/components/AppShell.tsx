@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Maximize2, Minimize2, Moon, SquareSplitVertical, Sun, X } from 'lucide-react'
+import { Maximize2, Minimize2, Moon, Settings2, SquareSplitVertical, Sun, X } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
+import ChartSettingsDialog from '@/components/ChartSettingsDialog'
 import ChartTypeSelect from '@/components/ChartTypeSelect'
 import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
@@ -50,6 +51,7 @@ export default function AppShell({
   const showDrawingToolbar = useUiLayoutStore((s) => s.showDrawingToolbar)
   const showReplayControls = useUiLayoutStore((s) => s.showReplayControls)
   const showPaperTrade = useUiLayoutStore((s) => s.showPaperTrade)
+  const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
   const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
@@ -111,6 +113,9 @@ export default function AppShell({
               onClick={() => setChartSplit(!chartSplit)}
             >
               <SquareSplitVertical className="h-4 w-4" />
+            </IconButton>
+            <IconButton tooltip="Chart settings" onClick={() => setChartSettingsDialogOpen(true)}>
+              <Settings2 className="h-4 w-4" />
             </IconButton>
             <IconButton
               tooltip="Full-screen chart"
@@ -186,9 +191,7 @@ export default function AppShell({
       >
         <div
           className={`relative flex gap-1 min-h-0 flex-1 overflow-hidden bg-zinc-950 ${
-            chartFullscreen
-              ? 'rounded-none border-0 shadow-none'
-              : ''
+            chartFullscreen ? 'rounded-none border-0 shadow-none' : ''
           }`}
         >
           {showDrawingToolbar && <DrawingToolbar />}
@@ -244,6 +247,7 @@ export default function AppShell({
 
       <KeyboardShortcutsDialog />
       <AboutDialog />
+      <ChartSettingsDialog />
       <SessionReportModal />
       <UpdateModal />
     </div>

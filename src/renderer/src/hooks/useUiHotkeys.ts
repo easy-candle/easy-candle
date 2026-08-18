@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { useChartSettingsStore } from '@/store/chartSettingsStore'
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -15,17 +16,27 @@ function isEditableTarget(target: EventTarget | null): boolean {
 /**
  * UI keyboard shortcuts (live + replay):
  * - F → toggle chart fullscreen
+ * - Alt+I → toggle invert price scale
  * - Escape → cancel pending trend line / return to select tool
  * - Delete / Backspace → delete the selected drawing
  */
 export function useUiHotkeys(): void {
   const toggleChartFullscreen = useUiLayoutStore((s) => s.toggleChartFullscreen)
+  const toggleInvertScale = useChartSettingsStore((s) => s.toggleInvertScale)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const deleteDrawing = useReplayStore((s) => s.deleteDrawing)
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       if (isEditableTarget(event.target)) return
+
+      if (event.altKey && (event.key === 'i' || event.key === 'I')) {
+        event.preventDefault()
+        if (event.repeat) return
+        toggleInvertScale()
+        return
+      }
+
       if (event.ctrlKey || event.metaKey || event.altKey) return
 
       if (event.key === 'Escape') {
@@ -56,5 +67,5 @@ export function useUiHotkeys(): void {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toggleChartFullscreen, setDrawTool, deleteDrawing])
+  }, [toggleChartFullscreen, toggleInvertScale, setDrawTool, deleteDrawing])
 }

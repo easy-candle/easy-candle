@@ -9,6 +9,7 @@ const SHORTCUTS: Shortcut[] = [
   { keys: ['ArrowRight'], description: 'Step forward one candle' },
   { keys: ['ArrowLeft'], description: 'Step backward one candle' },
   { keys: ['Tab'], description: 'Toggle next-candle pane (split view)' },
+  { keys: ['Alt+I'], description: 'Invert price scale' },
   { keys: ['Escape'], description: 'Cancel drawing / return to select tool' },
   { keys: ['Delete', 'Backspace'], description: 'Delete selected drawing' },
   { keys: ['Ctrl+Drag'], description: 'Duplicate drawing' },

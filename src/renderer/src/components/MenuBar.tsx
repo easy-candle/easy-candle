@@ -100,6 +100,7 @@ export default function MenuBar() {
   const setShortcutsDialogOpen = useUiLayoutStore((s) => s.setShortcutsDialogOpen)
   const setAboutDialogOpen = useUiLayoutStore((s) => s.setAboutDialogOpen)
   const setImportDataDialogOpen = useUiLayoutStore((s) => s.setImportDataDialogOpen)
+  const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
   const theme = useThemeStore((s) => s.theme)
   const setTheme = useThemeStore((s) => s.setTheme)
 
@@ -166,6 +167,11 @@ export default function MenuBar() {
           type: 'item',
           label: 'Import Data',
           onSelect: () => setImportDataDialogOpen(true)
+        },
+        {
+          type: 'item',
+          label: 'Settings',
+          onSelect: () => setChartSettingsDialogOpen(true)
         }
       ]
     },

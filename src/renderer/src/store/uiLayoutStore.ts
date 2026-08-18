@@ -29,6 +29,7 @@ type UiLayoutState = {
   shortcutsDialogOpen: boolean
   aboutDialogOpen: boolean
   importDataDialogOpen: boolean
+  chartSettingsDialogOpen: boolean
   toggleChartFullscreen: () => void
   setChartFullscreen: (value: boolean) => void
   setReplayControlsMinimized: (value: boolean) => void
@@ -42,6 +43,7 @@ type UiLayoutState = {
   setShortcutsDialogOpen: (value: boolean) => void
   setAboutDialogOpen: (value: boolean) => void
   setImportDataDialogOpen: (value: boolean) => void
+  setChartSettingsDialogOpen: (value: boolean) => void
 }
 
 function loadPersisted(): PersistedLayout {
@@ -91,6 +93,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   shortcutsDialogOpen: false,
   aboutDialogOpen: false,
   importDataDialogOpen: false,
+  chartSettingsDialogOpen: false,
 
   toggleChartFullscreen: () => {
     set({ chartFullscreen: !get().chartFullscreen })
@@ -161,6 +164,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
 
   setImportDataDialogOpen: (value) => {
     set({ importDataDialogOpen: value })
+  },
+
+  setChartSettingsDialogOpen: (value) => {
+    set({ chartSettingsDialogOpen: value })
   }
 }))
 
