@@ -5,6 +5,7 @@ import {
   formatFibLevel,
   type RectHandle
 } from '@/lib/chart/drawingGeometry'
+import { fibLabelPlacement, fibLevelExtent } from '@/lib/chart/drawingPlotBounds'
 import { DEFAULT_PRICE_PRECISION, formatAssetPrice } from '@shared/pricePrecision'
 
 export const DRAW_STROKE = '#f23645'
@@ -225,6 +226,7 @@ export function FibShape({
   canDraw,
   showHandles = true,
   pricePrecision = DEFAULT_PRICE_PRECISION,
+  plotRight,
   onSelect,
   onDragEnd,
   onDragBody
@@ -238,15 +240,16 @@ export function FibShape({
   canDraw: boolean
   showHandles?: boolean
   pricePrecision?: number
+  /** Right edge of the candle pane; levels and labels stay left of the price scale. */
+  plotRight?: number
   onSelect?: (event: ReactMouseEvent) => void
   onDragEnd?: (end: 'start' | 'end', event: ReactMouseEvent) => void
   onDragBody?: (event: ReactMouseEvent) => void
 }) {
   const color = ink(selected)
-  const xLeft = Math.min(a.x, b.x)
-  const xRight = Math.max(a.x, b.x)
-  const span = Math.max(80, xRight - xLeft)
-  const lineRight = xLeft + span
+  const { left: xLeft, right: lineRight } = fibLevelExtent(a.x, b.x, plotRight ?? 0)
+  const span = Math.max(0, lineRight - xLeft)
+  const label = fibLabelPlacement(lineRight, plotRight ?? 0)
   const sorted = [...levels].sort((l, r) => l.y - r.y)
 
   return (
@@ -278,8 +281,9 @@ export function FibShape({
             strokeOpacity={level.ratio === 0 || level.ratio === 1 ? 1 : 0.85}
           />
           <text
-            x={lineRight + 6}
+            x={label.x}
             y={level.y + 3.5}
+            textAnchor={label.textAnchor}
             fill={labelColor}
             fontSize={10}
             fontFamily="ui-sans-serif, system-ui, sans-serif"
