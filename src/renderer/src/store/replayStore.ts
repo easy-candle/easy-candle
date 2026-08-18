@@ -11,10 +11,13 @@ import type { DataSource, ImportedDatasetMeta } from '@shared/importTypes'
 import { getIndicator } from '@/lib/indicators'
 import {
   clampRiskReward,
+  clampTradeSizeForSymbol,
   closePosition,
+  DEFAULT_LOTS,
   DEFAULT_RISK_REWARD,
   evaluateStopTakeProfit,
   openPosition,
+  pnlScaleForSymbol,
   rewindTradesAfterStepBack,
   stopLossFromTakeProfit,
   summarizeSession,
@@ -23,6 +26,7 @@ import {
   withTakeProfit,
   type ClosedTrade,
   type Position,
+  type PnlScale,
   type SessionSummary
 } from '@/lib/paperTrade'
 
@@ -259,6 +263,8 @@ type ReplayStore = {
   sessionReport: SessionReport | null
   /** Reward multiple of risk for linked SL/TP (default 2 → 1:2). */
   riskReward: number
+  /** Lots (FX/metals) or coin amount (crypto) used on the next open. */
+  tradeSize: number
   chartSplit: boolean
   secondaryTimeframe: string
   driverPane: DriverPane
@@ -288,6 +294,7 @@ type ReplayStore = {
   paperSell: () => void
   paperClose: () => void
   setRiskReward: (value: number) => void
+  setTradeSize: (value: number) => void
   setTakeProfit: (price: number | null, opts?: LevelSetOptions) => void
   setStopLoss: (price: number | null, opts?: LevelSetOptions) => void
   dismissSessionReport: () => void
@@ -444,6 +451,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
   }
 
+  function currentPnlScale(): PnlScale {
+    const lots = get().position?.lots ?? get().tradeSize
+    return pnlScaleForSymbol(get().symbol, lots)
+  }
+
   /** Close open position if current candle OHLC touches TP/SL (fill at level price). */
   function maybeAutoCloseOnLevels(): void {
     if (get().mode !== 'replay') return
@@ -459,7 +471,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const hit = evaluateStopTakeProfit(open, candle)
     if (!hit) return
 
-    const closed = closePosition(open, hit.price, candle.time, hit.hit)
+    const closed = closePosition(open, hit.price, candle.time, hit.hit, currentPnlScale())
     set((s) => ({
       position: null,
       closedTrades: [...s.closedTrades, closed],
@@ -871,6 +883,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       importedCandles: candles,
       symbol: meta.symbol,
       timeframe: meta.timeframe,
+      tradeSize: clampTradeSizeForSymbol(s.tradeSize, meta.symbol),
       candles,
       status: 'ready',
       error: null,
@@ -979,7 +992,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const candle = engine.getCurrentCandle() || get().currentCandle
     if (!candle) return
 
-    const result = openPosition(get().position, side, candle.close, candle.time, nextTradeId())
+    const result = openPosition(
+      get().position,
+      side,
+      candle.close,
+      candle.time,
+      nextTradeId(),
+      clampTradeSizeForSymbol(get().tradeSize, get().symbol)
+    )
     if (!result.ok) {
       set({ replayMessage: result.reason })
       return
@@ -1011,7 +1031,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const candle = engine.getCurrentCandle() || get().currentCandle
     if (!candle) return
 
-    const closed = closePosition(open, candle.close, candle.time, 'manual')
+    const closed = closePosition(open, candle.close, candle.time, 'manual', currentPnlScale())
 
     set((s) => ({
       position: null,
@@ -1402,6 +1422,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     tradeMarkers: [],
     sessionReport: null,
     riskReward: DEFAULT_RISK_REWARD,
+    tradeSize: DEFAULT_LOTS,
     chartSplit: false,
     secondaryTimeframe: defaultSecondaryTimeframe(DEFAULT_TIMEFRAME),
     driverPane: 'primary',
@@ -1570,6 +1591,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       applyRiskRewardGuide(riskReward)
     },
 
+    setTradeSize(value) {
+      if (get().position) return
+      set({ tradeSize: clampTradeSizeForSymbol(value, get().symbol) })
+    },
+
     setTakeProfit(price, opts) {
       setTakeProfit(price, opts)
     },
@@ -1587,7 +1613,13 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       // Replay sessions are locked to the symbol they started on.
       if (get().mode === 'replay') return
       resetReplayState()
-      set({ symbol, dataSource: 'binance', importMeta: null, importedCandles: [] })
+      set({
+        symbol,
+        dataSource: 'binance',
+        importMeta: null,
+        importedCandles: [],
+        tradeSize: clampTradeSizeForSymbol(get().tradeSize, symbol)
+      })
       void get().loadCandles()
     },
 
@@ -1629,6 +1661,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             candles: loaded.candles,
             symbol: loaded.meta.symbol,
             timeframe: loaded.meta.timeframe,
+            tradeSize: clampTradeSizeForSymbol(get().tradeSize, loaded.meta.symbol),
             status: 'ready',
             error: null,
             replayMessage: `Imported ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${loaded.candles.length.toLocaleString()} candles`
@@ -1785,6 +1818,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           error: null,
           symbol: loaded.meta.symbol,
           timeframe: loaded.meta.timeframe,
+          tradeSize: clampTradeSizeForSymbol(get().tradeSize, loaded.meta.symbol),
           replayMessage: `Imported ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${loaded.candles.length.toLocaleString()} candles`
         })
         if (get().chartSplit) {
@@ -1989,7 +2023,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (position) {
         const candle = engine.getCurrentCandle() || currentCandle
         if (candle) {
-          trades = [...trades, closePosition(position, candle.close, candle.time, 'session_exit')]
+          trades = [
+            ...trades,
+            closePosition(
+              position,
+              candle.close,
+              candle.time,
+              'session_exit',
+              pnlScaleForSymbol(symbol, position.lots)
+            )
+          ]
           closedOpenOnExit = true
         }
       }

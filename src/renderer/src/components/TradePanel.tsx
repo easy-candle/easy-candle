@@ -9,10 +9,13 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import IconButton from '@/components/IconButton'
+import TradeSizeControl from '@/components/TradeSizeControl'
 import {
   formatExitReason,
   formatPnl,
+  formatPositionSize,
   formatRiskReward,
+  pnlScaleForSymbol,
   realizedRiskReward,
   sessionPerformance,
   unrealizedPnl
@@ -38,14 +41,18 @@ export default function TradePanel() {
   const paperSell = useReplayStore((s) => s.paperSell)
   const paperClose = useReplayStore((s) => s.paperClose)
   const setRiskReward = useReplayStore((s) => s.setRiskReward)
+  const tradeSize = useReplayStore((s) => s.tradeSize)
+  const setTradeSize = useReplayStore((s) => s.setTradeSize)
   const pricePrecision = usePricePrecision()
+  const symbol = useReplayStore((s) => s.symbol)
 
   if (mode !== 'replay') return null
 
   const busy = replayLoading || replayStatus === 'ended' || !currentCandle
   const mark = currentCandle?.close
-  const openPnl = unrealizedPnl(position, mark)
-  const perf = sessionPerformance(closedTrades, position, mark)
+  const scale = pnlScaleForSymbol(symbol, position?.lots ?? tradeSize)
+  const openPnl = unrealizedPnl(position, mark, scale)
+  const perf = sessionPerformance(closedTrades, position, mark, scale)
   const canOpen = !busy && !position
   const canClose = !busy && Boolean(position)
   const rrLabel = formatRiskReward(riskReward)
@@ -80,6 +87,12 @@ export default function TradePanel() {
             <ArrowUpCircle className="h-4 w-4" />
             <span className="text-xs font-semibold">LONG</span>
           </IconButton>
+          <TradeSizeControl
+            value={position?.lots ?? tradeSize}
+            symbol={symbol}
+            disabled={!canOpen}
+            onChange={setTradeSize}
+          />
           <IconButton
             tooltip="Short — open short (when flat)"
             disabled={!canOpen}
@@ -198,9 +211,9 @@ export default function TradePanel() {
         <div className="max-h-36 overflow-y-auto px-3 py-1.5">
           {!position && closedTrades.length === 0 ? (
             <p className="py-1.5 text-[11px] text-zinc-600">
-              Open LONG or SHORT at the current close (1 unit). First SL/TP drag seeds the other at{' '}
-              {rrLabel} as a guide — then move either level freely. Candle advances leave levels
-              put.
+              Open LONG or SHORT at the current close. Size is lots for FX/metals and coin amount
+              for crypto. First SL/TP drag seeds the other at {rrLabel} as a guide — then move
+              either level freely. Candle advances leave levels put.
             </p>
           ) : (
             <ul className="divide-y divide-zinc-800/80 text-[11px]">
@@ -217,6 +230,9 @@ export default function TradePanel() {
                     }
                   >
                     {position.side.toUpperCase()}
+                  </span>
+                  <span className="text-zinc-500">
+                    {formatPositionSize(position.lots, symbol)}
                   </span>
                   <span className="text-zinc-400">
                     Entry {formatAssetPrice(position.entryPrice, pricePrecision)} ·{' '}
@@ -260,6 +276,7 @@ export default function TradePanel() {
                   >
                     {trade.side.toUpperCase()}
                   </span>
+                  <span className="text-zinc-500">{formatPositionSize(trade.lots, symbol)}</span>
                   <span className="rounded bg-zinc-900/80 px-1 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
                     {formatExitReason(trade.exitReason)}
                   </span>

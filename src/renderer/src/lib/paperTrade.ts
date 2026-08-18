@@ -1,4 +1,10 @@
 import type { Candle } from '@shared/candleUtils'
+import {
+  contractSizeForSymbol,
+  tradeSizeKindForSymbol,
+  UNIT_CONTRACT_SIZE,
+  type TradeSizeKind
+} from '@shared/pricePrecision'
 
 export type PositionSide = 'long' | 'short'
 
@@ -9,6 +15,8 @@ export type Position = {
   side: PositionSide
   entryPrice: number
   entryTime: number
+  /** Lots (FX/metals) or coin amount (crypto). */
+  lots: number
   takeProfit: number | null
   stopLoss: number | null
 }
@@ -20,6 +28,7 @@ export type ClosedTrade = {
   entryTime: number
   exitPrice: number
   exitTime: number
+  lots: number
   pnl: number
   exitReason: ExitReason
   takeProfit: number | null
@@ -51,9 +60,81 @@ export type LevelHit = {
 /** Default reward multiple of risk (R:R = 1:DEFAULT_RISK_REWARD). */
 export const DEFAULT_RISK_REWARD = 2
 
-export function pnlForSide(side: PositionSide, entryPrice: number, markPrice: number): number {
-  if (side === 'long') return markPrice - entryPrice
-  return entryPrice - markPrice
+/** Paper size in lots (FX/metals) or coin amount (crypto). */
+export const DEFAULT_LOTS = 1
+/** Standard MT lot volume_min / volume_step. */
+export const MIN_LOT_SIZE = 0.01
+/** Common broker volume_max for a standard lot account. */
+export const MAX_LOT_SIZE = 100
+export const LOT_SIZE_STEP = 0.01
+/** Smallest positive crypto amount we keep (no maximum). */
+export const MIN_CRYPTO_SIZE = 1e-8
+export const TRADE_SIZE_STEP = LOT_SIZE_STEP
+
+export type PnlScale = {
+  lots?: number
+  contractSize?: number
+}
+
+export function clampTradeSize(value: number, kind: TradeSizeKind = 'lot'): number {
+  if (!Number.isFinite(value)) return DEFAULT_LOTS
+  if (kind === 'amount') {
+    if (!(value > 0)) return MIN_CRYPTO_SIZE
+    return Math.round(value * 1e8) / 1e8
+  }
+  const rounded = Math.round(value * 100) / 100
+  return Math.min(MAX_LOT_SIZE, Math.max(MIN_LOT_SIZE, rounded))
+}
+
+export function clampTradeSizeForSymbol(value: number, symbol: string): number {
+  return clampTradeSize(value, tradeSizeKindForSymbol(symbol))
+}
+
+export function formatTradeSize(value: number, kind: TradeSizeKind = 'lot'): string {
+  const size = clampTradeSize(value, kind)
+  if (kind === 'lot') return size.toFixed(2)
+  const text = size.toFixed(8).replace(/\.?0+$/, '')
+  return text.length ? text : '0'
+}
+
+export function formatTradeSizeForSymbol(value: number, symbol: string): string {
+  return formatTradeSize(value, tradeSizeKindForSymbol(symbol))
+}
+
+/** History / overlay copy: `1.00 lot` for FX/metals, bare amount for crypto. */
+export function formatPositionSize(lots: number | null | undefined, symbol: string): string {
+  const size = formatTradeSizeForSymbol(resolvedLots(lots), symbol)
+  return tradeSizeKindForSymbol(symbol) === 'lot' ? `${size} lot` : size
+}
+
+export function resolvedLots(lots: number | null | undefined): number {
+  return lots != null && Number.isFinite(lots) && lots > 0 ? lots : DEFAULT_LOTS
+}
+
+export function pnlScaleForSymbol(symbol: string, lots = DEFAULT_LOTS): PnlScale {
+  return { lots: resolvedLots(lots), contractSize: contractSizeForSymbol(symbol) }
+}
+
+function resolvePnlScale(scale?: PnlScale): { lots: number; contractSize: number } {
+  return {
+    lots: resolvedLots(scale?.lots),
+    contractSize:
+      scale?.contractSize != null && Number.isFinite(scale.contractSize) && scale.contractSize > 0
+        ? scale.contractSize
+        : UNIT_CONTRACT_SIZE
+  }
+}
+
+/** Quote-currency P/L: price delta × contract size × lots. */
+export function pnlForSide(
+  side: PositionSide,
+  entryPrice: number,
+  markPrice: number,
+  scale?: PnlScale
+): number {
+  const { lots, contractSize } = resolvePnlScale(scale)
+  const delta = side === 'long' ? markPrice - entryPrice : entryPrice - markPrice
+  return delta * contractSize * lots
 }
 
 /** Normalize a user R:R multiple (reward per 1R). */
@@ -213,7 +294,8 @@ export function openPosition(
   side: PositionSide,
   price: number,
   time: number,
-  id: string
+  id: string,
+  lots: number = DEFAULT_LOTS
 ): { ok: true; position: Position } | { ok: false; reason: string } {
   if (side !== 'long' && side !== 'short') {
     return { ok: false, reason: 'Invalid side' }
@@ -231,6 +313,7 @@ export function openPosition(
       side,
       entryPrice: price,
       entryTime: time,
+      lots: resolvedLots(lots),
       takeProfit: null,
       stopLoss: null
     }
@@ -242,7 +325,8 @@ export function closePosition(
   position: Position,
   exitPrice: number,
   exitTime: number,
-  exitReason: ExitReason = 'manual'
+  exitReason: ExitReason = 'manual',
+  scale?: PnlScale
 ): ClosedTrade {
   if (!position) {
     throw new Error('No open position')
@@ -257,7 +341,11 @@ export function closePosition(
     entryTime: position.entryTime,
     exitPrice,
     exitTime,
-    pnl: pnlForSide(position.side, position.entryPrice, exitPrice),
+    lots: resolvedLots(position.lots),
+    pnl: pnlForSide(position.side, position.entryPrice, exitPrice, {
+      lots: scale?.lots ?? position.lots,
+      contractSize: scale?.contractSize
+    }),
     exitReason,
     takeProfit: position.takeProfit,
     stopLoss: position.stopLoss
@@ -271,6 +359,7 @@ export function positionFromClosedTrade(trade: ClosedTrade): Position {
     side: trade.side,
     entryPrice: trade.entryPrice,
     entryTime: trade.entryTime,
+    lots: resolvedLots(trade.lots),
     takeProfit: trade.takeProfit,
     stopLoss: trade.stopLoss
   }
@@ -379,12 +468,16 @@ export function evaluateStopTakeProfit(
 
 export function unrealizedPnl(
   position: Position | null,
-  markPrice: number | null | undefined
+  markPrice: number | null | undefined,
+  scale?: PnlScale
 ): number | null {
   if (!position || markPrice == null || !Number.isFinite(markPrice)) {
     return null
   }
-  return pnlForSide(position.side, position.entryPrice, markPrice)
+  return pnlForSide(position.side, position.entryPrice, markPrice, {
+    lots: scale?.lots ?? position.lots,
+    contractSize: scale?.contractSize
+  })
 }
 
 export function cumulativeRealizedPnl(closedTrades: ClosedTrade[]): number {
@@ -395,10 +488,11 @@ export function cumulativeRealizedPnl(closedTrades: ClosedTrade[]): number {
 export function sessionPerformance(
   closedTrades: ClosedTrade[],
   open: Position | null,
-  markPrice: number | null | undefined
+  markPrice: number | null | undefined,
+  scale?: PnlScale
 ): { realized: number; unrealized: number; total: number } {
   const realized = cumulativeRealizedPnl(closedTrades)
-  const u = unrealizedPnl(open, markPrice)
+  const u = unrealizedPnl(open, markPrice, scale)
   const unrealized = u == null ? 0 : u
   return {
     realized,
@@ -486,6 +580,7 @@ export function tradesToCsv(closedTrades: ClosedTrade[]): string {
   const header = [
     'id',
     'side',
+    'lots',
     'entryPrice',
     'entryTimeUtc',
     'exitPrice',
@@ -500,6 +595,7 @@ export function tradesToCsv(closedTrades: ClosedTrade[]): string {
     [
       csvEscape(trade.id),
       trade.side,
+      resolvedLots(trade.lots),
       trade.entryPrice,
       toIsoUtc(trade.entryTime),
       trade.exitPrice,

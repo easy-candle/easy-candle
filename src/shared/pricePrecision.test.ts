@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  contractSizeForSymbol,
+  contractSizeInfoForSymbol,
   decimalPlaces,
+  FOREX_CONTRACT_SIZE,
   formatAssetPrice,
+  formatContractSize,
+  GOLD_CONTRACT_SIZE,
   inferPrecisionFromCandles,
   minMoveFromPrecision,
   precisionForSymbol,
   resolvePricePrecision,
-  toChartPriceFormat
+  SILVER_CONTRACT_SIZE,
+  toChartPriceFormat,
+  tradeSizeKindForSymbol,
+  UNIT_CONTRACT_SIZE
 } from './pricePrecision'
 
 describe('precisionForSymbol', () => {
@@ -98,5 +106,40 @@ describe('formatAssetPrice', () => {
     expect(formatAssetPrice(1.16, 5)).toBe('1.16000')
     expect(formatAssetPrice(67432.1, 2)).toBe('67432.10')
     expect(formatAssetPrice(Number.NaN, 5)).toBe('—')
+  })
+})
+
+describe('contractSizeForSymbol', () => {
+  it('uses a standard lot for FX pairs', () => {
+    expect(contractSizeForSymbol('EURUSD')).toBe(FOREX_CONTRACT_SIZE)
+    expect(contractSizeForSymbol('eur/usd')).toBe(FOREX_CONTRACT_SIZE)
+    expect(contractSizeForSymbol('EURUSD.a')).toBe(FOREX_CONTRACT_SIZE)
+    expect(contractSizeForSymbol('USDJPY')).toBe(FOREX_CONTRACT_SIZE)
+  })
+
+  it('uses metal and crypto contracts', () => {
+    expect(contractSizeForSymbol('XAUUSD')).toBe(GOLD_CONTRACT_SIZE)
+    expect(contractSizeForSymbol('XAGUSD')).toBe(SILVER_CONTRACT_SIZE)
+    expect(contractSizeForSymbol('BTCUSDT')).toBe(UNIT_CONTRACT_SIZE)
+    expect(contractSizeForSymbol('ETHUSD')).toBe(UNIT_CONTRACT_SIZE)
+    expect(contractSizeForSymbol('')).toBe(UNIT_CONTRACT_SIZE)
+  })
+
+  it('labels kinds for import confirm', () => {
+    expect(contractSizeInfoForSymbol('EURUSD')).toEqual({
+      contractSize: FOREX_CONTRACT_SIZE,
+      kind: 'forex',
+      label: 'Forex standard lot'
+    })
+    expect(contractSizeInfoForSymbol('XAUUSD').label).toBe('Gold standard lot (100 oz)')
+    expect(contractSizeInfoForSymbol('BTCUSDT').label).toBe('1 unit')
+    expect(formatContractSize(FOREX_CONTRACT_SIZE)).toBe('100,000')
+    expect(formatContractSize(1)).toBe('1')
+  })
+
+  it('uses lots for FX/metals and amount for crypto', () => {
+    expect(tradeSizeKindForSymbol('EURUSD')).toBe('lot')
+    expect(tradeSizeKindForSymbol('XAUUSD')).toBe('lot')
+    expect(tradeSizeKindForSymbol('BTCUSDT')).toBe('amount')
   })
 })

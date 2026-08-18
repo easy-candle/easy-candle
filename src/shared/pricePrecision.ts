@@ -40,6 +40,22 @@ const FOREX_CURRENCIES = new Set([
 
 const METAL_BASES = new Set(['XAU', 'XAG', 'XPT', 'XPD'])
 
+/** Units in 1.0 lot. Crypto stays 1 coin per amount. */
+export const FOREX_CONTRACT_SIZE = 100_000
+export const GOLD_CONTRACT_SIZE = 100
+export const SILVER_CONTRACT_SIZE = 5_000
+export const UNIT_CONTRACT_SIZE = 1
+
+export type ContractSizeKind = 'forex' | 'metal' | 'unit'
+export type TradeSizeKind = 'lot' | 'amount'
+
+export type ContractSizeInfo = {
+  contractSize: number
+  kind: ContractSizeKind
+  /** Short hint for import confirm / settings, e.g. `Forex standard lot`. */
+  label: string
+}
+
 export type OhlcLike = {
   open: number
   high: number
@@ -85,27 +101,89 @@ export function normalizeSymbolKey(symbol: string): string {
     .replace(/[^A-Z0-9]/g, '')
 }
 
+function parseInstrumentPair(symbol: string): { base: string; quote: string } | null {
+  const raw = normalizeSymbolKey(symbol)
+  if (raw.length < 6) return null
+  return {
+    base: raw.slice(0, 3),
+    quote: raw.slice(3, 6)
+  }
+}
+
 /**
  * Known instrument digits, or `null` to infer from OHLC.
  * FX majors/minors: 5 (3 when JPY is the quote). Metals: XAU 2, others 3.
  */
 export function precisionForSymbol(symbol: string): number | null {
-  const raw = normalizeSymbolKey(symbol)
-  if (raw.length < 6) return null
+  const pair = parseInstrumentPair(symbol)
+  if (!pair) return null
 
-  const pair = raw.slice(0, 6)
-  const base = pair.slice(0, 3)
-  const quote = pair.slice(3, 6)
-
-  if (METAL_BASES.has(base) && FOREX_CURRENCIES.has(quote)) {
-    return base === 'XAU' ? 2 : 3
+  if (METAL_BASES.has(pair.base) && FOREX_CURRENCIES.has(pair.quote)) {
+    return pair.base === 'XAU' ? 2 : 3
   }
 
-  if (FOREX_CURRENCIES.has(base) && FOREX_CURRENCIES.has(quote)) {
-    return quote === 'JPY' ? 3 : 5
+  if (FOREX_CURRENCIES.has(pair.base) && FOREX_CURRENCIES.has(pair.quote)) {
+    return pair.quote === 'JPY' ? 3 : 5
   }
 
   return null
+}
+
+/**
+ * Units per 1.0 lot (or per 1.0 amount for crypto).
+ * FX 100,000; gold 100 oz; silver 5,000 oz; crypto 1 coin.
+ */
+export function contractSizeInfoForSymbol(symbol: string): ContractSizeInfo {
+  const pair = parseInstrumentPair(symbol)
+  if (pair) {
+    if (METAL_BASES.has(pair.base) && FOREX_CURRENCIES.has(pair.quote)) {
+      if (pair.base === 'XAU') {
+        return {
+          contractSize: GOLD_CONTRACT_SIZE,
+          kind: 'metal',
+          label: 'Gold standard lot (100 oz)'
+        }
+      }
+      if (pair.base === 'XAG') {
+        return {
+          contractSize: SILVER_CONTRACT_SIZE,
+          kind: 'metal',
+          label: 'Silver standard lot (5,000 oz)'
+        }
+      }
+      return {
+        contractSize: UNIT_CONTRACT_SIZE,
+        kind: 'metal',
+        label: '1 oz'
+      }
+    }
+    if (FOREX_CURRENCIES.has(pair.base) && FOREX_CURRENCIES.has(pair.quote)) {
+      return {
+        contractSize: FOREX_CONTRACT_SIZE,
+        kind: 'forex',
+        label: 'Forex standard lot'
+      }
+    }
+  }
+  return {
+    contractSize: UNIT_CONTRACT_SIZE,
+    kind: 'unit',
+    label: '1 unit'
+  }
+}
+
+/** Forex/metals trade in lots; crypto trades an amount of the coin. */
+export function tradeSizeKindForSymbol(symbol: string): TradeSizeKind {
+  return contractSizeInfoForSymbol(symbol).kind === 'unit' ? 'amount' : 'lot'
+}
+
+export function contractSizeForSymbol(symbol: string): number {
+  return contractSizeInfoForSymbol(symbol).contractSize
+}
+
+export function formatContractSize(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  return value.toLocaleString('en-US')
 }
 
 /** Trailing-zero-stripped decimal count, capped so float noise cannot inflate it. */

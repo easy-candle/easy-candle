@@ -3,6 +3,11 @@ import { X } from 'lucide-react'
 import type { Candle } from '@shared/candleUtils'
 import { IMPORT_SOURCE_TIMEFRAME, MIN_IMPORT_DAYS } from '@shared/importConstants'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import {
+  contractSizeInfoForSymbol,
+  formatContractSize,
+  normalizeSymbolKey
+} from '@shared/pricePrecision'
 
 export type ImportConfirmDetails = {
   fileName: string
@@ -24,7 +29,7 @@ type ImportConfirmModalProps = {
 }
 
 function normalizeSymbol(value: string): string {
-  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  return normalizeSymbolKey(value)
 }
 
 export default function ImportConfirmModal({
@@ -62,6 +67,8 @@ export default function ImportConfirmModal({
   const spanDays =
     first && last ? ((last.time - first.time) / 86400).toFixed(1) : '—'
   const isUpdate = Boolean(details.replaceId)
+  const resolvedSymbol = normalizeSymbol(needSymbol ? symbol : (details.symbol ?? ''))
+  const contractInfo = resolvedSymbol ? contractSizeInfoForSymbol(resolvedSymbol) : null
 
   function submit(): void {
     const nextSymbol = normalizeSymbol(symbol)
@@ -141,6 +148,20 @@ export default function ImportConfirmModal({
                 Source TF
               </span>
               <span className="mt-1 block font-medium text-zinc-100">{IMPORT_SOURCE_TIMEFRAME}</span>
+            </div>
+
+            <div className="col-span-2">
+              <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                Contract size
+              </span>
+              {contractInfo ? (
+                <p className="mt-0.5 tabular-nums text-zinc-200">
+                  {formatContractSize(contractInfo.contractSize)}
+                  <span className="text-zinc-500"> · {contractInfo.label}</span>
+                </p>
+              ) : (
+                <p className="mt-0.5 text-zinc-500">—</p>
+              )}
             </div>
 
             <div className="col-span-2">
