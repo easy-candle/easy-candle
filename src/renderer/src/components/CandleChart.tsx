@@ -30,6 +30,7 @@ import type { Candle } from '@shared/candleUtils'
 import { resolvePricePrecision, toChartPriceFormat } from '@shared/pricePrecision'
 import { CHART_PALETTES, type ChartPalette } from '@/lib/theme'
 import { useThemeStore } from '@/store/themeStore'
+import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
 
 const DEFAULT_VISIBLE_BARS = 50
@@ -121,6 +122,8 @@ type CandleChartProps = {
   overlays?: ChartOverlay[] | null
   tradeMarkers?: TradeMarker[] | null
   onPriceScaleWidthChange?: (width: number) => void
+  /** Whether this is the primary (left) chart; it gets registered for snapshots. */
+  isPrimary?: boolean
 }
 
 export default function CandleChart({
@@ -134,9 +137,11 @@ export default function CandleChart({
   chartSync = null,
   overlays = null,
   tradeMarkers = null,
-  onPriceScaleWidthChange
+  onPriceScaleWidthChange,
+  isPrimary = false
 }: CandleChartProps) {
   const theme = useThemeStore((s) => s.theme)
+  const setPrimaryChart = useUiLayoutStore((s) => s.setPrimaryChart)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
@@ -300,6 +305,9 @@ export default function CandleChart({
     chartRef.current = chart
     seriesRef.current = series
     setChartReady({ chart, series })
+    if (isPrimary) {
+      setPrimaryChart(chart)
+    }
 
     function getPriceScaleCell(): HTMLElement | null {
       const paneEl = chart.panes()[0]?.getHTMLElement()
@@ -351,6 +359,9 @@ export default function CandleChart({
       watermarkRef.current = null
       setChartReady(null)
       chart.remove()
+      if (isPrimary) {
+        setPrimaryChart(null)
+      }
       chartRef.current = null
       seriesRef.current = null
     }
