@@ -21,6 +21,7 @@ import {
   unixTimeToLogical,
   xToUnixTime
 } from '@/lib/chart/drawingTimeScale'
+import { clampXToPlot, isInPlotX, plotRightX } from '@/lib/chart/drawingPlotBounds'
 import {
   DRAW_STROKE,
   DRAW_WIDTH,
@@ -204,6 +205,15 @@ export default function DrawingOverlay({
   const intervalSeconds =
     TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
 
+  function readPlotRight(): number {
+    if (!chart) return 0
+    return plotRightX(
+      chart.chartElement()?.clientWidth ?? 0,
+      chart.priceScale('right').width(),
+      chart.timeScale().width()
+    )
+  }
+
   function mapTimeToPane(time: number): number {
     return alignTimeToInterval(time, intervalSeconds)
   }
@@ -295,7 +305,8 @@ export default function DrawingOverlay({
       const el = chart.chartElement()
       if (!el) return
       const rect = el.getBoundingClientRect()
-      const x = event.clientX - rect.left
+      const plotRight = readPlotRight()
+      const x = clampXToPlot(event.clientX - rect.left, plotRight)
       const y = event.clientY - rect.top
 
       if (drag.kind === 'place-two') {
@@ -390,7 +401,8 @@ export default function DrawingOverlay({
           const el = chart.chartElement()
           if (el) {
             const box = el.getBoundingClientRect()
-            const x = event.clientX - box.left
+            const plotRight = readPlotRight()
+            const x = clampXToPlot(event.clientX - box.left, plotRight)
             const y = event.clientY - box.top
             const price = series.coordinateToPrice(y)
             const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
@@ -448,6 +460,8 @@ export default function DrawingOverlay({
     if (!placing || drawTool !== 'hline' || !series) return
 
     const rect = event.currentTarget.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    if (!isInPlotX(x, readPlotRight())) return
     const y = event.clientY - rect.top
     const price = series.coordinateToPrice(y)
     if (price == null || !Number.isFinite(price)) return
@@ -456,11 +470,12 @@ export default function DrawingOverlay({
 
   function onSvgMouseDown(event: ReactMouseEvent<SVGSVGElement>): void {
     if (!canDraw || !isTwoPointTool(drawTool) || event.button !== 0 || !chart || !series) return
-    const point = pointerAtEvent(event)
-    if (!point) return
     const box = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - box.left
     const y = event.clientY - box.top
+    if (!isInPlotX(x, readPlotRight())) return
+    const point = pointerAtEvent(event)
+    if (!point) return
     event.preventDefault()
     addTwoPoint(point)
     dragRef.current = { kind: 'place-two', tool: drawTool, startX: x, startY: y, moved: false }
@@ -474,8 +489,9 @@ export default function DrawingOverlay({
       return
     }
     const rect = event.currentTarget.getBoundingClientRect()
+    const plotRight = readPlotRight()
     setHover({
-      x: event.clientX - rect.left,
+      x: clampXToPlot(event.clientX - rect.left, plotRight),
       y: event.clientY - rect.top
     })
   }
@@ -487,8 +503,10 @@ export default function DrawingOverlay({
     const box = el.getBoundingClientRect()
     const x = event.clientX - box.left
     const y = event.clientY - box.top
+    const plotRight = readPlotRight()
+    if (!isInPlotX(x, plotRight)) return null
     const price = series.coordinateToPrice(y)
-    const time = xToUnixTime(chart, x, paneCandles, intervalSeconds)
+    const time = xToUnixTime(chart, clampXToPlot(x, plotRight), paneCandles, intervalSeconds)
     if (price == null || !Number.isFinite(price) || time == null) return null
     return { time, price }
   }
@@ -587,7 +605,9 @@ export default function DrawingOverlay({
 
   const width = chart?.chartElement()?.clientWidth ?? 0
   const height = chart?.chartElement()?.clientHeight ?? 0
-  const midX = (width || 0) / 2
+  const priceScaleW = chart?.priceScale('right').width() ?? 56
+  const plotRight = plotRightX(width, priceScaleW, chart?.timeScale().width() ?? 0)
+  const midX = plotRight / 2
   const rrLabel = formatRiskReward(
     position != null
       ? (realizedRiskReward(
@@ -653,8 +673,7 @@ export default function DrawingOverlay({
   const slPnlLabel = formatPnlUsd(slPnl)
 
   // Sit labels in the blank pane after the last candle, left of the price scale.
-  const priceScaleW = chart?.priceScale('right').width() ?? 56
-  const paneRight = Math.max(0, (width || 0) - priceScaleW - OVERLAY_LAYOUT.rightPad)
+  const paneRight = Math.max(0, plotRight - OVERLAY_LAYOUT.rightPad)
   const placeExtra =
     (canEditTrade && position?.takeProfit == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0) +
     (canEditTrade && position?.stopLoss == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0)
@@ -867,11 +886,12 @@ export default function DrawingOverlay({
 
   return (
     <svg
-      className={`absolute inset-0 z-[2] h-full w-full ${
+      className={`absolute left-0 top-0 z-[2] h-full overflow-hidden ${
         placing ? 'cursor-crosshair' : 'pointer-events-none'
       }`}
-      width={width || '100%'}
+      width={plotRight || 0}
       height={height || '100%'}
+      style={{ width: plotRight }}
       onClick={onClick}
       onMouseDown={onSvgMouseDown}
       onMouseMove={onMove}
@@ -928,7 +948,7 @@ export default function DrawingOverlay({
             <rect
               x={0}
               y={Math.min(entryY, slY)}
-              width={width || '100%'}
+              width={plotRight}
               height={Math.abs(slY - entryY)}
               fill={TRADE_OVERLAY.zoneSl}
               className="pointer-events-none"
@@ -938,7 +958,7 @@ export default function DrawingOverlay({
             <rect
               x={0}
               y={Math.min(entryY, tpY)}
-              width={width || '100%'}
+              width={plotRight}
               height={Math.abs(tpY - entryY)}
               fill={TRADE_OVERLAY.zoneTp}
               className="pointer-events-none"
@@ -947,7 +967,7 @@ export default function DrawingOverlay({
 
           <line
             x1={0}
-            x2={width || '100%'}
+            x2={plotRight}
             y1={entryY}
             y2={entryY}
             stroke={sideColor}
@@ -958,7 +978,7 @@ export default function DrawingOverlay({
           {showTpLine && tpY != null && (
             <line
               x1={0}
-              x2={width || '100%'}
+              x2={plotRight}
               y1={tpY}
               y2={tpY}
               stroke={TRADE_OVERLAY.tpLine}
@@ -970,7 +990,7 @@ export default function DrawingOverlay({
           {showSlLine && slY != null && (
             <line
               x1={0}
-              x2={width || '100%'}
+              x2={plotRight}
               y1={slY}
               y2={slY}
               stroke={TRADE_OVERLAY.slLine}
@@ -1165,7 +1185,7 @@ export default function DrawingOverlay({
             <HLineShape
               key={drawing.id}
               y={y}
-              width={width}
+              width={plotRight}
               midX={midX}
               selected={drawing.id === selectedDrawingId}
               canSelect={canSelect}
@@ -1216,6 +1236,7 @@ export default function DrawingOverlay({
               canSelect={canSelect}
               canDraw={canDraw}
               pricePrecision={pricePrecision}
+              plotRight={plotRight}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
               onDragEnd={(end, e) =>
                 startDrag(e, { kind: 'fib', id: drawing.id, end, moved: false })
@@ -1289,6 +1310,7 @@ export default function DrawingOverlay({
                   canDraw={false}
                   showHandles={false}
                   pricePrecision={pricePrecision}
+                  plotRight={plotRight}
                 />
                 {firstHandle}
               </g>
