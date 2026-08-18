@@ -36,9 +36,11 @@ import {
 import {
   formatPnlUsd,
   formatRiskReward,
+  formatTradeSizeForSymbol,
   isValidStopLoss,
   isValidTakeProfit,
   pnlForSide,
+  pnlScaleForSymbol,
   realizedRiskReward,
   stopLossFromTakeProfit,
   takeProfitFromStopLoss,
@@ -142,6 +144,10 @@ function estimatePnlWidth(label: string): number {
   return Math.max(OVERLAY_LAYOUT.pnlMinW, 10 + label.length * 6.2)
 }
 
+function estimateQtyWidth(label: string): number {
+  return Math.max(OVERLAY_LAYOUT.qtyW, 12 + label.length * 6.4)
+}
+
 function CloseGlyph({
   cx,
   cy,
@@ -191,6 +197,7 @@ export default function DrawingOverlay({
   const paperClose = useReplayStore((s) => s.paperClose)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
+  const symbol = useReplayStore((s) => s.symbol)
   const theme = useThemeStore((s) => s.theme)
   const chrome = CHART_PALETTES[theme]
 
@@ -600,8 +607,10 @@ export default function DrawingOverlay({
     return { x, y }
   }
 
+  const pnlScale = pnlScaleForSymbol(symbol, position?.lots)
+  const qtyLabel = formatTradeSizeForSymbol(position?.lots ?? 1, symbol)
   const openPnl =
-    position != null ? unrealizedPnl(position, markCandle?.close) : null
+    position != null ? unrealizedPnl(position, markCandle?.close, pnlScale) : null
   const sideColor =
     position?.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
   const openPnlColor =
@@ -634,11 +643,11 @@ export default function DrawingOverlay({
   const openPnlLabel = formatPnlUsd(openPnl)
   const tpPnl =
     position != null && tpPrice != null
-      ? pnlForSide(position.side, position.entryPrice, tpPrice)
+      ? pnlForSide(position.side, position.entryPrice, tpPrice, pnlScale)
       : null
   const slPnl =
     position != null && slPrice != null
-      ? pnlForSide(position.side, position.entryPrice, slPrice)
+      ? pnlForSide(position.side, position.entryPrice, slPrice, pnlScale)
       : null
   const tpPnlLabel = formatPnlUsd(tpPnl)
   const slPnlLabel = formatPnlUsd(slPnl)
@@ -650,7 +659,7 @@ export default function DrawingOverlay({
     (canEditTrade && position?.takeProfit == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0) +
     (canEditTrade && position?.stopLoss == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0)
   const entryPillW =
-    OVERLAY_LAYOUT.qtyW + estimatePnlWidth(openPnlLabel) + OVERLAY_LAYOUT.closeW
+    estimateQtyWidth(qtyLabel) + estimatePnlWidth(openPnlLabel) + OVERLAY_LAYOUT.closeW
   const clusterNeedW = placeExtra + entryPillW
   const playheadCandle = paneCurrentCandle ?? markCandle
   const lastCandleX = playheadCandle ? timeToX(playheadCandle.time) : null
@@ -732,6 +741,7 @@ export default function DrawingOverlay({
     border: string
     dashed?: boolean
     qtyFill?: string
+    qtyLabel?: string
     pnlLabel: string
     pnlColor: string
     closeColor: string
@@ -745,6 +755,7 @@ export default function DrawingOverlay({
       border,
       dashed,
       qtyFill,
+      qtyLabel: sizeLabel = qtyLabel,
       pnlLabel,
       pnlColor,
       closeColor,
@@ -753,7 +764,7 @@ export default function DrawingOverlay({
       dragCursor
     } = opts
     const h = OVERLAY_LAYOUT.pillH
-    const qtyW = OVERLAY_LAYOUT.qtyW
+    const qtyW = estimateQtyWidth(sizeLabel)
     const closeW = OVERLAY_LAYOUT.closeW
     const pnlW = estimatePnlWidth(pnlLabel)
     const totalW = qtyW + pnlW + closeW
@@ -797,7 +808,7 @@ export default function DrawingOverlay({
           fontWeight={700}
           className="pointer-events-none select-none"
         >
-          1
+          {sizeLabel}
         </text>
         <line
           x1={x + qtyW}

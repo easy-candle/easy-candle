@@ -1,7 +1,8 @@
 import { ArrowDownCircle, ArrowUpCircle, CircleX, Minus, Plus } from 'lucide-react'
 import FloatingPanel from '@/components/FloatingPanel'
 import IconButton from '@/components/IconButton'
-import { formatPnl, formatRiskReward, unrealizedPnl } from '@/lib/paperTrade'
+import TradeSizeControl from '@/components/TradeSizeControl'
+import { formatPnl, formatPositionSize, formatRiskReward, pnlScaleForSymbol, unrealizedPnl } from '@/lib/paperTrade'
 import { formatAssetPrice } from '@shared/pricePrecision'
 import { usePricePrecision } from '@/hooks/usePricePrecision'
 import { useReplayStore } from '@/store/replayStore'
@@ -20,14 +21,17 @@ export default function FloatingTradeBar() {
   const paperSell = useReplayStore((s) => s.paperSell)
   const paperClose = useReplayStore((s) => s.paperClose)
   const setRiskReward = useReplayStore((s) => s.setRiskReward)
+  const tradeSize = useReplayStore((s) => s.tradeSize)
+  const setTradeSize = useReplayStore((s) => s.setTradeSize)
   const pricePrecision = usePricePrecision()
+  const symbol = useReplayStore((s) => s.symbol)
 
   const pos = useUiLayoutStore((s) => s.tradePanelPos)
   const setTradePanelPos = useUiLayoutStore((s) => s.setTradePanelPos)
 
   const busy = replayLoading || replayStatus === 'ended' || !currentCandle
   const mark = currentCandle?.close
-  const openPnl = unrealizedPnl(position, mark)
+  const openPnl = unrealizedPnl(position, mark, pnlScaleForSymbol(symbol, position?.lots ?? tradeSize))
   const canOpen = !busy && !position
   const canClose = !busy && Boolean(position)
   const rrLabel = formatRiskReward(riskReward)
@@ -52,6 +56,12 @@ export default function FloatingTradeBar() {
             <ArrowUpCircle className="h-4 w-4" />
             <span className="text-xs font-semibold">LONG</span>
           </IconButton>
+          <TradeSizeControl
+            value={position?.lots ?? tradeSize}
+            symbol={symbol}
+            disabled={!canOpen}
+            onChange={setTradeSize}
+          />
           <IconButton
             tooltip="Short — open short (when flat)"
             disabled={!canOpen}
@@ -126,6 +136,7 @@ export default function FloatingTradeBar() {
             >
               {position.side.toUpperCase()}
             </span>
+            <span className="text-zinc-500">{formatPositionSize(position.lots, symbol)}</span>
             <span className="text-zinc-500">
               @ {formatAssetPrice(position.entryPrice, pricePrecision)}
             </span>

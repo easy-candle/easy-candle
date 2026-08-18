@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
   clampRiskReward,
+  clampTradeSize,
   closePosition,
   cumulativeRealizedPnl,
   evaluateStopTakeProfit,
   formatPnl,
   formatPnlUsd,
+  formatPositionSize,
   formatRiskReward,
+  formatTradeSize,
   formatWinRate,
   isValidStopLoss,
   isValidTakeProfit,
   openPosition,
+  pnlForSide,
+  pnlScaleForSymbol,
   realizedRiskReward,
   rewindTradesAfterStepBack,
   sessionPerformance,
@@ -32,6 +37,7 @@ function flatClosed(partial: Partial<ClosedTrade> & Pick<ClosedTrade, 'id' | 'si
     entryTime: 1,
     exitPrice: 100,
     exitTime: 2,
+    lots: 1,
     exitReason: 'manual',
     takeProfit: null,
     stopLoss: null,
@@ -49,6 +55,7 @@ describe('openPosition', () => {
         side: 'long',
         entryPrice: 100,
         entryTime: 50,
+        lots: 1,
         takeProfit: null,
         stopLoss: null
       })
@@ -91,6 +98,74 @@ describe('closePosition', () => {
     const closed = closePosition(open.position, 90, 20)
     expect(closed.pnl).toBeCloseTo(10)
     expect(closed.exitReason).toBe('manual')
+  })
+})
+
+describe('pnlForSide contract size', () => {
+  it('defaults to 1 unit when no symbol scale is passed', () => {
+    expect(pnlForSide('long', 2300, 2302)).toBeCloseTo(2)
+    expect(pnlForSide('short', 67000, 66900)).toBeCloseTo(100)
+  })
+
+  it('scales FX pips by a standard lot so EURUSD is not rounded to 0.00', () => {
+    const scale = pnlScaleForSymbol('EURUSD')
+    expect(scale.contractSize).toBe(100_000)
+    expect(pnlForSide('long', 1.13889, 1.13854, scale)).toBeCloseTo(-35)
+    expect(formatPnl(pnlForSide('long', 1.13889, 1.13854, scale))).toBe('-35.00')
+  })
+
+  it('scales gold by 100 oz per lot', () => {
+    const scale = pnlScaleForSymbol('XAUUSD')
+    expect(scale.contractSize).toBe(100)
+    expect(pnlForSide('long', 4048.45, 4065.39, scale)).toBeCloseTo(1694)
+    expect(pnlForSide('long', 4048.45, 4065.39, pnlScaleForSymbol('XAUUSD', 0.01))).toBeCloseTo(
+      16.94
+    )
+  })
+
+  it('treats crypto size as coin amount', () => {
+    expect(pnlScaleForSymbol('BTCUSDT').contractSize).toBe(1)
+    expect(pnlForSide('long', 67000, 67100, pnlScaleForSymbol('BTCUSDT', 1))).toBeCloseTo(100)
+    expect(pnlForSide('long', 67000, 67100, pnlScaleForSymbol('BTCUSDT', 0.01))).toBeCloseTo(1)
+  })
+
+  it('multiplies lots on top of contract size', () => {
+    expect(pnlForSide('long', 1.1, 1.2, { lots: 0.1, contractSize: 100_000 })).toBeCloseTo(1000)
+  })
+
+  it('closes with the symbol scale and stored lots', () => {
+    const open = openPosition(null, 'long', 1.13889, 10, 't1', 0.1)
+    expect(open.ok).toBe(true)
+    if (!open.ok) return
+    expect(open.position.lots).toBe(0.1)
+    const closed = closePosition(
+      open.position,
+      1.13854,
+      20,
+      'manual',
+      pnlScaleForSymbol('EURUSD', open.position.lots)
+    )
+    expect(closed.lots).toBe(0.1)
+    expect(closed.pnl).toBeCloseTo(-3.5)
+  })
+
+  it('clamps lot size to the 0.01–100 standard range', () => {
+    expect(clampTradeSize(0)).toBe(0.01)
+    expect(clampTradeSize(1.234)).toBe(1.23)
+    expect(clampTradeSize(999)).toBe(100)
+    expect(formatTradeSize(1)).toBe('1.00')
+    expect(formatTradeSize(0.1)).toBe('0.10')
+  })
+
+  it('does not cap crypto amount', () => {
+    expect(clampTradeSize(0, 'amount')).toBe(1e-8)
+    expect(clampTradeSize(250, 'amount')).toBe(250)
+    expect(clampTradeSize(0.00012345, 'amount')).toBeCloseTo(0.00012345)
+    expect(formatTradeSize(1, 'amount')).toBe('1')
+    expect(formatTradeSize(0.01, 'amount')).toBe('0.01')
+    expect(formatPositionSize(1, 'EURUSD')).toBe('1.00 lot')
+    expect(formatPositionSize(0.1, 'XAUUSD')).toBe('0.10 lot')
+    expect(formatPositionSize(0.5, 'BTCUSDT')).toBe('0.5')
   })
 })
 
@@ -144,6 +219,7 @@ describe('TP/SL validation', () => {
       side: 'long',
       entryPrice: 100,
       entryTime: 1,
+      lots: 1,
       takeProfit: null,
       stopLoss: null
     }
@@ -161,6 +237,7 @@ describe('TP/SL validation', () => {
       side: 'long',
       entryPrice: 100,
       entryTime: 1,
+      lots: 1,
       takeProfit: null,
       stopLoss: 90
     }
@@ -173,6 +250,7 @@ describe('TP/SL validation', () => {
       side: 'short',
       entryPrice: 100,
       entryTime: 1,
+      lots: 1,
       takeProfit: null,
       stopLoss: 110
     }
@@ -188,6 +266,7 @@ describe('evaluateStopTakeProfit', () => {
     side: 'long',
     entryPrice: 100,
     entryTime: 1,
+    lots: 1,
     takeProfit: 110,
     stopLoss: 90
   }
@@ -197,6 +276,7 @@ describe('evaluateStopTakeProfit', () => {
     side: 'short',
     entryPrice: 100,
     entryTime: 1,
+    lots: 1,
     takeProfit: 90,
     stopLoss: 110
   }
@@ -294,6 +374,7 @@ describe('rewindTradesAfterStepBack', () => {
       side: 'long',
       entryPrice: 100,
       entryTime: 10,
+      lots: 1,
       takeProfit: 120,
       stopLoss: 90
     })
@@ -330,6 +411,7 @@ describe('rewindTradesAfterStepBack', () => {
       side: 'long',
       entryPrice: 100,
       entryTime: 20,
+      lots: 1,
       takeProfit: 110,
       stopLoss: 90
     }
@@ -349,6 +431,7 @@ describe('rewindTradesAfterStepBack', () => {
       side: 'long',
       entryPrice: 100,
       entryTime: 10,
+      lots: 1,
       takeProfit: null,
       stopLoss: null
     }
@@ -367,13 +450,13 @@ describe('unrealizedPnl / cumulative / session', () => {
   it('computes unrealized long and short', () => {
     expect(
       unrealizedPnl(
-        { id: '1', side: 'long', entryPrice: 100, entryTime: 1, takeProfit: null, stopLoss: null },
+        { id: '1', side: 'long', entryPrice: 100, entryTime: 1, lots: 1, takeProfit: null, stopLoss: null },
         110
       )
     ).toBeCloseTo(10)
     expect(
       unrealizedPnl(
-        { id: '1', side: 'short', entryPrice: 100, entryTime: 1, takeProfit: null, stopLoss: null },
+        { id: '1', side: 'short', entryPrice: 100, entryTime: 1, lots: 1, takeProfit: null, stopLoss: null },
         90
       )
     ).toBeCloseTo(10)
@@ -404,7 +487,7 @@ describe('unrealizedPnl / cumulative / session', () => {
     expect(cumulativeRealizedPnl(closed)).toBeCloseTo(5)
     const perf = sessionPerformance(
       closed,
-      { id: 'c', side: 'long', entryPrice: 10, entryTime: 5, takeProfit: null, stopLoss: null },
+      { id: 'c', side: 'long', entryPrice: 10, entryTime: 5, lots: 1, takeProfit: null, stopLoss: null },
       12
     )
     expect(perf.realized).toBeCloseTo(5)
@@ -510,9 +593,9 @@ describe('summarizeSession / export', () => {
     const csv = tradesToCsv([sample[0]])
     const lines = csv.split('\n')
     expect(lines[0]).toBe(
-      'id,side,entryPrice,entryTimeUtc,exitPrice,exitTimeUtc,pnl,exitReason,takeProfit,stopLoss'
+      'id,side,lots,entryPrice,entryTimeUtc,exitPrice,exitTimeUtc,pnl,exitReason,takeProfit,stopLoss'
     )
-    expect(lines[1]).toContain('a,long,100,')
+    expect(lines[1]).toContain('a,long,1,100,')
     expect(lines[1]).toContain('1970-01-01T00:00:01.000Z')
     expect(lines[1]).toContain(',10,tp,110,90')
   })
