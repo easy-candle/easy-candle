@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import MenuBar from '@/components/MenuBar'
 import iconUrl from '@/assets/easycandle-icon.svg'
+import { APP_NAME } from '@shared/appName'
 
 const DRAG_REGION = { WebkitAppRegion: 'drag' } as CSSProperties
 const NO_DRAG_REGION = { WebkitAppRegion: 'no-drag' } as CSSProperties
@@ -29,7 +30,7 @@ export default function TitleBar() {
           className="h-[22px] w-[22px] rounded-sm"
           aria-hidden
         />
-        <span className="text-xs font-bold tracking-tight text-amber-400">Easy Candle</span>
+        <span className="text-xs font-bold tracking-tight text-amber-400">{APP_NAME}</span>
       </div>
 
       <div className="flex items-stretch" style={NO_DRAG_REGION}>

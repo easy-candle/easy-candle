@@ -4,6 +4,7 @@ import { Maximize2, Minimize2, Moon, Settings2, SquareSplitVertical, Sun, X } fr
 import AboutDialog from '@/components/AboutDialog'
 import ChartSettingsDialog from '@/components/ChartSettingsDialog'
 import ChartTypeSelect from '@/components/ChartTypeSelect'
+import ChartSnapshotDropdown from '@/components/ChartSnapshotDropdown'
 import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
@@ -117,6 +118,7 @@ export default function AppShell({
             <IconButton tooltip="Chart settings" onClick={() => setChartSettingsDialogOpen(true)}>
               <Settings2 className="h-4 w-4" />
             </IconButton>
+            <ChartSnapshotDropdown />
             <IconButton
               tooltip="Full-screen chart"
               shortcut={['F']}

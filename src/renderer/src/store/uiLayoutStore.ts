@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { IChartApi } from 'lightweight-charts'
 
 const STORAGE_KEY = 'easy-candle:ui-layout'
 
@@ -30,6 +31,8 @@ type UiLayoutState = {
   aboutDialogOpen: boolean
   importDataDialogOpen: boolean
   chartSettingsDialogOpen: boolean
+  /** Primary chart instance, used by chart snapshot actions. */
+  primaryChart: IChartApi | null
   toggleChartFullscreen: () => void
   setChartFullscreen: (value: boolean) => void
   setReplayControlsMinimized: (value: boolean) => void
@@ -44,6 +47,7 @@ type UiLayoutState = {
   setAboutDialogOpen: (value: boolean) => void
   setImportDataDialogOpen: (value: boolean) => void
   setChartSettingsDialogOpen: (value: boolean) => void
+  setPrimaryChart: (chart: IChartApi | null) => void
 }
 
 function loadPersisted(): PersistedLayout {
@@ -94,6 +98,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   aboutDialogOpen: false,
   importDataDialogOpen: false,
   chartSettingsDialogOpen: false,
+  primaryChart: null,
 
   toggleChartFullscreen: () => {
     set({ chartFullscreen: !get().chartFullscreen })
@@ -168,6 +173,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
 
   setChartSettingsDialogOpen: (value) => {
     set({ chartSettingsDialogOpen: value })
+  },
+
+  setPrimaryChart: (chart) => {
+    set({ primaryChart: chart })
   }
 }))
 
