@@ -76,24 +76,11 @@ yarn test
 ```bash
 yarn dist          # current platform
 yarn dist:win      # Windows NSIS (GitHub Releases installer)
-yarn dist:win:appx # Windows AppX for Microsoft Store (local only)
 yarn dist:mac
 yarn dist:linux
 ```
 
 Artifacts land in `release/`.
-
-### Microsoft Store (AppX) — local only
-
-GitHub Releases stay **NSIS-only**. Build the Store package on a Windows machine:
-
-```bash
-yarn dist:win:appx
-```
-
-Upload the `.appx` from `release/` in Partner Center (MSIX/AppX product). Before submission, set `appx.identityName` and `appx.publisher` in `electron-builder.yml` to match Partner Center package identity.
-
-Store / AppX builds skip GitHub `electron-updater` (`process.windowsStore`); the Store delivers updates for that install. NSIS installs keep GitHub auto-update.
 
 ## Release (auto-build + auto-update)
 
