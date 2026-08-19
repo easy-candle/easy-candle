@@ -6,7 +6,6 @@ import {
   createChart,
   createSeriesMarkers,
   createTextWatermark,
-  CrosshairMode,
   LineSeries,
   type IChartApi,
   type ISeriesApi,
@@ -28,7 +27,8 @@ import {
 } from '@/lib/chart/chartTypes'
 import type { Candle } from '@shared/candleUtils'
 import { resolvePricePrecision, toChartPriceFormat } from '@shared/pricePrecision'
-import { CHART_PALETTES, type ChartPalette } from '@/lib/theme'
+import { type ChartPalette } from '@/lib/theme'
+import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
@@ -41,8 +41,6 @@ function chartThemeOptions(palette: ChartPalette): {
     textColor: string
   }
   grid: { vertLines: { color: string }; horzLines: { color: string } }
-  rightPriceScale: { borderColor: string }
-  timeScale: { borderColor: string }
 } {
   return {
     layout: {
@@ -52,12 +50,6 @@ function chartThemeOptions(palette: ChartPalette): {
     grid: {
       vertLines: { color: palette.grid },
       horzLines: { color: palette.grid }
-    },
-    rightPriceScale: {
-      borderColor: palette.scaleBorder
-    },
-    timeScale: {
-      borderColor: palette.scaleBorder
     }
   }
 }
@@ -78,12 +70,17 @@ function focusLatestCandle(
   })
 }
 
-function addSeries(chart: IChartApi, type: ChartType, precision: number): ISeriesApi<SeriesType> {
+function addSeries(
+  chart: IChartApi,
+  type: ChartType,
+  precision: number,
+  palette: ReturnType<typeof resolveChartPalette>
+): ISeriesApi<SeriesType> {
   const priceFormat = toChartPriceFormat(precision)
   switch (type) {
     case 'line':
       return chart.addSeries(LineSeries, {
-        color: '#22c55e',
+        color: palette.lineColor,
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: false,
@@ -91,8 +88,8 @@ function addSeries(chart: IChartApi, type: ChartType, precision: number): ISerie
       })
     case 'bar':
       return chart.addSeries(BarSeries, {
-        upColor: '#22c55e',
-        downColor: '#ef4444',
+        upColor: palette.upColor,
+        downColor: palette.downColor,
         thinBars: false,
         priceFormat
       })
@@ -100,11 +97,12 @@ function addSeries(chart: IChartApi, type: ChartType, precision: number): ISerie
     case 'candlestick':
     default:
       return chart.addSeries(CandlestickSeries, {
-        upColor: '#22c55e',
-        downColor: '#ef4444',
-        borderVisible: false,
-        wickUpColor: '#22c55e',
-        wickDownColor: '#ef4444',
+        upColor: palette.upColor,
+        downColor: palette.downColor,
+        borderUpColor: palette.borderUpColor,
+        borderDownColor: palette.borderDownColor,
+        wickUpColor: palette.wickUpColor,
+        wickDownColor: palette.wickDownColor,
         priceFormat
       })
   }
@@ -141,6 +139,9 @@ export default function CandleChart({
   isPrimary = false
 }: CandleChartProps) {
   const theme = useThemeStore((s) => s.theme)
+  const chartSettings = useChartSettingsStore()
+  const colorOverrides = useChartSettingsStore((s) => s.colors)
+  const palette = useMemo(() => resolveChartPalette(theme, colorOverrides), [theme, colorOverrides])
   const setPrimaryChart = useUiLayoutStore((s) => s.setPrimaryChart)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -195,8 +196,9 @@ export default function CandleChart({
       requestAnimationFrame(() => {
         if (chartRef.current !== chart || seriesRef.current !== series) return
         // Re-enable autoscaling after symbol/price-range changes (e.g. BNB → XAU).
-        series.priceScale().applyOptions({ autoScale: true })
-        chart.priceScale('right').applyOptions({ autoScale: true })
+        const autoScale = useChartSettingsStore.getState().priceScale.autoScale
+        series.priceScale().applyOptions({ autoScale })
+        chart.priceScale('right').applyOptions({ autoScale })
         focusLatestCandle(chart, data.length)
       })
     }
@@ -269,22 +271,42 @@ export default function CandleChart({
     const container = containerRef.current
     if (!container) return undefined
 
-    const palette = CHART_PALETTES[theme]
+    const settings = useChartSettingsStore.getState()
     const chart = createChart(container, {
       width: container.clientWidth,
       height: Math.max(container.clientHeight, 1),
       ...chartThemeOptions(palette),
+      rightPriceScale: {
+        borderColor: palette.scaleBorder,
+        mode: settings.priceScale.mode,
+        invertScale: settings.priceScale.invertScale,
+        autoScale: settings.priceScale.autoScale
+      },
       crosshair: {
-        mode: CrosshairMode.Normal
+        mode: settings.crosshair.mode,
+        vertLine: {
+          color: palette.crosshairColor,
+          style: settings.crosshair.lineStyle,
+          width: settings.crosshair.lineWidth,
+          visible: settings.crosshair.visible,
+          labelVisible: settings.crosshair.labelVisible
+        },
+        horzLine: {
+          color: palette.crosshairColor,
+          style: settings.crosshair.lineStyle,
+          width: settings.crosshair.lineWidth,
+          visible: settings.crosshair.visible,
+          labelVisible: settings.crosshair.labelVisible
+        }
       },
       timeScale: {
         borderColor: palette.scaleBorder,
-        timeVisible: true,
-        secondsVisible: false
+        timeVisible: settings.timeScale.timeVisible,
+        secondsVisible: settings.timeScale.secondsVisible
       }
     })
 
-    const series = addSeries(chart, chartType, pricePrecisionRef.current)
+    const series = addSeries(chart, chartType, pricePrecisionRef.current, palette)
     seriesTypeRef.current = chartType
 
     markersRef.current = createSeriesMarkers(series, [])
@@ -379,7 +401,7 @@ export default function CandleChart({
     const source = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
     const data = source ?? []
 
-    const series = addSeries(chart, chartType, pricePrecisionRef.current)
+    const series = addSeries(chart, chartType, pricePrecisionRef.current, palette)
     seriesTypeRef.current = chartType
     seriesRef.current = series
 
@@ -404,8 +426,9 @@ export default function CandleChart({
     if (data.length) {
       requestAnimationFrame(() => {
         if (chartRef.current !== chart || seriesRef.current !== series) return
-        series.priceScale().applyOptions({ autoScale: true })
-        chart.priceScale('right').applyOptions({ autoScale: true })
+        const autoScale = useChartSettingsStore.getState().priceScale.autoScale
+        series.priceScale().applyOptions({ autoScale })
+        chart.priceScale('right').applyOptions({ autoScale })
         focusLatestCandle(chart, data.length)
       })
     }
@@ -420,26 +443,67 @@ export default function CandleChart({
       lines: [
         {
           text: symbol || '',
-          color: CHART_PALETTES[theme].watermark,
+          color: palette.watermark,
           fontSize: 72,
           fontFamily: 'Segoe UI, sans-serif',
           fontStyle: '600'
         }
       ]
     })
-  }, [symbol, theme])
+  }, [symbol, palette.watermark])
 
+  // Apply theme + chart settings to the chart, scales, and crosshair.
   useEffect(() => {
     const chart = chartRef.current
     if (!chart) return
-    const palette = CHART_PALETTES[theme]
+    const settings = useChartSettingsStore.getState()
     chart.applyOptions({
       ...chartThemeOptions(palette),
+      rightPriceScale: {
+        borderColor: palette.scaleBorder,
+        mode: settings.priceScale.mode,
+        invertScale: settings.priceScale.invertScale,
+        autoScale: settings.priceScale.autoScale
+      },
       timeScale: {
-        borderColor: palette.scaleBorder
+        borderColor: palette.scaleBorder,
+        timeVisible: settings.timeScale.timeVisible,
+        secondsVisible: settings.timeScale.secondsVisible
+      },
+      crosshair: {
+        mode: settings.crosshair.mode,
+        vertLine: {
+          color: palette.crosshairColor,
+          style: settings.crosshair.lineStyle,
+          width: settings.crosshair.lineWidth,
+          visible: settings.crosshair.visible,
+          labelVisible: settings.crosshair.labelVisible
+        },
+        horzLine: {
+          color: palette.crosshairColor,
+          style: settings.crosshair.lineStyle,
+          width: settings.crosshair.lineWidth,
+          visible: settings.crosshair.visible,
+          labelVisible: settings.crosshair.labelVisible
+        }
       }
     })
-  }, [theme])
+  }, [theme, chartSettings, palette])
+
+  // Keep the main series colors in sync with the chart settings.
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+    series.applyOptions({
+      upColor: palette.upColor,
+      downColor: palette.downColor,
+      borderUpColor: palette.borderUpColor,
+      borderDownColor: palette.borderDownColor,
+      wickUpColor: palette.wickUpColor,
+      wickDownColor: palette.wickDownColor,
+      color: palette.lineColor
+    } as never)
+  }, [palette])
 
   useEffect(() => {
     const format = toChartPriceFormat(pricePrecision)
