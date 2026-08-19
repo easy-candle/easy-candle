@@ -477,6 +477,9 @@ type PositionShapeProps = {
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  /** Live price line from the entry point to the current candle (clamped to the box). */
+  priceLine?: { x1: number; y1: number; x2: number; y2: number } | null
+  priceLineTowardTp?: boolean
   onMouseEnter?: () => void
   onMouseLeave?: () => void
   onSelect?: (event: ReactMouseEvent) => void
@@ -500,6 +503,8 @@ export function PositionShape({
   canSelect,
   canDraw,
   showHandles = true,
+  priceLine = null,
+  priceLineTowardTp = true,
   onMouseEnter,
   onMouseLeave,
   onSelect,
@@ -530,7 +535,14 @@ export function PositionShape({
     reward != null && risk != null && risk > 0
       ? `1:${formatRr(reward / risk)}`
       : label
-  const badgeText = ratioText
+  // Live progress toward TP/SL when the marker is inside the box: distance
+  // travelled from entry expressed as a multiple of risk.
+  const liveRr =
+    priceLine != null && stopY != null && Math.abs(stopY - entryY) > 0
+      ? Math.abs(priceLine.y2 - entryY) / Math.abs(stopY - entryY)
+      : null
+  const badgeText =
+    liveRr != null ? `1:${formatRr(liveRr)} / ${ratioText}` : ratioText
   const badgeW = Math.max(POS_BADGE_MIN_W, 14 + badgeText.length * 6.4)
   const badgeH = 20
   // Horizontally centered on the box; Long above the entry line, Short below it.
@@ -623,6 +635,21 @@ export function PositionShape({
           {stopY != null && levelDragLine(stopY, onDragStop)}
           {levelDragLine(entryY, onDragEntry)}
         </>
+      )}
+
+      {/* Live price line: from the entry point to the current candle. Red while the
+        price sits in the SL zone, green in the TP zone. */}
+      {priceLine && (
+        <line
+          x1={priceLine.x1}
+          y1={priceLine.y1}
+          x2={priceLine.x2}
+          y2={priceLine.y2}
+          stroke={priceLineTowardTp ? TP_ZONE_COLOR : SL_ZONE_COLOR}
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          className="pointer-events-none"
+        />
       )}
 
       {/* Badge with side + size — draggable to move the whole position. */}
