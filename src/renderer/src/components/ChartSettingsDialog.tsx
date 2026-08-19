@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Crosshair, Palette, RotateCcw, SlidersHorizontal, Timer, X } from 'lucide-react'
+import { ChevronUp, Crosshair, Palette, SlidersHorizontal, Timer, Trash2, X } from 'lucide-react'
 import {
+  PRESET_NAME_MAX_LENGTH,
   resolveChartPalette,
   useChartSettingsStore,
   type ColorOverrides
@@ -311,6 +312,112 @@ function ToggleField({
   )
 }
 
+function SaveTemplateAsDialog({
+  open,
+  onClose,
+  onSave
+}: {
+  open: boolean
+  onClose: () => void
+  onSave: (name: string) => boolean
+}): ReactElement | null {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [name, setName] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    setName('')
+    const frame = window.requestAnimationFrame(() => inputRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const trimmed = name.trim()
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-3"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="save-template-title"
+        className="w-full max-w-sm overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+          <h2 id="save-template-title" className="text-sm font-semibold text-zinc-100">
+            Save template as
+          </h2>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-100"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+        <form
+          className="px-4 py-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!trimmed) return
+            if (onSave(trimmed)) onClose()
+          }}
+        >
+          <label htmlFor="template-name" className="block text-xs text-zinc-400">
+            Template name:
+          </label>
+          <input
+            ref={inputRef}
+            id="template-name"
+            type="text"
+            value={name}
+            maxLength={PRESET_NAME_MAX_LENGTH}
+            onChange={(event) => setName(event.target.value)}
+            className="mt-1.5 h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-200 focus:border-amber-500/70 focus:outline-none"
+          />
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-8 items-center rounded border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!trimmed}
+              className="inline-flex h-8 items-center rounded border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-medium text-amber-300 hover:border-amber-400/70 hover:text-amber-200 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 export default function ChartSettingsDialog(): ReactElement | null {
   const open = useUiLayoutStore((s) => s.chartSettingsDialogOpen)
   const setOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
@@ -324,12 +431,21 @@ export default function ChartSettingsDialog(): ReactElement | null {
   const setPriceScale = useChartSettingsStore((s) => s.setPriceScale)
   const setTimeScale = useChartSettingsStore((s) => s.setTimeScale)
   const resetAll = useChartSettingsStore((s) => s.resetAll)
+  const presets = useChartSettingsStore((s) => s.presets)
+  const savePreset = useChartSettingsStore((s) => s.savePreset)
+  const restorePreset = useChartSettingsStore((s) => s.restorePreset)
+  const deletePreset = useChartSettingsStore((s) => s.deletePreset)
 
   const palette = resolveChartPalette(theme, colors)
   const [openColorKey, setOpenColorKey] = useState<string | null>(null)
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false)
+  const [saveAsOpen, setSaveAsOpen] = useState(false)
+  const templateMenuRef = useRef<HTMLDivElement>(null)
 
   function closeDialog(): void {
     setOpenColorKey(null)
+    setTemplateMenuOpen(false)
+    setSaveAsOpen(false)
     setOpen(false)
   }
 
@@ -338,6 +454,11 @@ export default function ChartSettingsDialog(): ReactElement | null {
 
     function onKey(event: KeyboardEvent): void {
       if (event.key !== 'Escape') return
+      if (saveAsOpen) return
+      if (templateMenuOpen) {
+        setTemplateMenuOpen(false)
+        return
+      }
       if (openColorKey != null) {
         setOpenColorKey(null)
         return
@@ -347,7 +468,19 @@ export default function ChartSettingsDialog(): ReactElement | null {
 
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, setOpen, openColorKey])
+  }, [open, setOpen, openColorKey, templateMenuOpen, saveAsOpen])
+
+  useEffect(() => {
+    if (!templateMenuOpen) return undefined
+
+    function onPointerDown(event: PointerEvent): void {
+      if (templateMenuRef.current?.contains(event.target as Node)) return
+      setTemplateMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [templateMenuOpen])
 
   if (!open) return null
 
@@ -371,7 +504,7 @@ export default function ChartSettingsDialog(): ReactElement | null {
         role="dialog"
         aria-modal="true"
         aria-labelledby="chart-settings-title"
-        className="flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
+        className="flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col overflow-visible rounded border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
@@ -493,17 +626,91 @@ export default function ChartSettingsDialog(): ReactElement | null {
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-4 py-3">
-          <button
-            type="button"
-            onClick={resetAll}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-zinc-700 px-2.5 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
-          >
-            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-            Reset defaults
-          </button>
+          <div ref={templateMenuRef} className="relative">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={templateMenuOpen}
+              onClick={() => setTemplateMenuOpen((value) => !value)}
+              className={`inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs font-medium transition-colors ${
+                templateMenuOpen
+                  ? 'border-amber-500/70 bg-amber-950/40 text-amber-300'
+                  : 'border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100'
+              }`}
+            >
+              Template
+              <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+            </button>
+            {templateMenuOpen && (
+              <div
+                role="menu"
+                className="absolute bottom-full left-0 z-50 mb-1 min-w-[11rem] overflow-hidden rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl shadow-black/40"
+              >
+                {presets.length > 0 && (
+                  <>
+                    <div className="max-h-40 overflow-y-auto">
+                      {[...presets]
+                        .sort((a, b) => b.savedAt - a.savedAt)
+                        .map((preset) => (
+                          <div key={preset.id} className="flex items-center gap-0.5 pr-1">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                restorePreset(preset.id)
+                                setTemplateMenuOpen(false)
+                              }}
+                              className="min-w-0 flex-1 truncate px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"
+                            >
+                              {preset.name}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Delete ${preset.name}`}
+                              onClick={() => deletePreset(preset.id)}
+                              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
+                            >
+                              <Trash2 className="h-3 w-3" aria-hidden />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                    <div className="my-1 border-t border-zinc-800" />
+                  </>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    resetAll()
+                    setTemplateMenuOpen(false)
+                  }}
+                  className="flex w-full items-center px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"
+                >
+                  Apply defaults
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setTemplateMenuOpen(false)
+                    setSaveAsOpen(true)
+                  }}
+                  className="flex w-full items-center px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"
+                >
+                  Save as...
+                </button>
+              </div>
+            )}
+          </div>
           <span className="text-[10px] text-zinc-600">Settings apply to both panes.</span>
         </div>
       </div>
+      <SaveTemplateAsDialog
+        open={saveAsOpen}
+        onClose={() => setSaveAsOpen(false)}
+        onSave={savePreset}
+      />
     </div>
   )
 }

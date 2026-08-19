@@ -59,16 +59,34 @@ export const DEFAULT_TIME_SCALE: TimeScaleSettings = {
   secondsVisible: false
 }
 
-type ChartSettingsState = {
+export const PRESET_NAME_MAX_LENGTH = 48
+
+export type ChartSettingsSnapshot = {
   colors: ColorOverrides
   crosshair: CrosshairSettings
   priceScale: PriceScaleSettings
   timeScale: TimeScaleSettings
+}
+
+export type ChartSettingsPreset = ChartSettingsSnapshot & {
+  id: string
+  name: string
+  savedAt: number
+}
+
+type PersistedChartSettings = ChartSettingsSnapshot & {
+  presets: ChartSettingsPreset[]
+}
+
+type ChartSettingsState = PersistedChartSettings & {
   setColors: (patch: ColorOverrides) => void
   setCrosshair: (patch: Partial<CrosshairSettings>) => void
   setPriceScale: (patch: Partial<PriceScaleSettings>) => void
   setTimeScale: (patch: Partial<TimeScaleSettings>) => void
   toggleInvertScale: () => void
+  savePreset: (name: string) => boolean
+  restorePreset: (id: string) => boolean
+  deletePreset: (id: string) => void
   resetAll: () => void
 }
 
@@ -124,103 +142,136 @@ function sanitizeColors(raw: unknown): ColorOverrides {
   return out
 }
 
-function loadPersisted(): Pick<
-  ChartSettingsState,
-  'colors' | 'crosshair' | 'priceScale' | 'timeScale'
-> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw)
-      return {
-        colors: {},
-        crosshair: DEFAULT_CROSSHAIR,
-        priceScale: DEFAULT_PRICE_SCALE,
-        timeScale: DEFAULT_TIME_SCALE
-      }
-    const parsed = JSON.parse(raw) as {
-      colors?: unknown
-      crosshair?: Partial<CrosshairSettings>
-      priceScale?: Partial<PriceScaleSettings>
-      timeScale?: Partial<TimeScaleSettings>
-    }
-    if (!parsed || typeof parsed !== 'object') {
-      return {
-        colors: {},
-        crosshair: DEFAULT_CROSSHAIR,
-        priceScale: DEFAULT_PRICE_SCALE,
-        timeScale: DEFAULT_TIME_SCALE
-      }
-    }
-    return {
-      colors: sanitizeColors(parsed.colors),
-      crosshair: {
-        ...DEFAULT_CROSSHAIR,
-        ...(parsed.crosshair && typeof parsed.crosshair === 'object' ? parsed.crosshair : {}),
-        mode: isCrosshairMode(parsed.crosshair?.mode)
-          ? parsed.crosshair.mode
-          : DEFAULT_CROSSHAIR.mode,
-        lineStyle: isLineStyle(parsed.crosshair?.lineStyle)
-          ? parsed.crosshair.lineStyle
-          : DEFAULT_CROSSHAIR.lineStyle,
-        lineWidth: isLineWidth(parsed.crosshair?.lineWidth)
-          ? parsed.crosshair.lineWidth
-          : DEFAULT_CROSSHAIR.lineWidth,
-        visible:
-          typeof parsed.crosshair?.visible === 'boolean'
-            ? parsed.crosshair.visible
-            : DEFAULT_CROSSHAIR.visible,
-        labelVisible:
-          typeof parsed.crosshair?.labelVisible === 'boolean'
-            ? parsed.crosshair.labelVisible
-            : DEFAULT_CROSSHAIR.labelVisible
-      },
-      priceScale: {
-        ...DEFAULT_PRICE_SCALE,
-        ...(parsed.priceScale && typeof parsed.priceScale === 'object' ? parsed.priceScale : {}),
-        mode: isPriceScaleMode(parsed.priceScale?.mode)
-          ? parsed.priceScale.mode
-          : DEFAULT_PRICE_SCALE.mode,
-        invertScale:
-          typeof parsed.priceScale?.invertScale === 'boolean'
-            ? parsed.priceScale.invertScale
-            : DEFAULT_PRICE_SCALE.invertScale,
-        autoScale:
-          typeof parsed.priceScale?.autoScale === 'boolean'
-            ? parsed.priceScale.autoScale
-            : DEFAULT_PRICE_SCALE.autoScale
-      },
-      timeScale: {
-        ...DEFAULT_TIME_SCALE,
-        ...(parsed.timeScale && typeof parsed.timeScale === 'object' ? parsed.timeScale : {}),
-        timeVisible:
-          typeof parsed.timeScale?.timeVisible === 'boolean'
-            ? parsed.timeScale.timeVisible
-            : DEFAULT_TIME_SCALE.timeVisible,
-        secondsVisible:
-          typeof parsed.timeScale?.secondsVisible === 'boolean'
-            ? parsed.timeScale.secondsVisible
-            : DEFAULT_TIME_SCALE.secondsVisible
-      }
-    }
-  } catch {
-    return {
-      colors: {},
-      crosshair: DEFAULT_CROSSHAIR,
-      priceScale: DEFAULT_PRICE_SCALE,
-      timeScale: DEFAULT_TIME_SCALE
-    }
+function sanitizeCrosshair(raw: unknown): CrosshairSettings {
+  const source = raw && typeof raw === 'object' ? (raw as Partial<CrosshairSettings>) : {}
+  return {
+    ...DEFAULT_CROSSHAIR,
+    ...source,
+    mode: isCrosshairMode(source.mode) ? source.mode : DEFAULT_CROSSHAIR.mode,
+    lineStyle: isLineStyle(source.lineStyle) ? source.lineStyle : DEFAULT_CROSSHAIR.lineStyle,
+    lineWidth: isLineWidth(source.lineWidth) ? source.lineWidth : DEFAULT_CROSSHAIR.lineWidth,
+    visible: typeof source.visible === 'boolean' ? source.visible : DEFAULT_CROSSHAIR.visible,
+    labelVisible:
+      typeof source.labelVisible === 'boolean'
+        ? source.labelVisible
+        : DEFAULT_CROSSHAIR.labelVisible
   }
 }
 
-function persist(
-  partial: Pick<ChartSettingsState, 'colors' | 'crosshair' | 'priceScale' | 'timeScale'>
-): void {
+function sanitizePriceScale(raw: unknown): PriceScaleSettings {
+  const source = raw && typeof raw === 'object' ? (raw as Partial<PriceScaleSettings>) : {}
+  return {
+    ...DEFAULT_PRICE_SCALE,
+    ...source,
+    mode: isPriceScaleMode(source.mode) ? source.mode : DEFAULT_PRICE_SCALE.mode,
+    invertScale:
+      typeof source.invertScale === 'boolean'
+        ? source.invertScale
+        : DEFAULT_PRICE_SCALE.invertScale,
+    autoScale:
+      typeof source.autoScale === 'boolean' ? source.autoScale : DEFAULT_PRICE_SCALE.autoScale
+  }
+}
+
+function sanitizeTimeScale(raw: unknown): TimeScaleSettings {
+  const source = raw && typeof raw === 'object' ? (raw as Partial<TimeScaleSettings>) : {}
+  return {
+    ...DEFAULT_TIME_SCALE,
+    ...source,
+    timeVisible:
+      typeof source.timeVisible === 'boolean' ? source.timeVisible : DEFAULT_TIME_SCALE.timeVisible,
+    secondsVisible:
+      typeof source.secondsVisible === 'boolean'
+        ? source.secondsVisible
+        : DEFAULT_TIME_SCALE.secondsVisible
+  }
+}
+
+function sanitizeSnapshot(raw: unknown): ChartSettingsSnapshot {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  return {
+    colors: sanitizeColors(source.colors),
+    crosshair: sanitizeCrosshair(source.crosshair),
+    priceScale: sanitizePriceScale(source.priceScale),
+    timeScale: sanitizeTimeScale(source.timeScale)
+  }
+}
+
+function cloneSnapshot(snapshot: ChartSettingsSnapshot): ChartSettingsSnapshot {
+  return {
+    colors: { ...snapshot.colors },
+    crosshair: { ...snapshot.crosshair },
+    priceScale: { ...snapshot.priceScale },
+    timeScale: { ...snapshot.timeScale }
+  }
+}
+
+function sanitizePresets(raw: unknown): ChartSettingsPreset[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: ChartSettingsPreset[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    const name =
+      typeof rec.name === 'string' ? rec.name.trim().slice(0, PRESET_NAME_MAX_LENGTH) : ''
+    if (!name) continue
+    const id = typeof rec.id === 'string' && rec.id.length > 0 ? rec.id : crypto.randomUUID()
+    if (seen.has(id)) continue
+    seen.add(id)
+    const savedAt =
+      typeof rec.savedAt === 'number' && Number.isFinite(rec.savedAt) ? rec.savedAt : Date.now()
+    out.push({
+      id,
+      name,
+      savedAt,
+      ...sanitizeSnapshot(rec)
+    })
+  }
+  return out
+}
+
+const EMPTY_SETTINGS: PersistedChartSettings = {
+  colors: {},
+  crosshair: DEFAULT_CROSSHAIR,
+  priceScale: DEFAULT_PRICE_SCALE,
+  timeScale: DEFAULT_TIME_SCALE,
+  presets: []
+}
+
+function loadPersisted(): PersistedChartSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return EMPTY_SETTINGS
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return EMPTY_SETTINGS
+    const rec = parsed as Record<string, unknown>
+    return {
+      ...sanitizeSnapshot(rec),
+      presets: sanitizePresets(rec.presets)
+    }
+  } catch {
+    return EMPTY_SETTINGS
+  }
+}
+
+function persist(partial: Partial<PersistedChartSettings>): void {
   try {
     const current = loadPersisted()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...partial }))
   } catch {
     // ignore quota / private mode
   }
+}
+
+function persistLive(get: () => ChartSettingsState): void {
+  persist({
+    colors: get().colors,
+    crosshair: get().crosshair,
+    priceScale: get().priceScale,
+    timeScale: get().timeScale,
+    presets: get().presets
+  })
 }
 
 const initial = loadPersisted()
@@ -230,53 +281,70 @@ export const useChartSettingsStore = create<ChartSettingsState>((set, get) => ({
   crosshair: initial.crosshair,
   priceScale: initial.priceScale,
   timeScale: initial.timeScale,
+  presets: initial.presets,
 
   setColors: (patch) => {
     const colors = { ...get().colors, ...patch }
     set({ colors })
-    persist({
-      colors,
-      crosshair: get().crosshair,
-      priceScale: get().priceScale,
-      timeScale: get().timeScale
-    })
+    persistLive(get)
   },
 
   setCrosshair: (patch) => {
     const crosshair = { ...get().crosshair, ...patch }
     set({ crosshair })
-    persist({
-      colors: get().colors,
-      crosshair,
-      priceScale: get().priceScale,
-      timeScale: get().timeScale
-    })
+    persistLive(get)
   },
 
   setPriceScale: (patch) => {
     const priceScale = { ...get().priceScale, ...patch }
     set({ priceScale })
-    persist({
-      colors: get().colors,
-      crosshair: get().crosshair,
-      priceScale,
-      timeScale: get().timeScale
-    })
+    persistLive(get)
   },
 
   setTimeScale: (patch) => {
     const timeScale = { ...get().timeScale, ...patch }
     set({ timeScale })
-    persist({
-      colors: get().colors,
-      crosshair: get().crosshair,
-      priceScale: get().priceScale,
-      timeScale
-    })
+    persistLive(get)
   },
 
   toggleInvertScale: () => {
     get().setPriceScale({ invertScale: !get().priceScale.invertScale })
+  },
+
+  savePreset: (name) => {
+    const trimmed = name.trim().slice(0, PRESET_NAME_MAX_LENGTH)
+    if (!trimmed) return false
+    const snapshot = cloneSnapshot(get())
+    const existing = get().presets.find(
+      (preset) => preset.name.toLowerCase() === trimmed.toLowerCase()
+    )
+    const nextPreset: ChartSettingsPreset = {
+      id: existing?.id ?? crypto.randomUUID(),
+      name: trimmed,
+      savedAt: Date.now(),
+      ...snapshot
+    }
+    const presets = existing
+      ? get().presets.map((preset) => (preset.id === existing.id ? nextPreset : preset))
+      : [...get().presets, nextPreset]
+    set({ presets })
+    persistLive(get)
+    return true
+  },
+
+  restorePreset: (id) => {
+    const preset = get().presets.find((item) => item.id === id)
+    if (!preset) return false
+    set(cloneSnapshot(preset))
+    persistLive(get)
+    return true
+  },
+
+  deletePreset: (id) => {
+    const presets = get().presets.filter((preset) => preset.id !== id)
+    if (presets.length === get().presets.length) return
+    set({ presets })
+    persistLive(get)
   },
 
   resetAll: () => {
@@ -286,11 +354,7 @@ export const useChartSettingsStore = create<ChartSettingsState>((set, get) => ({
       priceScale: DEFAULT_PRICE_SCALE,
       timeScale: DEFAULT_TIME_SCALE
     })
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // ignore quota / private mode
-    }
+    persistLive(get)
   }
 }))
 
