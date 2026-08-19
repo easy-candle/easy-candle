@@ -18,7 +18,7 @@ import {
 } from 'lightweight-charts'
 import DrawingOverlay from '@/components/DrawingOverlay'
 import OhlcLegend from '@/components/OhlcLegend'
-import wordmarkUrl from '@/assets/easycandle-wordmark.svg'
+import { themedWordmarkUrl } from '@/lib/chartWordmark'
 import type { ChartOverlay } from '@/lib/indicators'
 import {
   buildHeikinAshiPoint,
@@ -492,7 +492,7 @@ export default function CandleChart({
     <div className="absolute inset-0 h-full w-full">
       <div ref={containerRef} className="absolute inset-0 h-full w-full" />
       <img
-        src={wordmarkUrl}
+        src={themedWordmarkUrl(theme)}
         alt=""
         className="pointer-events-none absolute left-1/2 top-[58%] z-[1] h-auto w-[min(48%,380px)] -translate-x-1/2 -translate-y-1/2 opacity-[0.08] select-none"
         aria-hidden
