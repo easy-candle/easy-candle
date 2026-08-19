@@ -5,7 +5,14 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent
 } from 'react'
-import type { IChartApi, ISeriesApi, SeriesType, Time } from 'lightweight-charts'
+import {
+  CrosshairMode,
+  LineStyle,
+  type IChartApi,
+  type ISeriesApi,
+  type SeriesType,
+  type Time
+} from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import {
   isTwoPointTool,
@@ -52,6 +59,7 @@ import { CHART_PALETTES } from '@/lib/theme'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
 import type { Candle } from '@shared/candleUtils'
 import { DEFAULT_PRICE_PRECISION } from '@shared/pricePrecision'
+import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 
@@ -149,6 +157,40 @@ function estimateQtyWidth(label: string): number {
   return Math.max(OVERLAY_LAYOUT.qtyW, 12 + label.length * 6.4)
 }
 
+function crosshairDasharray(style: LineStyle): string | undefined {
+  switch (style) {
+    case LineStyle.Dotted:
+      return '2 3'
+    case LineStyle.Dashed:
+      return '6 4'
+    case LineStyle.LargeDashed:
+      return '8 6'
+    case LineStyle.SparseDotted:
+      return '1 4'
+    default:
+      return undefined
+  }
+}
+
+/** Drive axis labels from overlay coords so the price stays visible while drawing. */
+function setDrawingCrosshair(
+  chart: IChartApi,
+  series: ISeriesApi<SeriesType>,
+  x: number,
+  y: number,
+  candles: Candle[],
+  intervalSeconds: number
+): void {
+  const price = series.coordinateToPrice(y)
+  if (price == null || !Number.isFinite(price)) return
+  const time =
+    chart.timeScale().coordinateToTime(x) ??
+    xToUnixTime(chart, x, candles, intervalSeconds) ??
+    candles[candles.length - 1]?.time
+  if (time == null) return
+  chart.setCrosshairPosition(price, time as Time, series)
+}
+
 function CloseGlyph({
   cx,
   cy,
@@ -201,6 +243,9 @@ export default function DrawingOverlay({
   const symbol = useReplayStore((s) => s.symbol)
   const theme = useThemeStore((s) => s.theme)
   const chrome = CHART_PALETTES[theme]
+  const colorOverrides = useChartSettingsStore((s) => s.colors)
+  const crosshairSettings = useChartSettingsStore((s) => s.crosshair)
+  const palette = resolveChartPalette(theme, colorOverrides)
 
   const intervalSeconds =
     TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
@@ -296,6 +341,30 @@ export default function DrawingOverlay({
 
   const placing = canDraw && (drawTool === 'hline' || isTwoPointTool(drawTool))
 
+  // Overlay captures pointer events while placing, so the chart never sees
+  // mousemove — keep the native haircross (and price label) in sync ourselves.
+  useEffect(() => {
+    if (!placing || !chart) return undefined
+    chart.applyOptions({
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { visible: false, labelVisible: true },
+        horzLine: { visible: false, labelVisible: true }
+      }
+    })
+    return () => {
+      const next = useChartSettingsStore.getState().crosshair
+      chart.applyOptions({
+        crosshair: {
+          mode: next.mode,
+          vertLine: { visible: next.visible, labelVisible: next.labelVisible },
+          horzLine: { visible: next.visible, labelVisible: next.labelVisible }
+        }
+      })
+      chart.clearCrosshairPosition()
+    }
+  }, [placing, chart])
+
   // Document-level drag so handles stay under the cursor outside the SVG.
   useEffect(() => {
     if (!draggingKey || !series || !chart) return undefined
@@ -309,6 +378,7 @@ export default function DrawingOverlay({
       const plotRight = readPlotRight()
       const x = clampXToPlot(event.clientX - rect.left, plotRight)
       const y = event.clientY - rect.top
+      setDrawingCrosshair(chart, series, x, y, paneCandlesRef.current, intervalSeconds)
 
       if (drag.kind === 'place-two') {
         setHover({ x, y })
@@ -481,20 +551,21 @@ export default function DrawingOverlay({
     addTwoPoint(point)
     dragRef.current = { kind: 'place-two', tool: drawTool, startX: x, startY: y, moved: false }
     setHover({ x, y })
+    setDrawingCrosshair(chart, series, x, y, paneCandles, intervalSeconds)
     setDraggingKey('place-two')
   }
 
   function onMove(event: ReactMouseEvent<SVGSVGElement>): void {
-    if (!placing) {
+    if (!placing || !chart || !series) {
       setHover(null)
       return
     }
     const rect = event.currentTarget.getBoundingClientRect()
     const plotRight = readPlotRight()
-    setHover({
-      x: clampXToPlot(event.clientX - rect.left, plotRight),
-      y: event.clientY - rect.top
-    })
+    const x = clampXToPlot(event.clientX - rect.left, plotRight)
+    const y = event.clientY - rect.top
+    setHover({ x, y })
+    setDrawingCrosshair(chart, series, x, y, paneCandles, intervalSeconds)
   }
 
   function pointerAtEvent(event: ReactMouseEvent): TrendPoint | null {
@@ -901,6 +972,7 @@ export default function DrawingOverlay({
         if (dragRef.current?.kind === 'place-two') return
         setHover(null)
         setPlaceHint(null)
+        if (placing) chart?.clearCrosshairPosition()
       }}
     >
       {closedTrades.map((trade) => {
@@ -1370,6 +1442,18 @@ export default function DrawingOverlay({
             </g>
           )
         })()}
+
+      {placing && hover && (
+        <g
+          className="pointer-events-none"
+          stroke={palette.crosshairColor}
+          strokeWidth={crosshairSettings.lineWidth}
+          strokeDasharray={crosshairDasharray(crosshairSettings.lineStyle)}
+        >
+          <line x1={0} y1={hover.y} x2={plotRight} y2={hover.y} />
+          <line x1={hover.x} y1={0} x2={hover.x} y2={height} />
+        </g>
+      )}
     </svg>
   )
 }
