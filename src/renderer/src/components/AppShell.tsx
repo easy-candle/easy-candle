@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Maximize2, Minimize2, Moon, SquareSplitVertical, Sun, X } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
 import ChartTypeSelect from '@/components/ChartTypeSelect'
+import ChartSnapshotDropdown from '@/components/ChartSnapshotDropdown'
 import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
@@ -112,6 +113,7 @@ export default function AppShell({
             >
               <SquareSplitVertical className="h-4 w-4" />
             </IconButton>
+            <ChartSnapshotDropdown />
             <IconButton
               tooltip="Full-screen chart"
               shortcut={['F']}
@@ -186,9 +188,7 @@ export default function AppShell({
       >
         <div
           className={`relative flex gap-1 min-h-0 flex-1 overflow-hidden bg-zinc-950 ${
-            chartFullscreen
-              ? 'rounded-none border-0 shadow-none'
-              : ''
+            chartFullscreen ? 'rounded-none border-0 shadow-none' : ''
           }`}
         >
           {showDrawingToolbar && <DrawingToolbar />}
