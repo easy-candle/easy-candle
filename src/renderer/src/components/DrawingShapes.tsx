@@ -93,6 +93,9 @@ export function HLineShape({
   selected,
   canSelect,
   canDraw,
+  showHandles = true,
+  onMouseEnter,
+  onMouseLeave,
   onSelect,
   onDrag
 }: {
@@ -102,12 +105,15 @@ export function HLineShape({
   selected: boolean
   canSelect: boolean
   canDraw: boolean
+  showHandles?: boolean
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
   onSelect: (event: ReactMouseEvent) => void
   onDrag: (event: ReactMouseEvent) => void
 }) {
   const color = ink(selected)
   return (
-    <g>
+    <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <line x1={0} x2={width || '100%'} y1={y} y2={y} stroke={color} strokeWidth={DRAW_WIDTH} />
       {canDraw && (
         <line
@@ -122,7 +128,7 @@ export function HLineShape({
           onClick={canSelect ? onSelect : undefined}
         />
       )}
-      {canDraw && midX > 0 && (
+      {canDraw && showHandles && midX > 0 && (
         <HandleSquare
           x={midX}
           y={y}
@@ -142,6 +148,9 @@ export function TrendLineShape({
   selected,
   canSelect,
   canDraw,
+  showHandles = true,
+  onMouseEnter,
+  onMouseLeave,
   onSelect,
   onDragEnd,
   onDragBody
@@ -151,13 +160,16 @@ export function TrendLineShape({
   selected: boolean
   canSelect: boolean
   canDraw: boolean
+  showHandles?: boolean
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
   onSelect: (event: ReactMouseEvent) => void
   onDragEnd: (end: 'start' | 'end', event: ReactMouseEvent) => void
   onDragBody: (event: ReactMouseEvent) => void
 }) {
   const color = ink(selected)
   return (
-    <g>
+    <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <line
         x1={a.x}
         y1={a.y}
@@ -179,7 +191,7 @@ export function TrendLineShape({
           onClick={canSelect ? onSelect : undefined}
         />
       )}
-      {canDraw && (
+      {canDraw && showHandles && (
         <>
           <HandleDot
             x={a.x}
@@ -225,6 +237,8 @@ export function FibShape({
   canSelect,
   canDraw,
   showHandles = true,
+  onMouseEnter,
+  onMouseLeave,
   pricePrecision = DEFAULT_PRICE_PRECISION,
   plotRight,
   onSelect,
@@ -239,6 +253,8 @@ export function FibShape({
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
   pricePrecision?: number
   /** Right edge of the candle pane; levels and labels stay left of the price scale. */
   plotRight?: number
@@ -253,7 +269,7 @@ export function FibShape({
   const sorted = [...levels].sort((l, r) => l.y - r.y)
 
   return (
-    <g>
+    <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       {sorted.slice(0, -1).map((level, i) => {
         const next = sorted[i + 1]
         if (!next) return null
@@ -358,6 +374,8 @@ export function RectShape({
   canSelect,
   canDraw,
   showHandles = true,
+  onMouseEnter,
+  onMouseLeave,
   onSelect,
   onDragHandle,
   onDragBody
@@ -368,6 +386,8 @@ export function RectShape({
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
   onSelect?: (event: ReactMouseEvent) => void
   onDragHandle?: (handle: RectHandle, event: ReactMouseEvent) => void
   onDragBody?: (event: ReactMouseEvent) => void
@@ -385,7 +405,7 @@ export function RectShape({
   ]
 
   return (
-    <g>
+    <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <rect
         x={x}
         y={y}
