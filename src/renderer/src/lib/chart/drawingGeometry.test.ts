@@ -4,12 +4,16 @@ import {
   FIB_LEVELS,
   fibPriceAtLevel,
   formatFibLevel,
+  isPositionTool,
+  isValidPositionLevel,
+  mirrorPositionLevel,
   remapDrawingTimes,
   translateDrawing,
   updateRectHandle,
   updateTwoPointEndpoint,
   type FibDrawing,
   type HLineDrawing,
+  type PositionDrawing,
   type RectDrawing,
   type TrendDrawing
 } from './drawingGeometry'
@@ -38,6 +42,24 @@ const rect: RectDrawing = {
   p1: 120,
   t2: 40,
   p2: 80
+}
+const longPos: PositionDrawing = {
+  id: 'd-5',
+  type: 'long',
+  t: 100,
+  entry: 100,
+  target: 110,
+  stop: 90,
+  span: 6
+}
+const shortPos: PositionDrawing = {
+  id: 'd-6',
+  type: 'short',
+  t: 100,
+  entry: 100,
+  target: 90,
+  stop: 110,
+  span: 6
 }
 
 describe('fibPriceAtLevel', () => {
@@ -113,6 +135,73 @@ describe('remapDrawingTimes', () => {
       t1: 60,
       t2: 120
     })
+  })
+
+  it('aligns the entry time of position drawings', () => {
+    expect(remapDrawingTimes(longPos, 60)).toEqual({ ...longPos, t: 60 })
+  })
+})
+
+describe('position drawings', () => {
+  it('detects position tools', () => {
+    expect(isPositionTool('long')).toBe(true)
+    expect(isPositionTool('short')).toBe(true)
+    expect(isPositionTool('hline')).toBe(false)
+    expect(isPositionTool('rect')).toBe(false)
+  })
+
+  it('validates levels against entry direction', () => {
+    expect(isValidPositionLevel('long', 'target', 100, 110)).toBe(true)
+    expect(isValidPositionLevel('long', 'target', 100, 90)).toBe(false)
+    expect(isValidPositionLevel('long', 'stop', 100, 90)).toBe(true)
+    expect(isValidPositionLevel('long', 'stop', 100, 110)).toBe(false)
+    expect(isValidPositionLevel('short', 'target', 100, 90)).toBe(true)
+    expect(isValidPositionLevel('short', 'target', 100, 110)).toBe(false)
+    expect(isValidPositionLevel('short', 'stop', 100, 110)).toBe(true)
+  })
+
+  it('mirrors the opposite level at the default 1:3 R:R guide', () => {
+    // Dragging the target (reward) mirrors the stop at a third of the distance.
+    expect(mirrorPositionLevel('long', 100, 'target', 130)).toBe(90)
+    expect(mirrorPositionLevel('short', 100, 'target', 70)).toBe(110)
+    // Dragging the stop (risk) mirrors the target at triple the distance.
+    expect(mirrorPositionLevel('long', 100, 'stop', 90)).toBe(130)
+    expect(mirrorPositionLevel('short', 100, 'stop', 110)).toBe(70)
+  })
+
+  it('translates entry, target and stop together', () => {
+    expect(translateDrawing(longPos, 5, -2)).toEqual({
+      ...longPos,
+      t: 105,
+      entry: 98,
+      target: 108,
+      stop: 88
+    })
+    expect(translateDrawing(shortPos, -5, 3)).toEqual({
+      ...shortPos,
+      t: 95,
+      entry: 103,
+      target: 93,
+      stop: 113
+    })
+  })
+
+  it('keeps null levels null when translating', () => {
+    const bare: PositionDrawing = { id: 'd-7', type: 'short', t: 10, entry: 50, target: null, stop: null, span: 3 }
+    expect(translateDrawing(bare, 2, 1)).toEqual({ ...bare, t: 12, entry: 51 })
+  })
+
+  it('clones position drawings with a new id', () => {
+    const copy = cloneDrawing(longPos, 'd-99')
+    expect(copy.id).toBe('d-99')
+    expect(copy).toMatchObject({
+      type: 'long',
+      t: 100,
+      entry: 100,
+      target: 110,
+      stop: 90
+    })
+    expect(longPos.id).toBe('d-5')
   })
 })
 

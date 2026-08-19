@@ -1,6 +1,6 @@
 import { alignTimeToInterval } from '@shared/timeframes'
 
-export const DRAW_TOOLS = ['select', 'hline', 'trendline', 'fib', 'rect'] as const
+export const DRAW_TOOLS = ['select', 'hline', 'trendline', 'fib', 'rect', 'long', 'short'] as const
 export type DrawTool = (typeof DRAW_TOOLS)[number]
 
 export type TrendPoint = { time: number; price: number }
@@ -30,11 +30,37 @@ export type RectDrawing = {
   t2: number
   p2: number
 }
-export type Drawing = HLineDrawing | TrendDrawing | FibDrawing | RectDrawing
+export type PositionDrawing = {
+  id: string
+  type: 'long' | 'short'
+  t: number
+  entry: number
+  target: number | null
+  stop: number | null
+  /** Box width in bars to the right of the entry time. */
+  span: number
+}
+export type Drawing =
+  | HLineDrawing
+  | TrendDrawing
+  | FibDrawing
+  | RectDrawing
+  | PositionDrawing
 export type TwoPointDrawing = TrendDrawing | FibDrawing | RectDrawing
 export type TwoPointTool = 'trendline' | 'fib' | 'rect'
+export type PositionTool = 'long' | 'short'
+export type PositionLevel = 'target' | 'stop'
 export type RectHandle = 'nw' | 'ne' | 'sw' | 'se'
 export type Endpoint = 'start' | 'end'
+
+/** Default position box width in bars. */
+export const POSITION_SPAN_DEFAULT = 6
+/** Minimum box width in bars. */
+export const POSITION_SPAN_MIN = 1
+/** Maximum box width in bars. */
+export const POSITION_SPAN_MAX = 200
+/** Default reward multiple of risk when mirroring a missing level (1:3 R:R). */
+export const POSITION_RR_REWARD_MULT = 3
 
 /** MetaTrader retracement defaults (no 0.786 / extensions). */
 export const FIB_LEVELS: readonly number[] = [0, 0.236, 0.382, 0.5, 0.618, 1]
@@ -45,6 +71,43 @@ export function isDrawTool(value: unknown): value is DrawTool {
 
 export function isTwoPointTool(tool: DrawTool): tool is TwoPointTool {
   return tool === 'trendline' || tool === 'fib' || tool === 'rect'
+}
+
+export function isPositionTool(tool: DrawTool): tool is PositionTool {
+  return tool === 'long' || tool === 'short'
+}
+
+export function isPositionDrawing(drawing: Drawing): drawing is PositionDrawing {
+  return drawing.type === 'long' || drawing.type === 'short'
+}
+
+/** A level is valid when it sits in its profit/loss direction from entry. */
+export function isValidPositionLevel(
+  side: 'long' | 'short',
+  level: PositionLevel,
+  entry: number,
+  price: number
+): boolean {
+  if (level === 'target') return side === 'long' ? price > entry : price < entry
+  return side === 'long' ? price < entry : price > entry
+}
+
+/** Mirror the missing opposite level at the default 1:3 R:R guide. */
+export function mirrorPositionLevel(
+  side: 'long' | 'short',
+  entry: number,
+  level: PositionLevel,
+  price: number
+): number {
+  const delta = Math.abs(price - entry)
+  if (level === 'target') {
+    // The dragged target sets the reward; the mirrored stop sits at a third of the distance (1:3 R:R).
+    const third = delta / POSITION_RR_REWARD_MULT
+    return side === 'long' ? entry - third : entry + third
+  }
+  // The dragged stop sets the risk; the mirrored target sits at triple the distance (1:3 R:R).
+  const tripled = delta * POSITION_RR_REWARD_MULT
+  return side === 'long' ? entry + tripled : entry - tripled
 }
 
 export function fibPriceAtLevel(p1: number, p2: number, ratio: number): number {
@@ -65,6 +128,15 @@ export function translateDrawing(drawing: Drawing, dTime: number, dPrice: number
   if (drawing.type === 'hline') {
     return { ...drawing, price: drawing.price + dPrice }
   }
+  if (isPositionDrawing(drawing)) {
+    return {
+      ...drawing,
+      t: drawing.t + dTime,
+      entry: drawing.entry + dPrice,
+      target: drawing.target == null ? null : drawing.target + dPrice,
+      stop: drawing.stop == null ? null : drawing.stop + dPrice
+    }
+  }
   return {
     ...drawing,
     t1: drawing.t1 + dTime,
@@ -75,7 +147,11 @@ export function translateDrawing(drawing: Drawing, dTime: number, dPrice: number
 }
 
 export function remapDrawingTimes(drawing: Drawing, intervalSec: number): Drawing {
-  if (drawing.type === 'hline') return drawing
+  if (drawing.type === 'hline' || isPositionDrawing(drawing)) {
+    return isPositionDrawing(drawing)
+      ? { ...drawing, t: alignTimeToInterval(drawing.t, intervalSec) }
+      : drawing
+  }
   return {
     ...drawing,
     t1: alignTimeToInterval(drawing.t1, intervalSec),
