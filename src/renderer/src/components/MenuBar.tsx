@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight } from 'lucide-react'
-import { copyChartSnapshot, downloadChartSnapshot } from '@/lib/chartSnapshot'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
-import { useReplayStore } from '@/store/replayStore'
 
 type MenuEntry =
   | {
@@ -168,35 +166,6 @@ export default function MenuBar() {
           type: 'item',
           label: 'Import Data',
           onSelect: () => setImportDataDialogOpen(true)
-        },
-        { type: 'separator' },
-        {
-          type: 'item',
-          label: 'Download Snapshot (PNG)',
-          onSelect: () => {
-            const chart = useUiLayoutStore.getState().primaryChart
-            if (!chart) {
-              showNotice('Chart is not ready yet')
-              return
-            }
-            const symbol = useReplayStore.getState().symbol || 'chart'
-            downloadChartSnapshot(chart, symbol)
-            showNotice('Snapshot downloaded')
-          }
-        },
-        {
-          type: 'item',
-          label: 'Copy Snapshot to Clipboard',
-          onSelect: () => {
-            const chart = useUiLayoutStore.getState().primaryChart
-            if (!chart) {
-              showNotice('Chart is not ready yet')
-              return
-            }
-            void copyChartSnapshot(chart).then((success) => {
-              showNotice(success ? 'Snapshot copied to clipboard' : 'Failed to copy snapshot')
-            })
-          }
         }
       ]
     },

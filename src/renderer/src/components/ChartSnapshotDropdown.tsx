@@ -34,7 +34,7 @@ export default function ChartSnapshotDropdown() {
         onClick={() => {
           const chart = useUiLayoutStore.getState().primaryChart
           const symbol = useReplayStore.getState().symbol || 'chart'
-          if (chart) downloadChartSnapshot(chart, symbol)
+          if (chart) void downloadChartSnapshot(chart, symbol)
         }}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-zinc-800/80 hover:text-zinc-100"
       >
@@ -46,8 +46,9 @@ export default function ChartSnapshotDropdown() {
         role="menuitem"
         onClick={() => {
           const chart = useUiLayoutStore.getState().primaryChart
+          const symbol = useReplayStore.getState().symbol || 'chart'
           if (!chart) return
-          void copyChartSnapshot(chart).then((success) => {
+          void copyChartSnapshot(chart, symbol).then((success) => {
             if (success) {
               setCopied(true)
               window.setTimeout(() => setCopied(false), 2000)
