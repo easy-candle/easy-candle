@@ -325,6 +325,17 @@ export default function DrawingOverlay({
     return logicalToX(chart, logical)
   }
 
+  /** Last candle whose time is at or before `time` (or null if none). */
+  function lastCandleAtOrBefore(time: number): Candle | null {
+    if (paneCandles.length === 0) return null
+    const logical = unixTimeToLogical(time, paneCandles, intervalSeconds)
+    if (logical == null) return null
+    const idx = Math.min(Math.max(0, Math.floor(logical)), paneCandles.length - 1)
+    const candle = paneCandles[idx]
+    if (!candle || candle.time > time) return null
+    return candle
+  }
+
   const [version, setVersion] = useState(0)
   const [hover, setHover] = useState<Point | null>(null)
   const [hoveredDrawingId, setHoveredDrawingId] = useState<string | null>(null)
@@ -1598,6 +1609,116 @@ export default function DrawingOverlay({
             bottomY = mid + POSITION_BOX_MIN_H / 2
           }
 
+          // Live price line from the entry point to the position's status. While
+          // the playhead is inside the box it tracks the current candle. If a
+          // candle in the box crosses the stop or the target, the end sits on
+          // that line at the first crossing candle's x; otherwise the end is
+          // placed on the last candle still inside the box (both x and y).
+          let priceLine: { x1: number; y1: number; x2: number; y2: number } | null = null
+          let priceLineTowardTp = true
+          if (playheadCandle && Number.isFinite(playheadCandle.close)) {
+            if (playheadCandle.time >= drawing.t) {
+              const inBox = playheadCandle.time <= boxRightTime
+              // First candle inside the box (up to the playhead / box end)
+              // whose range has crossed the stop or the target line.
+              let resolution: { candle: Candle; atTarget: boolean } | null = null
+              const effectiveTarget =
+                targetY != null ? series.coordinateToPrice(targetY) : null
+              const effectiveStop = stopY != null ? series.coordinateToPrice(stopY) : null
+              const startLogical = unixTimeToLogical(
+                drawing.t,
+                paneCandles,
+                intervalSeconds
+              )
+              const endLogical = unixTimeToLogical(
+                Math.min(playheadCandle.time, boxRightTime),
+                paneCandles,
+                intervalSeconds
+              )
+              if (startLogical != null && endLogical != null) {
+                const startIdx = Math.max(0, Math.floor(startLogical))
+                const endIdx = Math.min(Math.floor(endLogical), paneCandles.length - 1)
+                for (let i = startIdx; i <= endIdx; i++) {
+                  const c = paneCandles[i]
+                  if (!c) continue
+                  const hitStop =
+                    effectiveStop != null &&
+                    (drawing.type === 'long'
+                      ? c.low <= effectiveStop
+                      : c.high >= effectiveStop)
+                  const hitTarget =
+                    effectiveTarget != null &&
+                    (drawing.type === 'long'
+                      ? c.high >= effectiveTarget
+                      : c.low <= effectiveTarget)
+                  if (hitStop) {
+                    resolution = { candle: c, atTarget: false }
+                    break
+                  }
+                  if (hitTarget) {
+                    resolution = { candle: c, atTarget: true }
+                    break
+                  }
+                }
+              }
+              let endX: number | null = null
+              let endY: number | null = null
+              if (resolution) {
+                // Exited at a level: end on that line at the crossing candle.
+                endX = timeToX(resolution.candle.time)
+                endY = resolution.atTarget ? targetY : stopY
+                priceLineTowardTp = resolution.atTarget
+              } else {
+                // No level seen: end on the last candle inside the box.
+                const lastInBox = inBox
+                  ? playheadCandle
+                  : lastCandleAtOrBefore(boxRightTime)
+                if (lastInBox && Number.isFinite(lastInBox.close)) {
+                  endX = timeToX(lastInBox.time)
+                  endY = series.priceToCoordinate(lastInBox.close)
+                  priceLineTowardTp = isValidPositionLevel(
+                    drawing.type,
+                    'target',
+                    drawing.entry,
+                    lastInBox.close
+                  )
+                }
+              }
+              if (endX != null && endY != null) {
+                // Start x is the entry candle: the first candle inside the box
+                // whose price range the entry line has entered (low <= entry <=
+                // high). If no candle in the box has seen the entry point, the
+                // line is not shown at all.
+                let startX = timeToX(drawing.t)
+                let entrySeen = false
+                const startLogical = unixTimeToLogical(
+                  drawing.t,
+                  paneCandles,
+                  intervalSeconds
+                )
+                if (startLogical != null) {
+                  const startIdx = Math.max(0, Math.floor(startLogical))
+                  for (let i = startIdx; i < paneCandles.length; i++) {
+                    const c = paneCandles[i]
+                    if (c.time > boxRightTime) break
+                    if (c.low <= drawing.entry && drawing.entry <= c.high) {
+                      const cx = timeToX(c.time)
+                      if (cx != null) startX = cx
+                      entrySeen = true
+                      break
+                    }
+                  }
+                }
+                if (entrySeen && startX != null) {
+                  const clampedX = Math.min(Math.max(endX, startX), boxRight)
+                  if (clampedX > startX) {
+                    priceLine = { x1: startX, y1: anchor.y, x2: clampedX, y2: endY }
+                  }
+                }
+              }
+            }
+          }
+
           return (
             <PositionShape
               key={drawing.id}
@@ -1613,6 +1734,8 @@ export default function DrawingOverlay({
               canSelect={canSelect}
               canDraw={canDraw}
               showHandles={showHandles}
+              priceLine={priceLine}
+              priceLineTowardTp={priceLineTowardTp}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
               onDragBox={(e) =>
                 startDrag(e, { kind: 'pos', id: drawing.id, end: 'body', moved: false })
