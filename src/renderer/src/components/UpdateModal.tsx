@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Download, RefreshCw, X } from 'lucide-react'
 import type {
   UpdateAvailableInfo,
@@ -6,6 +6,7 @@ import type {
   UpdateErrorInfo,
   UpdateProgressInfo
 } from '@shared/updaterTypes'
+import { parseReleaseNotes } from '@/lib/releaseNotes'
 
 type Phase = 'hidden' | 'available' | 'downloading' | 'downloaded' | 'error'
 
@@ -19,6 +20,38 @@ function formatBytes(value: number): string {
     unit += 1
   }
   return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+const notesBoxClass =
+  'max-h-52 overflow-auto rounded border border-zinc-800 bg-zinc-900/60 p-2.5 text-[11px] leading-relaxed text-zinc-400'
+
+function ReleaseNotes({ notes }: { notes: string }) {
+  const parsed = useMemo(() => parseReleaseNotes(notes), [notes])
+
+  function onHtmlClick(event: MouseEvent<HTMLDivElement>): void {
+    const anchor = (event.target as HTMLElement | null)?.closest?.('a')
+    if (!anchor) return
+    event.preventDefault()
+    const href = anchor.getAttribute('href')
+    if (href) window.open(href, '_blank', 'noopener,noreferrer')
+  }
+
+  return (
+    <div>
+      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+        What&apos;s new
+      </p>
+      {parsed.kind === 'html' ? (
+        <div
+          className={`${notesBoxClass} release-notes-html`}
+          dangerouslySetInnerHTML={{ __html: parsed.html }}
+          onClick={onHtmlClick}
+        />
+      ) : (
+        <pre className={`${notesBoxClass} whitespace-pre-wrap`}>{parsed.text}</pre>
+      )}
+    </div>
+  )
 }
 
 export default function UpdateModal() {
@@ -109,7 +142,7 @@ export default function UpdateModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="update-modal-title"
-        className="flex w-full max-w-md flex-col overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
+        className="flex w-full max-w-lg flex-col overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
       >
         <div className="flex items-start justify-between gap-3 border-b border-zinc-800 px-4 py-3">
           <div>
@@ -149,11 +182,7 @@ export default function UpdateModal() {
                 A new release is ready to download. You can update now or keep using this version and
                 install later when you quit.
               </p>
-              {info?.releaseNotes ? (
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-zinc-800 bg-zinc-900/60 p-2 text-[11px] leading-relaxed text-zinc-400">
-                  {info.releaseNotes}
-                </pre>
-              ) : null}
+              {info?.releaseNotes ? <ReleaseNotes notes={info.releaseNotes} /> : null}
             </>
           )}
 

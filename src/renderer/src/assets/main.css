@@ -144,3 +144,133 @@ select option {
   background-color: rgb(var(--zinc-900));
   color: rgb(var(--zinc-100));
 }
+
+.release-notes-html {
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgb(var(--zinc-400));
+}
+
+.release-notes-html h1,
+.release-notes-html h2,
+.release-notes-html h3,
+.release-notes-html h4,
+.release-notes-html h5,
+.release-notes-html h6 {
+  margin: 0 0 0.4rem;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgb(var(--zinc-200));
+}
+
+.release-notes-html h1:not(:first-child),
+.release-notes-html h2:not(:first-child),
+.release-notes-html h3:not(:first-child),
+.release-notes-html h4:not(:first-child) {
+  margin-top: 0.75rem;
+}
+
+.release-notes-html p,
+.release-notes-html ul,
+.release-notes-html ol,
+.release-notes-html pre,
+.release-notes-html blockquote,
+.release-notes-html table {
+  margin: 0 0 0.5rem;
+}
+
+.release-notes-html p:last-child,
+.release-notes-html ul:last-child,
+.release-notes-html ol:last-child,
+.release-notes-html pre:last-child,
+.release-notes-html blockquote:last-child,
+.release-notes-html table:last-child {
+  margin-bottom: 0;
+}
+
+.release-notes-html ul,
+.release-notes-html ol {
+  padding-left: 1.15rem;
+}
+
+.release-notes-html ul {
+  list-style: disc;
+}
+
+.release-notes-html ol {
+  list-style: decimal;
+}
+
+.release-notes-html li {
+  margin: 0.15rem 0;
+}
+
+.release-notes-html a {
+  color: rgb(var(--amber-400));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.release-notes-html a:hover {
+  color: rgb(var(--amber-300));
+}
+
+.release-notes-html code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  padding: 0.05rem 0.25rem;
+  border-radius: 0.2rem;
+  background: rgb(var(--zinc-800));
+  color: rgb(var(--zinc-300));
+}
+
+.release-notes-html pre {
+  padding: 0.4rem 0.5rem;
+  overflow: auto;
+  border-radius: 0.25rem;
+  background: rgb(var(--zinc-800));
+}
+
+.release-notes-html pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.release-notes-html strong,
+.release-notes-html b {
+  font-weight: 600;
+  color: rgb(var(--zinc-300));
+}
+
+.release-notes-html blockquote {
+  padding-left: 0.6rem;
+  border-left: 2px solid rgb(var(--zinc-700));
+  color: rgb(var(--zinc-500));
+}
+
+.release-notes-html hr {
+  margin: 0.6rem 0;
+  border: 0;
+  border-top: 1px solid rgb(var(--zinc-800));
+}
+
+.release-notes-html table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.release-notes-html th,
+.release-notes-html td {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid rgb(var(--zinc-800));
+  text-align: left;
+}
+
+.release-notes-html details {
+  margin-bottom: 0.5rem;
+}
+
+.release-notes-html summary {
+  cursor: pointer;
+  color: rgb(var(--zinc-300));
+}
