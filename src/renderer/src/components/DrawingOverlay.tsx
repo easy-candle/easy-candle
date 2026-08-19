@@ -238,6 +238,7 @@ export default function DrawingOverlay({
 
   const [version, setVersion] = useState(0)
   const [hover, setHover] = useState<Point | null>(null)
+  const [hoveredDrawingId, setHoveredDrawingId] = useState<string | null>(null)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [levelPreview, setLevelPreview] = useState<LevelPreview | null>(null)
   const [placeHint, setPlaceHint] = useState<'tp' | 'sl' | null>(null)
@@ -1179,6 +1180,16 @@ export default function DrawingOverlay({
       )}
 
       {drawings.map((drawing) => {
+        const selected = drawing.id === selectedDrawingId
+        const hovered = drawing.id === hoveredDrawingId
+        const dragging = draggingKey?.includes(drawing.id) ?? false
+        const showHandles = selected || hovered || dragging
+        const hoverHandlers = {
+          onMouseEnter: (): void => setHoveredDrawingId(drawing.id),
+          onMouseLeave: (): void =>
+            setHoveredDrawingId((current) => (current === drawing.id ? null : current))
+        }
+
         if (drawing.type === 'hline') {
           const y = series?.priceToCoordinate(drawing.price)
           if (y == null) return null
@@ -1188,11 +1199,13 @@ export default function DrawingOverlay({
               y={y}
               width={plotRight}
               midX={midX}
-              selected={drawing.id === selectedDrawingId}
+              selected={selected}
               canSelect={canSelect}
               canDraw={canDraw}
+              showHandles={showHandles}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
               onDrag={(e) => startDrag(e, { kind: 'hline', id: drawing.id, moved: false })}
+              {...hoverHandlers}
             />
           )
         }
@@ -1206,9 +1219,10 @@ export default function DrawingOverlay({
               key={drawing.id}
               a={a}
               b={b}
-              selected={drawing.id === selectedDrawingId}
+              selected={selected}
               canSelect={canSelect}
               canDraw={canDraw}
+              showHandles={showHandles}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
               onDragEnd={(end, e) =>
                 startDrag(e, { kind: 'trend', id: drawing.id, end, moved: false })
@@ -1216,6 +1230,7 @@ export default function DrawingOverlay({
               onDragBody={(e) =>
                 startDrag(e, { kind: 'trend', id: drawing.id, end: 'body', moved: false })
               }
+              {...hoverHandlers}
             />
           )
         }
@@ -1232,10 +1247,11 @@ export default function DrawingOverlay({
               levels={fibLevelsAt(drawing.p1, drawing.p2, (price) =>
                 series.priceToCoordinate(price)
               )}
-              selected={drawing.id === selectedDrawingId}
+              selected={selected}
               labelColor={chrome.hintText}
               canSelect={canSelect}
               canDraw={canDraw}
+              showHandles={showHandles}
               pricePrecision={pricePrecision}
               plotRight={plotRight}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
@@ -1245,6 +1261,7 @@ export default function DrawingOverlay({
               onDragBody={(e) =>
                 startDrag(e, { kind: 'fib', id: drawing.id, end: 'body', moved: false })
               }
+              {...hoverHandlers}
             />
           )
         }
@@ -1258,9 +1275,10 @@ export default function DrawingOverlay({
               key={drawing.id}
               a={a}
               b={b}
-              selected={drawing.id === selectedDrawingId}
+              selected={selected}
               canSelect={canSelect}
               canDraw={canDraw}
+              showHandles={showHandles}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
               onDragHandle={(handle, e) =>
                 startDrag(e, { kind: 'rect', id: drawing.id, handle, moved: false })
@@ -1268,6 +1286,7 @@ export default function DrawingOverlay({
               onDragBody={(e) =>
                 startDrag(e, { kind: 'rect', id: drawing.id, handle: 'body', moved: false })
               }
+              {...hoverHandlers}
             />
           )
         }
