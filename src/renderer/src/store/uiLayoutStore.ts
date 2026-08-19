@@ -30,6 +30,7 @@ type UiLayoutState = {
   shortcutsDialogOpen: boolean
   aboutDialogOpen: boolean
   importDataDialogOpen: boolean
+  chartSettingsDialogOpen: boolean
   /** Primary chart instance, used by chart snapshot actions. */
   primaryChart: IChartApi | null
   toggleChartFullscreen: () => void
@@ -45,6 +46,7 @@ type UiLayoutState = {
   setShortcutsDialogOpen: (value: boolean) => void
   setAboutDialogOpen: (value: boolean) => void
   setImportDataDialogOpen: (value: boolean) => void
+  setChartSettingsDialogOpen: (value: boolean) => void
   setPrimaryChart: (chart: IChartApi | null) => void
 }
 
@@ -95,6 +97,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   shortcutsDialogOpen: false,
   aboutDialogOpen: false,
   importDataDialogOpen: false,
+  chartSettingsDialogOpen: false,
   primaryChart: null,
 
   toggleChartFullscreen: () => {
@@ -166,6 +169,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
 
   setImportDataDialogOpen: (value) => {
     set({ importDataDialogOpen: value })
+  },
+
+  setChartSettingsDialogOpen: (value) => {
+    set({ chartSettingsDialogOpen: value })
   },
 
   setPrimaryChart: (chart) => {
