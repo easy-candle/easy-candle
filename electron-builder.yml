@@ -22,14 +22,14 @@ win:
       arch:
         - x64
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: easy-candle-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 # Local Microsoft Store package only (yarn dist:win:appx).
 # Identity from Partner Center (Store ID 9N91GNR9SJ14).
 appx:
-  artifactName: ${name}-${version}-${arch}.${ext}
+  artifactName: easy-candle-${version}-${arch}.${ext}
   applicationId: EasyCandle
   identityName: sepocim.EasyCandle
   publisher: CN=29159D27-EC61-45F2-861A-38FB99ACA328
@@ -49,7 +49,7 @@ mac:
     - target: zip
       arch:
         - arm64
-  artifactName: ${name}-${version}-${arch}-mac.${ext}
+  artifactName: easy-candle-${version}-${arch}-mac.${ext}
 linux:
   target:
     - target: AppImage
@@ -58,7 +58,7 @@ linux:
   maintainer: Easy Candle
   category: Finance
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: easy-candle-${version}.${ext}
 npmRebuild: false
 publish:
   provider: github
