@@ -390,20 +390,41 @@ export default function ChartSettingsDialog(): ReactElement | null {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <Section icon={Palette} title="Colors">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
-              {colorField('upColor', 'Up candle')}
-              {colorField('downColor', 'Down candle')}
-              {colorField('borderUpColor', 'Up border')}
-              {colorField('borderDownColor', 'Down border')}
-              {colorField('wickUpColor', 'Up wick')}
-              {colorField('wickDownColor', 'Down wick')}
-              {colorField('lineColor', 'Line')}
-              {colorField('crosshairColor', 'Crosshair')}
-              {colorField('background', 'Background')}
-              {colorField('text', 'Text')}
-              {colorField('grid', 'Grid')}
-              {colorField('scaleBorder', 'Scale border')}
-              {colorField('watermark', 'Watermark')}
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">
+                  Up candle
+                </p>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-3">
+                  {colorField('upColor', 'Body')}
+                  {colorField('borderUpColor', 'Border')}
+                  {colorField('wickUpColor', 'Wick')}
+                </div>
+              </div>
+              <div>
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">
+                  Down candle
+                </p>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-3">
+                  {colorField('downColor', 'Body')}
+                  {colorField('borderDownColor', 'Border')}
+                  {colorField('wickDownColor', 'Wick')}
+                </div>
+              </div>
+              <div>
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">
+                  General
+                </p>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-3">
+                  {colorField('lineColor', 'Line')}
+                  {colorField('crosshairColor', 'Crosshair')}
+                  {colorField('background', 'Background')}
+                  {colorField('text', 'Text')}
+                  {colorField('grid', 'Grid')}
+                  {colorField('scaleBorder', 'Scale border')}
+                  {colorField('watermark', 'Watermark')}
+                </div>
+              </div>
             </div>
           </Section>
 
