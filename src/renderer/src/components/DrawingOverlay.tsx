@@ -886,6 +886,7 @@ export default function DrawingOverlay({
 
   return (
     <svg
+      data-snapshot-layer
       className={`absolute left-0 top-0 z-[2] h-full overflow-hidden ${
         placing ? 'cursor-crosshair' : 'pointer-events-none'
       }`}

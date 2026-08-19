@@ -71,7 +71,8 @@ export default function App() {
     chartSync,
     overlays,
     tradeMarkers,
-    onPriceScaleWidthChange: setPrimaryPriceScaleWidth
+    onPriceScaleWidthChange: setPrimaryPriceScaleWidth,
+    isPrimary: true
   }
 
   const secondaryProps = {
@@ -85,7 +86,8 @@ export default function App() {
     chartSync: secondaryChartSync,
     overlays: secondaryOverlays,
     tradeMarkers: secondaryMarkers,
-    onPriceScaleWidthChange: setSecondaryPriceScaleWidth
+    onPriceScaleWidthChange: setSecondaryPriceScaleWidth,
+    isPrimary: false
   }
 
   const showDriver = mode === 'replay' && chartSplit

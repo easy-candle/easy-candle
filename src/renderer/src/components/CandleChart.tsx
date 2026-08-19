@@ -18,7 +18,7 @@ import {
 } from 'lightweight-charts'
 import DrawingOverlay from '@/components/DrawingOverlay'
 import OhlcLegend from '@/components/OhlcLegend'
-import wordmarkUrl from '@/assets/easycandle-wordmark.svg'
+import { themedWordmarkUrl } from '@/lib/chartWordmark'
 import type { ChartOverlay } from '@/lib/indicators'
 import {
   buildHeikinAshiPoint,
@@ -30,6 +30,7 @@ import type { Candle } from '@shared/candleUtils'
 import { resolvePricePrecision, toChartPriceFormat } from '@shared/pricePrecision'
 import { CHART_PALETTES, type ChartPalette } from '@/lib/theme'
 import { useThemeStore } from '@/store/themeStore'
+import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
 
 const DEFAULT_VISIBLE_BARS = 50
@@ -121,6 +122,8 @@ type CandleChartProps = {
   overlays?: ChartOverlay[] | null
   tradeMarkers?: TradeMarker[] | null
   onPriceScaleWidthChange?: (width: number) => void
+  /** Whether this is the primary (left) chart; it gets registered for snapshots. */
+  isPrimary?: boolean
 }
 
 export default function CandleChart({
@@ -134,9 +137,11 @@ export default function CandleChart({
   chartSync = null,
   overlays = null,
   tradeMarkers = null,
-  onPriceScaleWidthChange
+  onPriceScaleWidthChange,
+  isPrimary = false
 }: CandleChartProps) {
   const theme = useThemeStore((s) => s.theme)
+  const setPrimaryChart = useUiLayoutStore((s) => s.setPrimaryChart)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
@@ -300,6 +305,9 @@ export default function CandleChart({
     chartRef.current = chart
     seriesRef.current = series
     setChartReady({ chart, series })
+    if (isPrimary) {
+      setPrimaryChart(chart)
+    }
 
     function getPriceScaleCell(): HTMLElement | null {
       const paneEl = chart.panes()[0]?.getHTMLElement()
@@ -351,6 +359,9 @@ export default function CandleChart({
       watermarkRef.current = null
       setChartReady(null)
       chart.remove()
+      if (isPrimary) {
+        setPrimaryChart(null)
+      }
       chartRef.current = null
       seriesRef.current = null
     }
@@ -481,7 +492,7 @@ export default function CandleChart({
     <div className="absolute inset-0 h-full w-full">
       <div ref={containerRef} className="absolute inset-0 h-full w-full" />
       <img
-        src={wordmarkUrl}
+        src={themedWordmarkUrl(theme)}
         alt=""
         className="pointer-events-none absolute left-1/2 top-[58%] z-[1] h-auto w-[min(48%,380px)] -translate-x-1/2 -translate-y-1/2 opacity-[0.08] select-none"
         aria-hidden
