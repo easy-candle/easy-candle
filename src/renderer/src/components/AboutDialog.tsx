@@ -3,6 +3,7 @@ import { ExternalLink, X } from 'lucide-react'
 import iconUrl from '@/assets/easycandle-icon.svg'
 import { contributors } from '@/data/contributors'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { APP_NAME } from '@shared/appName'
 
 const REPO_URL = 'https://github.com/easy-candle/easy-candle'
 
@@ -65,7 +66,7 @@ export default function AboutDialog() {
             />
             <div className="min-w-0">
               <h2 id="about-title" className="text-[15px] font-semibold tracking-tight text-zinc-100">
-                Easy Candle
+                {APP_NAME}
               </h2>
               {version ? (
                 <p className="mt-1">

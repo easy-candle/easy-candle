@@ -1,8 +1,8 @@
 import type { IChartApi } from 'lightweight-charts'
 import { CHART_PALETTES } from '@/lib/theme'
 import { useThemeStore } from '@/store/themeStore'
+import { APP_NAME } from '@shared/appName'
 
-const APP_NAME = 'Easy Candle'
 const HEADER_HEIGHT = 32
 
 /** Display form of the symbol, e.g. "BTCUSDT". */
