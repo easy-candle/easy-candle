@@ -18,7 +18,10 @@ import {
   isTwoPointTool,
   isValidPositionLevel,
   mirrorPositionLevel,
-  POSITION_RR_REWARD_MULT,
+  defaultPositionLevels,
+  resolvedPositionLevels,
+  positionLimitPlacementBlock,
+  positionLimitPlacementHint,
   type Drawing,
   type DrawingStyle,
   type Endpoint,
@@ -338,6 +341,12 @@ export default function DrawingOverlay({
       chart.priceScale('right').width(),
       chart.timeScale().width()
     )
+  }
+
+  function readVisiblePriceRange(): { from: number; to: number } | null {
+    const range = chart?.priceScale('right').getVisibleRange()
+    if (!range || !(range.to > range.from)) return null
+    return range
   }
 
   function mapTimeToPane(time: number): number {
@@ -860,7 +869,10 @@ export default function DrawingOverlay({
     if (isPositionTool(drawTool)) {
       const timeSec = xToUnixTime(chart, x, paneCandles, intervalSeconds)
       if (timeSec == null) return
-      addPosition({ time: timeSec, price })
+      addPosition(
+        { time: timeSec, price },
+        defaultPositionLevels(drawTool, price, readVisiblePriceRange()) ?? undefined
+      )
       return
     }
     addHorizontalLine(price)
@@ -1132,27 +1144,15 @@ export default function DrawingOverlay({
 
     let targetPrice: number | null = drawing.target
     let stopPrice: number | null = drawing.stop
-    let targetY: number | null =
-      targetPrice == null ? null : (series.priceToCoordinate(targetPrice) ?? null)
-    let stopY: number | null =
-      stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
-    if (targetY == null || stopY == null) {
-      const range = chart?.priceScale('right').getVisibleRange()
-      if (range && range.to > range.from) {
-        const risk = (range.to - range.from) * 0.05
-        if (targetY == null) {
-          const dTarget =
-            drawing.type === 'long'
-              ? drawing.entry + risk * POSITION_RR_REWARD_MULT
-              : drawing.entry - risk * POSITION_RR_REWARD_MULT
-          targetY = series.priceToCoordinate(dTarget) ?? null
-        }
-        if (stopY == null) {
-          const dStop = drawing.type === 'long' ? drawing.entry - risk : drawing.entry + risk
-          stopY = series.priceToCoordinate(dStop) ?? null
-        }
-      }
+    if (targetPrice == null || stopPrice == null) {
+      const defaults = defaultPositionLevels(drawing.type, drawing.entry, readVisiblePriceRange())
+      if (targetPrice == null) targetPrice = defaults?.target ?? null
+      if (stopPrice == null) stopPrice = defaults?.stop ?? null
     }
+    const targetY: number | null =
+      targetPrice == null ? null : (series.priceToCoordinate(targetPrice) ?? null)
+    const stopY: number | null =
+      stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
 
     const levelYs = [anchor.y, targetY, stopY].filter((y): y is number => y != null)
     let topY = Math.min(...levelYs)
@@ -1189,37 +1189,31 @@ export default function DrawingOverlay({
 
   /** "Place limit" action for a selected position drawing: auto-submits a Buy/Sell
    * Limit at the drawing's entry with its drawn TP/SL levels, then deselects so
-   * the button is not shown again.
+   * the button is not shown again. A fresh drawing's painted 1:3 guide is used
+   * when the handles have not been dragged yet.
    */
   const limitAction =
     selectedDrawing != null && isPositionDrawing(selectedDrawing) && canEditTrade
       ? (() => {
-          const tpOk =
-            selectedDrawing.target == null ||
-            isValidTakeProfit(
-              selectedDrawing.type,
-              selectedDrawing.entry,
-              selectedDrawing.target
-            )
-          const slOk =
-            selectedDrawing.stop == null ||
-            isValidPendingStopLoss(
-              selectedDrawing.type,
-              selectedDrawing.entry,
-              selectedDrawing.stop
-            )
-          const blocked = Boolean(position || pendingOrder)
+          const visibleRange = readVisiblePriceRange()
+          const levels = resolvedPositionLevels(selectedDrawing, visibleRange)
+          const block = positionLimitPlacementBlock(selectedDrawing, {
+            hasWorkingTrade: Boolean(position || pendingOrder),
+            hasMark: markCandle?.close != null,
+            visibleRange
+          })
           return {
             side: selectedDrawing.type,
-            disabled: blocked || markCandle?.close == null || !tpOk || !slOk,
+            disabled: block != null,
+            hint: positionLimitPlacementHint(block, selectedDrawing.type),
             onPlace: () => {
+              if (block != null) return
+              const target = levels.target
+              const stop = levels.stop
+              if (target == null || stop == null) return
               placeLimit(selectedDrawing.type, selectedDrawing.entry)
-              if (selectedDrawing.target != null) {
-                setTakeProfit(selectedDrawing.target, { linkRr: false })
-              }
-              if (selectedDrawing.stop != null) {
-                setStopLoss(selectedDrawing.stop, { linkRr: false })
-              }
+              setTakeProfit(target, { linkRr: false })
+              setStopLoss(stop, { linkRr: false })
               selectDrawing(null)
             }
           }
@@ -2048,33 +2042,19 @@ export default function DrawingOverlay({
 
             let targetPrice: number | null = drawing.target
             let stopPrice: number | null = drawing.stop
+            if (targetPrice == null || stopPrice == null) {
+              const defaults = defaultPositionLevels(
+                drawing.type,
+                drawing.entry,
+                readVisiblePriceRange()
+              )
+              if (targetPrice == null) targetPrice = defaults?.target ?? null
+              if (stopPrice == null) stopPrice = defaults?.stop ?? null
+            }
             let targetY: number | null =
               targetPrice == null ? null : (series.priceToCoordinate(targetPrice) ?? null)
             let stopY: number | null =
               stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
-
-            // Default 1:2 guide while a level is still missing so the box shape,
-            // zones and badge R:R are visible right after placement.
-            if (targetY == null || stopY == null) {
-              const range = chart?.priceScale('right').getVisibleRange()
-              if (range && range.to > range.from) {
-                const risk = (range.to - range.from) * 0.05
-                if (targetY == null) {
-                  const dTarget =
-                    drawing.type === 'long'
-                      ? drawing.entry + risk * POSITION_RR_REWARD_MULT
-                      : drawing.entry - risk * POSITION_RR_REWARD_MULT
-                  targetPrice = dTarget
-                  targetY = series.priceToCoordinate(dTarget) ?? null
-                }
-                if (stopY == null) {
-                  const dStop =
-                    drawing.type === 'long' ? drawing.entry - risk : drawing.entry + risk
-                  stopPrice = dStop
-                  stopY = series.priceToCoordinate(dStop) ?? null
-                }
-              }
-            }
 
             if (preview) {
               if (preview.level === 'target') {
@@ -2392,17 +2372,7 @@ export default function DrawingOverlay({
                 height: PLACE_LIMIT_CHIP_H
               }}
             >
-              <Tooltip
-                side="top"
-                className="h-full w-full"
-                text={
-                  limitAction.disabled
-                    ? 'Cannot place a limit — an open position or pending order exists, or the drawn TP/SL is not valid for the entry'
-                    : limitAction.side === 'long'
-                      ? 'Place a Buy Limit at the drawing entry with its drawn TP/SL'
-                      : 'Place a Sell Limit at the drawing entry with its drawn TP/SL'
-                }
-              >
+              <Tooltip side="top" className="h-full w-full" text={limitAction.hint}>
                 <button
                   type="button"
                   disabled={limitAction.disabled}
