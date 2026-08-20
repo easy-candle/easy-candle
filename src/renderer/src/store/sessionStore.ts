@@ -468,16 +468,17 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       const replay = useReplayStore.getState()
       const shouldResume = session.mode === 'replay' && session.replayTime != null
 
-      if (shouldResume) {
+      if (shouldResume && session.replayTime != null) {
+        const resumeReplayTime = session.replayTime
         if (replay.mode === 'replay') {
-          useReplayStore.getState().resetReplayState()
+          useReplayStore.getState().exitReplay()
         }
         if (session.dataSource === 'imported') {
           if (replay.importMeta?.id !== session.importId || replay.timeframe !== session.timeframe) {
             await useReplayStore.getState().selectImportedDataset(session.importId ?? '', session.timeframe)
           }
           const candles = useReplayStore.getState().importedCandles
-          const idx = findIndexAtOrBefore(candles, session.replayTime)
+          const idx = findIndexAtOrBefore(candles, resumeReplayTime)
           useReplayStore.getState().startImportedReplayAt(Math.max(0, idx))
         } else {
           if (replay.symbol !== session.symbol || replay.timeframe !== session.timeframe) {
@@ -488,7 +489,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
             })
             await useReplayStore.getState().loadCandles()
           }
-          await useReplayStore.getState().startReplayAt(session.replayTime)
+          await useReplayStore.getState().startReplayAt(resumeReplayTime)
         }
         useReplayStore.getState().setSpeed(session.speed)
       }
