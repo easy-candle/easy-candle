@@ -9,6 +9,7 @@ import {
   Play,
   SkipForward
 } from 'lucide-react'
+import Dropdown from '@/components/Dropdown'
 import IconButton from '@/components/IconButton'
 import Tooltip from '@/components/Tooltip'
 import { REPLAY_SPEEDS } from '@/lib/replayEngine'
@@ -167,33 +168,48 @@ export default function ReplayControls() {
         <CirclePause className="h-4 w-4" />
       </IconButton>
 
-      <form
-        onSubmit={onJump}
-        className="flex flex-wrap items-center gap-1 border-l border-zinc-800 pl-2"
+      <Dropdown
+        align="end"
+        trigger={({ open, toggle }) => (
+          <IconButton
+            tooltip="Jump to UTC time"
+            active={open}
+            tooltipSide="top"
+            disabled={busy}
+            onClick={(event) => {
+              toggle()
+              event.currentTarget.blur()
+            }}
+          >
+            <SkipForward className="h-4 w-4" />
+          </IconButton>
+        )}
       >
-        <SkipForward className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
-        <span className="sr-only">Jump UTC</span>
-        <input
-          type="date"
-          value={jumpDate}
-          disabled={busy}
-          aria-label="Jump date UTC"
-          onChange={(e) => setJumpDate(e.target.value)}
-          className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
-        />
-        <input
-          type="time"
-          value={jumpTime}
-          disabled={busy}
-          aria-label="Jump time UTC"
-          onChange={(e) => setJumpTime(e.target.value)}
-          className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
-        />
-        <IconButton tooltip="Jump to UTC time" type="submit" tooltipSide="top" disabled={busy}>
-          <SkipForward className="h-4 w-4" />
-        </IconButton>
-        {jumpError && <span className="text-xs text-red-400">{jumpError}</span>}
-      </form>
+        <form onSubmit={onJump} className="flex items-center gap-1 p-2">
+          <SkipForward className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
+          <span className="sr-only">Jump UTC</span>
+          <input
+            type="date"
+            value={jumpDate}
+            disabled={busy}
+            aria-label="Jump date UTC"
+            onChange={(e) => setJumpDate(e.target.value)}
+            className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
+          />
+          <input
+            type="time"
+            value={jumpTime}
+            disabled={busy}
+            aria-label="Jump time UTC"
+            onChange={(e) => setJumpTime(e.target.value)}
+            className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
+          />
+          <IconButton tooltip="Jump to UTC time" type="submit" tooltipSide="top" disabled={busy}>
+            <SkipForward className="h-4 w-4" />
+          </IconButton>
+          {jumpError && <span className="text-xs text-red-400">{jumpError}</span>}
+        </form>
+      </Dropdown>
 
       <IconButton tooltip="Exit replay" onClick={exitReplay} tooltipSide="top" className="ml-0.5">
         <LogOut className="h-4 w-4" />
