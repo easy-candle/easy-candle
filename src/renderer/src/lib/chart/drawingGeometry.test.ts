@@ -4,6 +4,7 @@ import {
   FIB_LEVELS,
   fibPriceAtLevel,
   formatFibLevel,
+  formatPriceChangePct,
   isPositionTool,
   isValidPositionLevel,
   mirrorPositionLevel,
@@ -81,6 +82,22 @@ describe('fibPriceAtLevel', () => {
       '0.618',
       '1.0'
     ])
+  })
+})
+
+describe('formatPriceChangePct', () => {
+  it('signs long TP as profit and SL as loss', () => {
+    expect(formatPriceChangePct(100, 110, 'long')).toBe('+10.00%')
+    expect(formatPriceChangePct(100, 90, 'long')).toBe('-10.00%')
+  })
+
+  it('signs short TP as profit even when price falls', () => {
+    expect(formatPriceChangePct(100, 90, 'short')).toBe('+10.00%')
+    expect(formatPriceChangePct(100, 110, 'short')).toBe('-10.00%')
+  })
+
+  it('returns 0.00% when the level sits on entry', () => {
+    expect(formatPriceChangePct(100, 100, 'long')).toBe('0.00%')
   })
 })
 

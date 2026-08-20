@@ -120,6 +120,17 @@ export function formatFibLevel(ratio: number): string {
   return String(ratio)
 }
 
+/** Signed percent from entry to a TP/SL, from the position's P&L side. */
+export function formatPriceChangePct(entry: number, price: number, side: 'long' | 'short'): string {
+  if (!Number.isFinite(entry) || !Number.isFinite(price) || entry === 0) return '0.00%'
+  const delta = ((price - entry) / Math.abs(entry)) * 100
+  const pct = side === 'short' ? -delta : delta
+  const rounded = Math.round(pct * 100) / 100
+  if (rounded === 0) return '0.00%'
+  const sign = rounded > 0 ? '+' : ''
+  return `${sign}${rounded.toFixed(2)}%`
+}
+
 export function cloneDrawing(drawing: Drawing, newId: string): Drawing {
   return { ...drawing, id: newId }
 }

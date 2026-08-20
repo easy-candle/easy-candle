@@ -43,7 +43,10 @@ import {
   HANDLE_FILL,
   HANDLE_STROKE,
   HLineShape,
+  POS_BADGE_INSET,
   PositionShape,
+  posBadgeWidth,
+  positionLevelLabel,
   RectShape,
   TrendLineShape,
   type Point
@@ -1545,12 +1548,14 @@ export default function DrawingOverlay({
           if (!anchor || !series) return null
           const preview = posPreview?.id === drawing.id ? posPreview : null
 
+          let targetPrice: number | null = drawing.target
+          let stopPrice: number | null = drawing.stop
           let targetY: number | null =
-            drawing.target == null
+            targetPrice == null
               ? null
-              : (series.priceToCoordinate(drawing.target) ?? null)
+              : (series.priceToCoordinate(targetPrice) ?? null)
           let stopY: number | null =
-            drawing.stop == null ? null : (series.priceToCoordinate(drawing.stop) ?? null)
+            stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
 
           // Default 1:2 guide while a level is still missing so the box shape,
           // zones and badge R:R are visible right after placement.
@@ -1563,6 +1568,7 @@ export default function DrawingOverlay({
                   drawing.type === 'long'
                     ? drawing.entry + risk * POSITION_RR_REWARD_MULT
                     : drawing.entry - risk * POSITION_RR_REWARD_MULT
+                targetPrice = dTarget
                 targetY = series.priceToCoordinate(dTarget) ?? null
               }
               if (stopY == null) {
@@ -1570,6 +1576,7 @@ export default function DrawingOverlay({
                   drawing.type === 'long'
                     ? drawing.entry - risk
                     : drawing.entry + risk
+                stopPrice = dStop
                 stopY = series.priceToCoordinate(dStop) ?? null
               }
             }
@@ -1578,24 +1585,40 @@ export default function DrawingOverlay({
           if (preview) {
             if (preview.level === 'target') {
               targetY = preview.y
+              targetPrice = preview.price
               if (preview.mirrorPrice != null && drawing.stop == null) {
                 stopY = preview.mirrorY
+                stopPrice = preview.mirrorPrice
               }
             } else {
               stopY = preview.y
+              stopPrice = preview.price
               if (preview.mirrorPrice != null && drawing.target == null) {
                 targetY = preview.mirrorY
+                targetPrice = preview.mirrorPrice
               }
             }
           }
 
-          // Box horizontal extent: drawing.span bars right of the entry anchor.
+          // Box horizontal extent: drawing.span bars right of the entry anchor,
+          // but never narrower than the TP/SL badges so they can sit centered.
           const boxRightTime = drawing.t + intervalSeconds * drawing.span
           const boxLeft = anchor.x
-          const boxRight = Math.min(
-            timeToX(boxRightTime) ?? anchor.x + POSITION_BOX_MIN_W,
-            plotRight
+          const tpLabel =
+            targetPrice == null
+              ? null
+              : positionLevelLabel(targetPrice, drawing.entry, drawing.type, pricePrecision)
+          const slLabel =
+            stopPrice == null
+              ? null
+              : positionLevelLabel(stopPrice, drawing.entry, drawing.type, pricePrecision)
+          const labelFitW = Math.max(
+            tpLabel != null ? posBadgeWidth(tpLabel) : 0,
+            slLabel != null ? posBadgeWidth(slLabel) : 0
           )
+          const minBoxW = Math.max(POSITION_BOX_MIN_W, labelFitW + POS_BADGE_INSET)
+          const spanRight = timeToX(boxRightTime) ?? boxLeft + minBoxW
+          const boxRight = Math.min(Math.max(spanRight, boxLeft + minBoxW), plotRight)
 
           // Box vertical extent spans the present levels; keep a visible floor.
           const levelYs = [anchor.y, targetY, stopY].filter(
@@ -1724,12 +1747,16 @@ export default function DrawingOverlay({
               entryY={anchor.y}
               targetY={targetY}
               stopY={stopY}
+              entryPrice={drawing.entry}
+              targetPrice={targetPrice}
+              stopPrice={stopPrice}
               topY={topY}
               bottomY={bottomY}
               selected={selected}
               canSelect={canSelect}
               canDraw={canDraw}
               showHandles={showHandles}
+              pricePrecision={pricePrecision}
               priceLine={priceLine}
               priceLineTowardTp={priceLineTowardTp}
               onSelect={(e) => selectDrawingOnClick(e, drawing.id)}

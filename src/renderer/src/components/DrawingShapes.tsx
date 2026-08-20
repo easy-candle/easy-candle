@@ -3,6 +3,7 @@ import {
   FIB_LEVELS,
   fibPriceAtLevel,
   formatFibLevel,
+  formatPriceChangePct,
   type RectHandle
 } from '@/lib/chart/drawingGeometry'
 import { fibLabelPlacement, fibLevelExtent } from '@/lib/chart/drawingPlotBounds'
@@ -34,6 +35,63 @@ export type Point = { x: number; y: number }
 type HandleEvents = {
   onMouseDown?: (event: ReactMouseEvent) => void
   onClick?: (event: ReactMouseEvent) => void
+}
+
+const POS_BADGE_MIN_W = 52
+const POS_BADGE_H = 20
+/** Side padding so a centered TP/SL badge isn't flush with the box edge. */
+export const POS_BADGE_INSET = 16
+
+export function posBadgeWidth(text: string): number {
+  return Math.max(POS_BADGE_MIN_W, 14 + text.length * 6.4)
+}
+
+export function positionLevelLabel(
+  price: number,
+  entry: number,
+  side: 'long' | 'short',
+  precision: number
+): string {
+  return `${formatAssetPrice(price, precision)} (${formatPriceChangePct(entry, price, side)})`
+}
+
+function badgeLeft(boxX: number, boxW: number, badgeW: number): number {
+  return Math.max(boxX, Math.min(boxX + (boxW - badgeW) / 2, boxX + boxW - badgeW))
+}
+
+function PositionBadge({
+  x,
+  y,
+  text,
+  fill,
+  cursor,
+  onMouseDown,
+  onClick
+}: {
+  x: number
+  y: number
+  text: string
+  fill: string
+  cursor: string
+} & HandleEvents): React.JSX.Element {
+  const w = posBadgeWidth(text)
+  return (
+    <g className={`pointer-events-auto ${cursor}`} onMouseDown={onMouseDown} onClick={onClick}>
+      <rect x={x} y={y} width={w} height={POS_BADGE_H} rx={3} ry={3} fill={fill} />
+      <text
+        x={x + w / 2}
+        y={y + POS_BADGE_H / 2 + 3.5}
+        textAnchor="middle"
+        fill="#FFFFFF"
+        fontSize={10}
+        fontWeight={700}
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        className="pointer-events-none select-none"
+      >
+        {text}
+      </text>
+    </g>
+  )
 }
 
 function ink(selected: boolean): string {
@@ -460,8 +518,6 @@ export function RectShape({
   )
 }
 
-const POS_BADGE_MIN_W = 52
-
 type PositionShapeProps = {
   side: 'long' | 'short'
   /** Left edge (entry time anchor) and right edge of the box, in px. */
@@ -470,6 +526,9 @@ type PositionShapeProps = {
   entryY: number
   targetY: number | null
   stopY: number | null
+  entryPrice: number
+  targetPrice: number | null
+  stopPrice: number | null
   /** Box vertical extent (top/bottom y). */
   topY: number
   bottomY: number
@@ -477,6 +536,7 @@ type PositionShapeProps = {
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  pricePrecision?: number
   /** Live price line from the entry point to the current candle (clamped to the box). */
   priceLine?: { x1: number; y1: number; x2: number; y2: number } | null
   priceLineTowardTp?: boolean
@@ -497,12 +557,16 @@ export function PositionShape({
   entryY,
   targetY,
   stopY,
+  entryPrice,
+  targetPrice,
+  stopPrice,
   topY,
   bottomY,
   selected,
   canSelect,
   canDraw,
   showHandles = true,
+  pricePrecision = DEFAULT_PRICE_PRECISION,
   priceLine = null,
   priceLineTowardTp = true,
   onMouseEnter,
@@ -543,13 +607,14 @@ export function PositionShape({
       : null
   const badgeText =
     liveRr != null ? `1:${formatRr(liveRr)} / ${ratioText}` : ratioText
-  const badgeW = Math.max(POS_BADGE_MIN_W, 14 + badgeText.length * 6.4)
-  const badgeH = 20
-  // Horizontally centered on the box; Long above the entry line, Short below it.
-  const badgeX = Math.max(x, Math.min(x + (boxW - badgeW) / 2, x2 - badgeW))
-  const badgeY = side === 'long' ? Math.max(2, entryY - badgeH - 6) : entryY + 6
-  // TP/SL handles sit on the horizontal center axis of the box.
-  const levelHandleX = x + boxW / 2
+  const badgeW = posBadgeWidth(badgeText)
+  const badgeX = badgeLeft(x, boxW, badgeW)
+  const badgeY = side === 'long' ? Math.max(2, entryY - POS_BADGE_H - 6) : entryY + 6
+  const tpText =
+    targetPrice == null ? null : positionLevelLabel(targetPrice, entryPrice, side, pricePrecision)
+  const slText =
+    stopPrice == null ? null : positionLevelLabel(stopPrice, entryPrice, side, pricePrecision)
+  const levelCursor = canDraw ? 'cursor-ns-resize' : 'cursor-default'
 
   const levelDragLine = (
     y: number,
@@ -619,14 +684,7 @@ export function PositionShape({
       )}
 
       {/* Entry line — draggable to move just the entry price. */}
-      <line
-        x1={x}
-        x2={x2}
-        y1={entryY}
-        y2={entryY}
-        stroke={color}
-        strokeWidth={1.5}
-      />
+      <line x1={x} x2={x2} y1={entryY} y2={entryY} stroke={color} strokeWidth={1.5} />
 
       {/* Level/entry drag surfaces (grabbing the line moves that level). */}
       {canDraw && (
@@ -653,58 +711,59 @@ export function PositionShape({
       )}
 
       {/* Badge with side + size — draggable to move the whole position. */}
-      <g
-        className={`pointer-events-auto ${canDraw ? 'cursor-move' : 'cursor-default'}`}
+      <PositionBadge
+        x={badgeX}
+        y={badgeY}
+        text={badgeText}
+        fill={selected ? SELECT_STROKE : color}
+        cursor={canDraw ? 'cursor-move' : 'cursor-default'}
         onMouseDown={onDragBox}
         onClick={canSelect ? onSelect : undefined}
-      >
-        <rect
-          x={badgeX}
-          y={badgeY}
-          width={badgeW}
-          height={badgeH}
-          rx={3}
-          ry={3}
-          fill={selected ? SELECT_STROKE : color}
-        />
-        <text
-          x={badgeX + badgeW / 2}
-          y={badgeY + badgeH / 2 + 3.5}
-          textAnchor="middle"
-          fill="#FFFFFF"
-          fontSize={10}
-          fontWeight={700}
-          fontFamily="ui-sans-serif, system-ui, sans-serif"
-          className="pointer-events-none select-none"
-        >
-          {badgeText}
-        </text>
-      </g>
+      />
 
-      {/* Level handles for dragging. */}
+      {targetY != null && tpText != null && (
+        <PositionBadge
+          x={badgeLeft(x, boxW, posBadgeWidth(tpText))}
+          y={targetY - POS_BADGE_H / 2}
+          text={tpText}
+          fill={TP_ZONE_COLOR}
+          cursor={levelCursor}
+          onMouseDown={onDragTarget}
+          onClick={canSelect ? onSelect : undefined}
+        />
+      )}
+      {stopY != null && slText != null && (
+        <PositionBadge
+          x={badgeLeft(x, boxW, posBadgeWidth(slText))}
+          y={stopY - POS_BADGE_H / 2}
+          text={slText}
+          fill={SL_ZONE_COLOR}
+          cursor={levelCursor}
+          onMouseDown={onDragStop}
+          onClick={canSelect ? onSelect : undefined}
+        />
+      )}
+
+      {/* Level handles for dragging — right edge so they stay off the centered badges. */}
       {canDraw && showHandles && targetY != null && (
-        <g>
-          <HandleSquare
-            x={levelHandleX}
-            y={targetY}
-            selected={selected}
-            cursor="cursor-ns-resize"
-            onMouseDown={onDragTarget}
-            onClick={canSelect ? onSelect : undefined}
-          />
-        </g>
+        <HandleSquare
+          x={x2}
+          y={targetY}
+          selected={selected}
+          cursor="cursor-ns-resize"
+          onMouseDown={onDragTarget}
+          onClick={canSelect ? onSelect : undefined}
+        />
       )}
       {canDraw && showHandles && stopY != null && (
-        <g>
-          <HandleSquare
-            x={levelHandleX}
-            y={stopY}
-            selected={selected}
-            cursor="cursor-ns-resize"
-            onMouseDown={onDragStop}
-            onClick={canSelect ? onSelect : undefined}
-          />
-        </g>
+        <HandleSquare
+          x={x2}
+          y={stopY}
+          selected={selected}
+          cursor="cursor-ns-resize"
+          onMouseDown={onDragStop}
+          onClick={canSelect ? onSelect : undefined}
+        />
       )}
 
       {/* Entry handle at the box's right edge — horizontal drag resizes the span,
