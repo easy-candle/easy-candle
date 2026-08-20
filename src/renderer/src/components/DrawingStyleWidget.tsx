@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Palette, Settings2, Trash2 } from 'lucide-react'
 import FloatingPanel from '@/components/FloatingPanel'
-import { FillSwatch, OpacitySlider } from '@/components/OpacityColorField'
+import { ColorPickerPopup } from '@/components/OpacityColorField'
 import type { DrawingLineStyle, DrawingStyle, DrawingToolType } from '@/lib/chart/drawingGeometry'
 import { DEFAULT_FILL_OPACITY, withAlpha } from '@/lib/cssColor'
 import {
@@ -197,7 +197,7 @@ export default function DrawingStyleWidget({
       <div className="flex flex-col gap-1.5">
         <div className="flex items-end gap-1.5">
           {fields.color && (
-            <ColorField
+            <ColorPickerPopup
               label="Color"
               value={style.color}
               onChange={(color) => onStyleChange({ color })}
@@ -205,7 +205,7 @@ export default function DrawingStyleWidget({
           )}
 
           {tool === 'rect' && fields.fillColor && (
-            <FillSwatch
+            <ColorPickerPopup
               label="Background"
               value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
               onChange={(fillColor) => onStyleChange({ fillColor })}
@@ -270,12 +270,6 @@ export default function DrawingStyleWidget({
             </span>
           )}
         </div>
-        {tool === 'rect' && fields.fillColor && (
-          <OpacitySlider
-            value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
-            onChange={(fillColor) => onStyleChange({ fillColor })}
-          />
-        )}
       </div>
     </FloatingPanel>
   )

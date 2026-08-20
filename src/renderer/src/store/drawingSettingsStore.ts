@@ -158,7 +158,7 @@ function sanitizeStyle(raw: unknown, fallback: DrawingStyle): DrawingStyle {
   if (!raw || typeof raw !== 'object') return { ...fallback }
   const source = raw as Partial<DrawingStyle>
   return {
-    color: isHexColor(source.color) ? source.color : fallback.color,
+    color: sanitizeCssColor(source.color, fallback.color),
     lineWidth: isLineWidth(source.lineWidth) ? source.lineWidth : fallback.lineWidth,
     lineStyle: isLineStyle(source.lineStyle) ? source.lineStyle : fallback.lineStyle,
     fillColor: sanitizeCssColor(source.fillColor, fallback.fillColor ?? DEFAULT_DRAWING_STYLE.fillColor!),
@@ -342,7 +342,7 @@ function persistLive(get: () => DrawingSettingsState): void {
 
 function clampStyle(style: DrawingStyle): DrawingStyle {
   return {
-    color: isHexColor(style.color) ? style.color : DEFAULT_DRAWING_STYLE.color,
+    color: sanitizeCssColor(style.color, DEFAULT_DRAWING_STYLE.color),
     lineWidth: isLineWidth(style.lineWidth) ? style.lineWidth : DEFAULT_DRAWING_STYLE.lineWidth,
     lineStyle: isLineStyle(style.lineStyle)
       ? style.lineStyle
