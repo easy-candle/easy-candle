@@ -19,6 +19,8 @@ type FloatingPanelProps = {
   onMinimizedChange?: (minimized: boolean) => void
   /** When set, show a close control that calls this (e.g. exit fullscreen-only panels). */
   onClose?: () => void
+  /** Extra actions rendered in the header (e.g. custom icon buttons). */
+  headerActions?: ReactNode
   /** Prefer bottom-center when pos is null; otherwise top-left / top-right. */
   defaultPlacement?: 'bottom-center' | 'top-left' | 'top-right'
   className?: string
@@ -33,6 +35,7 @@ export default function FloatingPanel({
   onPosChange,
   onMinimizedChange,
   onClose,
+  headerActions,
   defaultPlacement = 'bottom-center',
   className = '',
   children
@@ -233,6 +236,9 @@ export default function FloatingPanel({
           </span>
         )}
         {!title && <span className="min-w-0 flex-1" />}
+        {headerActions && (
+          <div className="flex shrink-0 items-center gap-0.5">{headerActions}</div>
+        )}
         {onMinimizedChange && (
           <button
             type="button"

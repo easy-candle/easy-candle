@@ -9,6 +9,7 @@ type PersistedLayout = {
   replayControlsMinimized?: boolean
   replayControlsPos?: PanelPos
   tradePanelPos?: PanelPos
+  drawingWidgetPos?: PanelPos
   showMainToolbar?: boolean
   showStatusBar?: boolean
   showDrawingToolbar?: boolean
@@ -22,6 +23,8 @@ type UiLayoutState = {
   /** null means use default placement (bottom-center) on first layout */
   replayControlsPos: PanelPos | null
   tradePanelPos: PanelPos | null
+  /** Last dragged position of the drawing-style floating widget; null re-anchors to the drawing. */
+  drawingWidgetPos: PanelPos | null
   showMainToolbar: boolean
   showStatusBar: boolean
   showDrawingToolbar: boolean
@@ -38,6 +41,7 @@ type UiLayoutState = {
   setReplayControlsMinimized: (value: boolean) => void
   setReplayControlsPos: (pos: PanelPos) => void
   setTradePanelPos: (pos: PanelPos) => void
+  setDrawingWidgetPos: (pos: PanelPos) => void
   toggleMainToolbar: () => void
   toggleStatusBar: () => void
   toggleDrawingToolbar: () => void
@@ -89,6 +93,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   replayControlsMinimized: Boolean(initial.replayControlsMinimized),
   replayControlsPos: isValidPos(initial.replayControlsPos) ? initial.replayControlsPos : null,
   tradePanelPos: isValidPos(initial.tradePanelPos) ? initial.tradePanelPos : null,
+  drawingWidgetPos: isValidPos(initial.drawingWidgetPos) ? initial.drawingWidgetPos : null,
   showMainToolbar: initial.showMainToolbar !== false,
   showStatusBar: initial.showStatusBar !== false,
   showDrawingToolbar: initial.showDrawingToolbar !== false,
@@ -127,6 +132,13 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
     if (current && current.x === pos.x && current.y === pos.y) return
     set({ tradePanelPos: pos })
     persist({ tradePanelPos: pos })
+  },
+
+  setDrawingWidgetPos: (pos) => {
+    const current = get().drawingWidgetPos
+    if (current && current.x === pos.x && current.y === pos.y) return
+    set({ drawingWidgetPos: pos })
+    persist({ drawingWidgetPos: pos })
   },
 
   toggleMainToolbar: () => {
