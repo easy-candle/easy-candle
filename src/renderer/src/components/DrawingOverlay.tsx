@@ -15,9 +15,15 @@ import {
 } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import {
+  isPositionDrawing,
+  isPositionTool,
   isTwoPointTool,
+  isValidPositionLevel,
+  mirrorPositionLevel,
+  POSITION_RR_REWARD_MULT,
   type Drawing,
   type Endpoint,
+  type PositionLevel,
   type RectHandle,
   type TrendPoint,
   type TwoPointTool
@@ -37,6 +43,10 @@ import {
   HANDLE_FILL,
   HANDLE_STROKE,
   HLineShape,
+  POS_BADGE_INSET,
+  PositionShape,
+  posBadgeWidth,
+  positionLevelLabel,
   RectShape,
   TrendLineShape,
   type Point
@@ -88,6 +98,24 @@ type DragState =
       moved: boolean
       origin?: BodyOrigin
     }
+  | {
+      kind: 'pos'
+      id: string
+      end: 'body'
+      moved: boolean
+      origin?: BodyOrigin
+    }
+  | { kind: 'pos-level'; id: string; level: PositionLevel; moved: boolean }
+  | {
+      kind: 'pos-entry'
+      id: string
+      moved: boolean
+      /** Decided on first movement: horizontal → span, vertical → entry price. */
+      axis: 'pending' | 'entry' | 'span'
+      startX: number
+      startY: number
+    }
+  | { kind: 'pos-place'; id: string; level: PositionLevel; moved: boolean }
   | { kind: 'place-two'; tool: TwoPointTool; startX: number; startY: number; moved: boolean }
   | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
 
@@ -102,6 +130,21 @@ type LevelPreview = {
   linkedPrice: number | null
   linkedY: number | null
 }
+
+/** Live preview while placing a position level with its 1:1 mirrored opposite. */
+type PosPreview = {
+  id: string
+  level: PositionLevel
+  price: number
+  y: number
+  mirrorPrice: number | null
+  mirrorY: number | null
+}
+
+/** Position box spans this many bars right of the entry anchor. */
+const POSITION_BOX_MIN_W = 140
+/** Minimum visible box height (px) when no TP/SL is armed yet. */
+const POSITION_BOX_MIN_H = 26
 
 type DrawingOverlayProps = {
   chart: IChartApi | null
@@ -231,6 +274,10 @@ export default function DrawingOverlay({
   const addTwoPoint = useReplayStore((s) => s.addTwoPoint)
   const updateTwoPointEndpoint = useReplayStore((s) => s.updateTwoPointEndpoint)
   const updateRectHandle = useReplayStore((s) => s.updateRectHandle)
+  const addPosition = useReplayStore((s) => s.addPosition)
+  const updatePositionLevel = useReplayStore((s) => s.updatePositionLevel)
+  const updatePositionEntry = useReplayStore((s) => s.updatePositionEntry)
+  const updatePositionSpan = useReplayStore((s) => s.updatePositionSpan)
   const cloneDrawing = useReplayStore((s) => s.cloneDrawing)
   const moveDrawing = useReplayStore((s) => s.moveDrawing)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
@@ -281,17 +328,31 @@ export default function DrawingOverlay({
     return logicalToX(chart, logical)
   }
 
+  /** Last candle whose time is at or before `time` (or null if none). */
+  function lastCandleAtOrBefore(time: number): Candle | null {
+    if (paneCandles.length === 0) return null
+    const logical = unixTimeToLogical(time, paneCandles, intervalSeconds)
+    if (logical == null) return null
+    const idx = Math.min(Math.max(0, Math.floor(logical)), paneCandles.length - 1)
+    const candle = paneCandles[idx]
+    if (!candle || candle.time > time) return null
+    return candle
+  }
+
   const [version, setVersion] = useState(0)
   const [hover, setHover] = useState<Point | null>(null)
   const [hoveredDrawingId, setHoveredDrawingId] = useState<string | null>(null)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [levelPreview, setLevelPreview] = useState<LevelPreview | null>(null)
+  const [posPreview, setPosPreview] = useState<PosPreview | null>(null)
   const [placeHint, setPlaceHint] = useState<'tp' | 'sl' | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const suppressClickRef = useRef(false)
   const levelPreviewRef = useRef(levelPreview)
+  const posPreviewRef = useRef(posPreview)
   const paneCandlesRef = useRef(paneCandles)
   levelPreviewRef.current = levelPreview
+  posPreviewRef.current = posPreview
   paneCandlesRef.current = paneCandles
 
   const bump = useCallback(() => setVersion((v) => v + 1), [])
@@ -339,7 +400,8 @@ export default function DrawingOverlay({
     return () => chart.unsubscribeClick(handler)
   }, [chart, canSelect, selectDrawing])
 
-  const placing = canDraw && (drawTool === 'hline' || isTwoPointTool(drawTool))
+  const placing =
+    canDraw && (drawTool === 'hline' || isTwoPointTool(drawTool) || isPositionTool(drawTool))
 
   // Overlay captures pointer events while placing, so the chart never sees
   // mousemove — keep the native haircross (and price label) in sync ourselves.
@@ -392,6 +454,67 @@ export default function DrawingOverlay({
       if (drag.kind === 'hline') {
         drag.moved = true
         updateHorizontalLine(drag.id, price)
+        return
+      }
+
+      if (drag.kind === 'pos') {
+        const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+        if (timeSec == null) return
+        const origin = drag.origin
+        if (!origin) return
+        drag.moved = true
+        moveDrawing(drag.id, origin.drawing, timeSec - origin.time, price - origin.price)
+        return
+      }
+
+      if (drag.kind === 'pos-level') {
+        drag.moved = true
+        updatePositionLevel(drag.id, drag.level, price)
+        return
+      }
+
+      if (drag.kind === 'pos-entry') {
+        // First few pixels decide the drag axis from the entry circle:
+        // horizontal → resize span, vertical → move the entry price.
+        if (drag.axis === 'pending') {
+          const dx = event.clientX - drag.startX
+          const dy = event.clientY - drag.startY
+          if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return
+          drag.axis = Math.abs(dx) > Math.abs(dy) ? 'span' : 'entry'
+          drag.moved = true
+        }
+        if (drag.axis === 'span') {
+          const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+          if (timeSec == null) return
+          const state = useReplayStore.getState()
+          const drawing = state.drawings.find((d) => d.id === drag.id)
+          if (!drawing || !isPositionDrawing(drawing)) return
+          updatePositionSpan(drag.id, (timeSec - drawing.t) / intervalSeconds)
+          return
+        }
+        updatePositionEntry(drag.id, price)
+        return
+      }
+
+      if (drag.kind === 'pos-place') {
+        drag.moved = true
+        const state = useReplayStore.getState()
+        const drawing = state.drawings.find((d) => d.id === drag.id)
+        if (!drawing || !isPositionDrawing(drawing)) return
+        if (!isValidPositionLevel(drawing.type, drag.level, drawing.entry, price)) return
+        const opposite: PositionLevel = drag.level === 'target' ? 'stop' : 'target'
+        const mirror =
+          drawing[opposite] == null
+            ? mirrorPositionLevel(drawing.type, drawing.entry, drag.level, price)
+            : null
+        setPosPreview({
+          id: drag.id,
+          level: drag.level,
+          price,
+          y,
+          mirrorPrice: mirror,
+          mirrorY: mirror == null ? null : (series.priceToCoordinate(mirror) ?? null)
+        })
         return
       }
 
@@ -497,9 +620,25 @@ export default function DrawingOverlay({
         }
       }
 
+      if (drag?.kind === 'pos-place') {
+        suppressClickRef.current = true
+        const preview = posPreviewRef.current
+        if (preview && preview.id === drag.id) {
+          updatePositionLevel(drag.id, drag.level, preview.price)
+          if (preview.mirrorPrice != null) {
+            updatePositionLevel(
+              drag.id,
+              drag.level === 'target' ? 'stop' : 'target',
+              preview.mirrorPrice
+            )
+          }
+        }
+      }
+
       dragRef.current = null
       setDraggingKey(null)
       setLevelPreview(null)
+      setPosPreview(null)
     }
 
     window.addEventListener('mousemove', onMove)
@@ -515,6 +654,9 @@ export default function DrawingOverlay({
     updateHorizontalLine,
     updateTwoPointEndpoint,
     updateRectHandle,
+    updatePositionLevel,
+    updatePositionEntry,
+    updatePositionSpan,
     moveDrawing,
     addTwoPoint,
     setDrawTool,
@@ -528,7 +670,8 @@ export default function DrawingOverlay({
       suppressClickRef.current = false
       return
     }
-    if (!placing || drawTool !== 'hline' || !series) return
+    if (!placing || !series || !chart) return
+    if (drawTool !== 'hline' && !isPositionTool(drawTool)) return
 
     const rect = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - rect.left
@@ -536,6 +679,12 @@ export default function DrawingOverlay({
     const y = event.clientY - rect.top
     const price = series.coordinateToPrice(y)
     if (price == null || !Number.isFinite(price)) return
+    if (isPositionTool(drawTool)) {
+      const timeSec = xToUnixTime(chart, x, paneCandles, intervalSeconds)
+      if (timeSec == null) return
+      addPosition({ time: timeSec, price })
+      return
+    }
     addHorizontalLine(price)
   }
 
@@ -585,7 +734,14 @@ export default function DrawingOverlay({
 
   function startDrag(event: ReactMouseEvent, next: DragState): void {
     const isDrawingDrag =
-      next.kind === 'hline' || next.kind === 'trend' || next.kind === 'fib' || next.kind === 'rect'
+      next.kind === 'hline' ||
+      next.kind === 'trend' ||
+      next.kind === 'fib' ||
+      next.kind === 'rect' ||
+      next.kind === 'pos' ||
+      next.kind === 'pos-level' ||
+      next.kind === 'pos-entry' ||
+      next.kind === 'pos-place'
     const allowed = isDrawingDrag ? canDraw : canEditTrade
     if (!allowed) return
     event.preventDefault()
@@ -596,7 +752,8 @@ export default function DrawingOverlay({
       const isBody =
         next.kind === 'hline' ||
         (next.kind === 'rect' && next.handle === 'body') ||
-        ((next.kind === 'trend' || next.kind === 'fib') && next.end === 'body')
+        ((next.kind === 'trend' || next.kind === 'fib' || next.kind === 'pos') &&
+          next.end === 'body')
 
       let id = next.id
       if (isBody && wantsClone(event)) {
@@ -624,6 +781,29 @@ export default function DrawingOverlay({
       setDraggingKey(`${drag.kind}:${drag.id}:${drag.end}`)
     } else if (drag.kind === 'rect') {
       setDraggingKey(`rect:${drag.id}:${drag.handle}`)
+    } else if (drag.kind === 'pos') {
+      setDraggingKey(`pos:${drag.id}:${drag.end}`)
+    } else if (drag.kind === 'pos-level') {
+      setDraggingKey(`pos-level:${drag.id}:${drag.level}`)
+    } else if (drag.kind === 'pos-entry') {
+      setDraggingKey(`pos-entry:${drag.id}`)
+    } else if (drag.kind === 'pos-place') {
+      setDraggingKey(`pos-place:${drag.id}:${drag.level}`)
+      // Seed preview immediately at the entry handle Y so the guide appears on drag start.
+      const drawing = useReplayStore.getState().drawings.find((d) => d.id === drag.id)
+      if (drawing && isPositionDrawing(drawing) && series) {
+        const entryY = series.priceToCoordinate(drawing.entry)
+        if (entryY != null) {
+          setPosPreview({
+            id: drag.id,
+            level: drag.level,
+            price: drawing.entry,
+            y: entryY,
+            mirrorPrice: null,
+            mirrorY: null
+          })
+        }
+      }
     } else if (drag.kind === 'place-two') {
       setDraggingKey('place-two')
     } else {
@@ -1357,6 +1537,257 @@ export default function DrawingOverlay({
               }
               onDragBody={(e) =>
                 startDrag(e, { kind: 'rect', id: drawing.id, handle: 'body', moved: false })
+              }
+              {...hoverHandlers}
+            />
+          )
+        }
+
+        if (isPositionDrawing(drawing)) {
+          const anchor = toXY(drawing.t, drawing.entry)
+          if (!anchor || !series) return null
+          const preview = posPreview?.id === drawing.id ? posPreview : null
+
+          let targetPrice: number | null = drawing.target
+          let stopPrice: number | null = drawing.stop
+          let targetY: number | null =
+            targetPrice == null
+              ? null
+              : (series.priceToCoordinate(targetPrice) ?? null)
+          let stopY: number | null =
+            stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
+
+          // Default 1:2 guide while a level is still missing so the box shape,
+          // zones and badge R:R are visible right after placement.
+          if (targetY == null || stopY == null) {
+            const range = chart?.priceScale('right').getVisibleRange()
+            if (range && range.to > range.from) {
+              const risk = (range.to - range.from) * 0.05
+              if (targetY == null) {
+                const dTarget =
+                  drawing.type === 'long'
+                    ? drawing.entry + risk * POSITION_RR_REWARD_MULT
+                    : drawing.entry - risk * POSITION_RR_REWARD_MULT
+                targetPrice = dTarget
+                targetY = series.priceToCoordinate(dTarget) ?? null
+              }
+              if (stopY == null) {
+                const dStop =
+                  drawing.type === 'long'
+                    ? drawing.entry - risk
+                    : drawing.entry + risk
+                stopPrice = dStop
+                stopY = series.priceToCoordinate(dStop) ?? null
+              }
+            }
+          }
+
+          if (preview) {
+            if (preview.level === 'target') {
+              targetY = preview.y
+              targetPrice = preview.price
+              if (preview.mirrorPrice != null && drawing.stop == null) {
+                stopY = preview.mirrorY
+                stopPrice = preview.mirrorPrice
+              }
+            } else {
+              stopY = preview.y
+              stopPrice = preview.price
+              if (preview.mirrorPrice != null && drawing.target == null) {
+                targetY = preview.mirrorY
+                targetPrice = preview.mirrorPrice
+              }
+            }
+          }
+
+          // Box horizontal extent: drawing.span bars right of the entry anchor,
+          // but never narrower than the TP/SL badges so they can sit centered.
+          const boxRightTime = drawing.t + intervalSeconds * drawing.span
+          const boxLeft = anchor.x
+          const tpLabel =
+            targetPrice == null
+              ? null
+              : positionLevelLabel(targetPrice, drawing.entry, drawing.type, pricePrecision)
+          const slLabel =
+            stopPrice == null
+              ? null
+              : positionLevelLabel(stopPrice, drawing.entry, drawing.type, pricePrecision)
+          const labelFitW = Math.max(
+            tpLabel != null ? posBadgeWidth(tpLabel) : 0,
+            slLabel != null ? posBadgeWidth(slLabel) : 0
+          )
+          const minBoxW = Math.max(POSITION_BOX_MIN_W, labelFitW + POS_BADGE_INSET)
+          const spanRight = timeToX(boxRightTime) ?? boxLeft + minBoxW
+          const boxRight = Math.min(Math.max(spanRight, boxLeft + minBoxW), plotRight)
+
+          // Box vertical extent spans the present levels; keep a visible floor.
+          const levelYs = [anchor.y, targetY, stopY].filter(
+            (y): y is number => y != null
+          )
+          let topY = Math.min(...levelYs)
+          let bottomY = Math.max(...levelYs)
+          if (bottomY - topY < POSITION_BOX_MIN_H) {
+            const mid = (bottomY + topY) / 2
+            topY = mid - POSITION_BOX_MIN_H / 2
+            bottomY = mid + POSITION_BOX_MIN_H / 2
+          }
+
+          // Live price line from the entry point to the position's status. The
+          // entry candle is the basis: the first candle inside the box whose
+          // range has seen the entry point. If no candle in the box has seen
+          // the entry, the line is not shown at all. From the entry candle
+          // onward, if a candle crosses the stop or the target, the end sits on
+          // that line at the first crossing candle's x; otherwise the end is
+          // placed on the last candle still inside the box (both x and y).
+          let priceLine: { x1: number; y1: number; x2: number; y2: number } | null = null
+          let priceLineTowardTp = true
+          if (playheadCandle && Number.isFinite(playheadCandle.close)) {
+            if (playheadCandle.time >= drawing.t) {
+              const inBox = playheadCandle.time <= boxRightTime
+              // First: the entry candle — the first candle inside the box whose
+              // range contains the entry line (low <= entry <= high).
+              let entryIdx = -1
+              let startX: number | null = null
+              const entryLogical = unixTimeToLogical(
+                drawing.t,
+                paneCandles,
+                intervalSeconds
+              )
+              if (entryLogical != null) {
+                const fromIdx = Math.max(0, Math.floor(entryLogical))
+                for (let i = fromIdx; i < paneCandles.length; i++) {
+                  const c = paneCandles[i]
+                  if (c.time > boxRightTime) break
+                  if (c.low <= drawing.entry && drawing.entry <= c.high) {
+                    const cx = timeToX(c.time)
+                    if (cx != null) {
+                      startX = cx
+                      entryIdx = i
+                    }
+                    break
+                  }
+                }
+              }
+              if (entryIdx >= 0 && startX != null) {
+                // Then: from the entry candle onward, the first candle whose
+                // range has crossed the stop or the target line.
+                let resolution: { candle: Candle; atTarget: boolean } | null = null
+                const effectiveTarget =
+                  targetY != null ? series.coordinateToPrice(targetY) : null
+                const effectiveStop = stopY != null ? series.coordinateToPrice(stopY) : null
+                const endLogical = unixTimeToLogical(
+                  Math.min(playheadCandle.time, boxRightTime),
+                  paneCandles,
+                  intervalSeconds
+                )
+                if (endLogical != null) {
+                  const endIdx = Math.min(Math.floor(endLogical), paneCandles.length - 1)
+                  for (let i = entryIdx; i <= endIdx; i++) {
+                    const c = paneCandles[i]
+                    if (!c) continue
+                    const hitStop =
+                      effectiveStop != null &&
+                      (drawing.type === 'long'
+                        ? c.low <= effectiveStop
+                        : c.high >= effectiveStop)
+                    const hitTarget =
+                      effectiveTarget != null &&
+                      (drawing.type === 'long'
+                        ? c.high >= effectiveTarget
+                        : c.low <= effectiveTarget)
+                    if (hitStop) {
+                      resolution = { candle: c, atTarget: false }
+                      break
+                    }
+                    if (hitTarget) {
+                      resolution = { candle: c, atTarget: true }
+                      break
+                    }
+                  }
+                }
+                let endX: number | null = null
+                let endY: number | null = null
+                if (resolution) {
+                  // Exited at a level: end on that line at the crossing candle.
+                  endX = timeToX(resolution.candle.time)
+                  endY = resolution.atTarget ? targetY : stopY
+                  priceLineTowardTp = resolution.atTarget
+                } else {
+                  // No level seen: end on the last candle inside the box.
+                  const lastInBox = inBox
+                    ? playheadCandle
+                    : lastCandleAtOrBefore(boxRightTime)
+                  if (lastInBox && Number.isFinite(lastInBox.close)) {
+                    endX = timeToX(lastInBox.time)
+                    endY = series.priceToCoordinate(lastInBox.close)
+                    priceLineTowardTp = isValidPositionLevel(
+                      drawing.type,
+                      'target',
+                      drawing.entry,
+                      lastInBox.close
+                    )
+                  }
+                }
+                if (endX != null && endY != null) {
+                  const clampedX = Math.min(Math.max(endX, startX), boxRight)
+                  if (clampedX > startX) {
+                    priceLine = { x1: startX, y1: anchor.y, x2: clampedX, y2: endY }
+                  }
+                }
+              }
+            }
+          }
+
+          return (
+            <PositionShape
+              key={drawing.id}
+              side={drawing.type}
+              x={boxLeft}
+              x2={boxRight}
+              entryY={anchor.y}
+              targetY={targetY}
+              stopY={stopY}
+              entryPrice={drawing.entry}
+              targetPrice={targetPrice}
+              stopPrice={stopPrice}
+              topY={topY}
+              bottomY={bottomY}
+              selected={selected}
+              canSelect={canSelect}
+              canDraw={canDraw}
+              showHandles={showHandles}
+              pricePrecision={pricePrecision}
+              priceLine={priceLine}
+              priceLineTowardTp={priceLineTowardTp}
+              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+              onDragBox={(e) =>
+                startDrag(e, { kind: 'pos', id: drawing.id, end: 'body', moved: false })
+              }
+              onDragEntry={(e) =>
+                startDrag(e, {
+                  kind: 'pos-entry',
+                  id: drawing.id,
+                  moved: false,
+                  axis: 'pending',
+                  startX: e.clientX,
+                  startY: e.clientY
+                })
+              }
+              onDragTarget={(e) =>
+                startDrag(e, {
+                  kind: 'pos-level',
+                  id: drawing.id,
+                  level: 'target',
+                  moved: false
+                })
+              }
+              onDragStop={(e) =>
+                startDrag(e, {
+                  kind: 'pos-level',
+                  id: drawing.id,
+                  level: 'stop',
+                  moved: false
+                })
               }
               {...hoverHandlers}
             />
