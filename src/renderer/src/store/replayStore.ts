@@ -8,7 +8,12 @@ import {
 } from '@/lib/binance'
 import { aggregateCandles } from '@shared/candleAggregate'
 import { dedupeCandlesByTime, findIndexAtOrBefore, type Candle } from '@shared/candleUtils'
-import { isBinanceDataSource, isMetatraderImport, type DataSource, type ImportedDatasetMeta } from '@shared/importTypes'
+import {
+  isBinanceDataSource,
+  isMetatraderImport,
+  type DataSource,
+  type ImportedDatasetMeta
+} from '@shared/importTypes'
 import {
   DEFAULT_MT_BRIDGE_STATUS,
   type MtBridgeConnectionStatus,
@@ -1113,9 +1118,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     engine.seekToIndex(idx)
 
     const defaultMessage =
-      idx > 0
-        ? `Replay from candle ${idx + 1}.`
-        : 'Replay from start of loaded candles.'
+      idx > 0 ? `Replay from candle ${idx + 1}.` : 'Replay from start of loaded candles.'
 
     set({
       candles,
@@ -2306,13 +2309,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             candles: loaded.candles,
             symbol: loaded.meta.symbol,
             timeframe: loaded.meta.timeframe,
-<<<<<<< HEAD
             tradeSize: clampTradeSizeForSymbol(get().tradeSize, loaded.meta.symbol),
-            status: 'ready',
-=======
             currentCandle: null,
             status: 'ready' as const,
->>>>>>> 3961e3c (Add MetaTrader integration and enhance import functionality)
             error: null,
             replayMessage: `Imported ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${loaded.candles.length.toLocaleString()} candles`,
             chartSync: {

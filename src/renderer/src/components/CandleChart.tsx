@@ -156,16 +156,13 @@ export default function CandleChart({
   const chartTypeRef = useRef(chartType)
   const seriesTypeRef = useRef<ChartType>(chartType)
   const haLastRef = useRef<Candle | null>(null)
-<<<<<<< HEAD
+  const haPrevRef = useRef<Candle | null>(null)
   const pricePrecision = useMemo(
     () => resolvePricePrecision(symbol, candles ?? visibleCandles),
     [symbol, candles, visibleCandles]
   )
   const pricePrecisionRef = useRef(pricePrecision)
   pricePrecisionRef.current = pricePrecision
-=======
-  const haPrevRef = useRef<Candle | null>(null)
->>>>>>> 3961e3c (Add MetaTrader integration and enhance import functionality)
   const [chartReady, setChartReady] = useState<{
     chart: IChartApi
     series: ISeriesApi<SeriesType>
@@ -219,8 +216,7 @@ export default function CandleChart({
 
     if (type === 'heikinashi') {
       const lastHa = haLastRef.current
-      const prev =
-        lastHa && lastHa.time === candle.time ? haPrevRef.current : lastHa
+      const prev = lastHa && lastHa.time === candle.time ? haPrevRef.current : lastHa
       if (lastHa && lastHa.time !== candle.time) {
         haPrevRef.current = lastHa
       }
