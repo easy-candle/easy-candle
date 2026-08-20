@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Cable, Database, FileUp, Trash2, X } from 'lucide-react'
+import { Cable, Database, ExternalLink, FileUp, Trash2, X } from 'lucide-react'
 import IconButton from '@/components/IconButton'
 import ImportConfirmModal, { type ImportConfirmDetails } from '@/components/ImportConfirmModal'
 import { buildImportTimeframes } from '@shared/candleAggregate'
@@ -16,6 +16,9 @@ import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
+
+const EA_DOWNLOAD_URL =
+  'https://github.com/easy-candle/easy-candle-ea/releases/latest/download/EasyCandleBridge.ex5'
 
 export type ImportFeedback = {
   tone: 'error' | 'info'
@@ -419,9 +422,20 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
               </section>
 
               <section>
-                <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                  MetaTrader EA
-                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                    MetaTrader EA
+                  </span>
+                  <a
+                    href={EA_DOWNLOAD_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-300 hover:text-sky-200"
+                  >
+                    Download EasyCandleBridge.ex5
+                    <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                </div>
                 <div className="mt-1.5 rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2.5">
                   <p className="flex items-center gap-2 text-xs text-zinc-300">
                     <span
