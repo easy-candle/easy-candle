@@ -63,6 +63,7 @@ const EMPTY_TICKET_LEVELS: {
   ticketLimitPrice: null,
   pricePick: null
 }
+
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
 import { isChartType, type ChartType } from '@/lib/chart/chartTypes'
 import {
@@ -95,6 +96,24 @@ import {
   playheadCoverEnd,
   TIMEFRAMES
 } from '@shared/timeframes'
+
+const PAUSE_ON_TP_SL_KEY = 'easy-candle:pause-on-tp-sl'
+
+function loadPauseOnTpSl(): boolean {
+  try {
+    return localStorage.getItem(PAUSE_ON_TP_SL_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function persistPauseOnTpSl(value: boolean): void {
+  try {
+    localStorage.setItem(PAUSE_ON_TP_SL_KEY, value ? '1' : '0')
+  } catch {
+    // ignore quota / private mode
+  }
+}
 
 export type ChartStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type ViewMode = 'live' | 'replay'
@@ -406,6 +425,9 @@ type ReplayStore = {
   exitReplay: () => void
   play: () => void
   pause: () => void
+  /** Pause playback after an open position is closed by TP or SL. */
+  pauseOnTpSl: boolean
+  setPauseOnTpSl: (value: boolean) => void
   stepForward: () => void
   stepBackward: () => void
   setSpeed: (speed: number) => void
@@ -543,13 +565,21 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     return pnlScaleForSymbol(get().symbol, lots)
   }
 
-  /** Fill a pending limit, then close an open position if TP/SL is hit. */
-  function maybeAutoCloseOnLevels(): void {
+  function pausePlayback(): void {
     if (get().mode !== 'replay') return
-    if (get().replayLoading) return
+    engine.pause()
+    secondaryEngine.pause()
+    stopClock()
+    publishStatus()
+  }
+
+  /** Fill a pending limit, then close an open position if TP/SL is hit. */
+  function maybeAutoCloseOnLevels(): 'tp' | 'sl' | null {
+    if (get().mode !== 'replay') return null
+    if (get().replayLoading) return null
 
     const candle = engine.getCurrentCandle() || get().currentCandle
-    if (!candle) return
+    if (!candle) return null
 
     const pending = get().pendingOrder
     if (pending && !get().position && evaluatePendingFill(pending, candle)) {
@@ -568,23 +598,31 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         replayMessage: null
       }))
       // Skip TP/SL on the fill bar — levels arm on later candles.
-      return
+      return null
     }
 
     const open = get().position
-    if (!open) return
-    if (open.takeProfit == null && open.stopLoss == null) return
+    if (!open) return null
+    if (open.takeProfit == null && open.stopLoss == null) return null
 
     const hit = evaluateStopTakeProfit(open, candle)
-    if (!hit) return
+    if (!hit) return null
 
     const closed = closePosition(open, hit.price, candle.time, hit.hit, currentPnlScale())
+    const pauseOnHit = get().pauseOnTpSl
     set((s) => ({
       position: null,
       closedTrades: [...s.closedTrades, closed],
-      replayMessage: null,
+      replayMessage: pauseOnHit
+        ? hit.hit === 'tp'
+          ? 'Paused · Take profit hit'
+          : 'Paused · Stop loss hit'
+        : null,
       ...EMPTY_TICKET_LEVELS
     }))
+
+    if (pauseOnHit) pausePlayback()
+    return hit.hit
   }
 
   function publishStatus(): void {
@@ -1726,6 +1764,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     isPrefetching: false,
     replayLoading: false,
     replayMessage: null,
+    pauseOnTpSl: loadPauseOnTpSl(),
     activeIndicators: [],
     chartType: 'candlestick',
     drawTool: 'select',
@@ -2544,6 +2583,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
       engine.play()
       if (get().chartSplit) secondaryEngine.play()
+      if (get().replayMessage?.startsWith('Paused ·')) {
+        set({ replayMessage: null })
+      }
       publishStatus()
       startClock()
       void maybePrefetch()
@@ -2551,12 +2593,12 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     pause() {
-      if (get().mode !== 'replay') return
+      pausePlayback()
+    },
 
-      engine.pause()
-      secondaryEngine.pause()
-      stopClock()
-      publishStatus()
+    setPauseOnTpSl(value) {
+      persistPauseOnTpSl(value)
+      set({ pauseOnTpSl: value })
     },
 
     stepForward() {

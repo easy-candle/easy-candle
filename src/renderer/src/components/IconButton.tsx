@@ -16,6 +16,8 @@ type IconButtonProps = {
   tooltipSide?: 'top' | 'bottom' | 'left' | 'right'
   /** ghost = borderless hover-fill, used by the drawing rail. */
   variant?: 'default' | 'ghost'
+  /** When set, the button is a toggle and exposes aria-pressed. */
+  pressed?: boolean
 }
 
 export default function IconButton({
@@ -29,7 +31,8 @@ export default function IconButton({
   className = '',
   shortcut,
   tooltipSide = 'bottom',
-  variant = 'default'
+  variant = 'default',
+  pressed
 }: IconButtonProps) {
   const ghost = variant === 'ghost'
 
@@ -68,6 +71,7 @@ export default function IconButton({
       <button
         type={type}
         aria-label={tooltip}
+        aria-pressed={pressed}
         disabled={disabled}
         onClick={onClick}
         className={`inline-flex shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${ghost ? 'h-9 w-9' : 'h-8 w-8'} ${chrome} ${activeClass} ${toneClass} ${className}`}
