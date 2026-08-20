@@ -66,6 +66,8 @@ export default function ReplayStartDialog() {
 
   const disabled = status === 'loading' || replayLoading || mode === 'replay'
   const imported = dataSource === 'imported'
+  const localFeed = imported
+  const localCandles = imported ? importedCandles : []
   const canStart = status === 'ready' && candles.length > 0
   const intervalSeconds = TIMEFRAMES[timeframe]?.seconds ?? 900
 
@@ -102,26 +104,29 @@ export default function ReplayStartDialog() {
       return false
     }
 
-    if (imported) {
-      if (lengthCandles > importedCandles.length) {
+    if (localFeed) {
+      if (lengthCandles > localCandles.length) {
         setLocalError(
-          `Range (${lengthCandles.toLocaleString()} candles) exceeds the imported data (${importedCandles.length.toLocaleString()} candles).`
+          `Range (${lengthCandles.toLocaleString()} candles) exceeds the loaded data (${localCandles.length.toLocaleString()} candles).`
         )
         return false
       }
       const startIndex = pickRandomImportedStartIndex({
-        candleCount: importedCandles.length,
+        candleCount: localCandles.length,
         lengthCandles
       })
       if (startIndex == null) {
-        setLocalError('Not enough imported candles for a random range.')
+        setLocalError('Not enough candles for a random range.')
         return false
       }
-      const candle = importedCandles[startIndex]
+      const candle = localCandles[startIndex]
       const when = candle ? formatUtcCandleTime(candle.time) : `candle ${startIndex + 1}`
-      startImportedReplayAt(startIndex, {
-        message: `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${when}`
-      })
+      const message = `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${when}`
+      if (imported) {
+        startImportedReplayAt(startIndex, { message })
+      } else if (candle) {
+        void startReplayAt(candle.time, { message })
+      }
       return true
     }
 
@@ -163,16 +168,19 @@ export default function ReplayStartDialog() {
       return
     }
 
-    if (imported) {
-      const idx = findIndexAtOrBefore(importedCandles, seconds)
+    if (localFeed) {
+      const idx = findIndexAtOrBefore(localCandles, seconds)
       if (idx < 0) {
-        setLocalError('Selected time is before the start of the imported data.')
+        setLocalError('Selected time is before the start of the loaded data.')
         return
       }
-      const candle = importedCandles[idx]
-      startImportedReplayAt(idx, {
-        message: `Manual replay · start ${formatUtcCandleTime(candle.time)}`
-      })
+      const candle = localCandles[idx]
+      const message = `Manual replay · start ${formatUtcCandleTime(candle.time)}`
+      if (imported) {
+        startImportedReplayAt(idx, { message })
+      } else {
+        void startReplayAt(candle.time, { message })
+      }
       setOpen(false)
       return
     }
@@ -185,10 +193,10 @@ export default function ReplayStartDialog() {
     setLocalError(null)
 
     if (tab === 'manual') {
-      if (imported) {
-        if (importedCandles.length === 0) return
-        const firstTime = importedCandles[0].time
-        const lastTime = importedCandles[importedCandles.length - 1].time
+      if (localFeed) {
+        if (localCandles.length === 0) return
+        const firstTime = localCandles[0].time
+        const lastTime = localCandles[localCandles.length - 1].time
         const seconds = Math.max(firstTime, lastTime - rangeToSeconds(preset.value, preset.unit))
         const parts = toUtcParts(seconds)
         setDate(parts.date)
@@ -313,9 +321,9 @@ export default function ReplayStartDialog() {
                       />
                     </label>
                   </div>
-                  {imported && (
+                  {localFeed && (
                     <p className="text-xs text-amber-500/80">
-                      Replays from the closest imported candle at or before the selected time.
+                      Replays from the closest loaded candle at or before the selected time.
                     </p>
                   )}
                 </div>
@@ -359,8 +367,8 @@ export default function ReplayStartDialog() {
                     </select>
                   </label>
                   <p className="col-span-2 text-[11px] text-zinc-600">
-                    {imported
-                      ? 'Random start within the imported file.'
+                    {localFeed
+                      ? 'Random start within the loaded candles.'
                       : `Random start in the last ${RANDOM_LOOKBACK_DAYS === 365 ? '1y' : `${RANDOM_LOOKBACK_DAYS}d`}.`}
                   </p>
                 </div>

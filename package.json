@@ -15,11 +15,15 @@
   },
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:web": "vite",
+    "build": "yarn typecheck && electron-vite build",
+    "build:web": "vite build",
     "start": "electron-vite preview",
+    "start:web": "vite preview --port 3000 --host",
+    "lint": "eslint src",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "yarn typecheck:node && yarn typecheck:web",
-    "build": "yarn typecheck && electron-vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "fetch-contributors": "node scripts/fetch-contributors.mjs",
@@ -40,6 +44,7 @@
     "lucide-react": "^1.25.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "ws": "^8.21.3",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
@@ -49,6 +54,7 @@
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.21",
     "electron": "^39.2.6",

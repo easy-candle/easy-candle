@@ -3,6 +3,7 @@ import { BadgeInfo, Circle, LoaderCircle } from 'lucide-react'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import type { ReplayStatus } from '@/lib/replayEngine'
 import { useReplayStore } from '@/store/replayStore'
+import { isMetatraderImport } from '@shared/importTypes'
 import Tooltip from '@/components/Tooltip'
 
 const SEPARATOR = ' · '
@@ -54,11 +55,14 @@ function LiveStatus() {
   const candles = useReplayStore((s) => s.candles)
   const dataSource = useReplayStore((s) => s.dataSource)
   const replayMessage = useReplayStore((s) => s.replayMessage)
+  const importMeta = useReplayStore((s) => s.importMeta)
   const imported = dataSource === 'imported'
+  const mtbridge = dataSource === 'mtbridge'
+  const mtFeed = mtbridge || isMetatraderImport(importMeta)
 
   const candlesLabel =
     replayMessage ??
-    `${imported ? 'Imported' + SEPARATOR : ''}${candles.length.toLocaleString()} candles`
+    `${imported ? (mtFeed ? 'MetaTrader' : 'Imported') + SEPARATOR : ''}${candles.length.toLocaleString()} candles`
 
   return (
     <div className="ml-auto inline-flex items-center gap-1.5 text-[11px] tabular-nums text-zinc-500">
@@ -68,14 +72,15 @@ function LiveStatus() {
           <span>Loading…</span>
         </>
       )}
-      {status === 'ready' && candles.length === 0 && (
+      {status === 'ready' && candles.length === 0 && !mtbridge && (
         <span className="text-zinc-400">No candles returned</span>
       )}
       {status === 'ready' && candles.length > 0 && (
-        <span className={imported ? 'text-amber-400/90' : undefined}>{candlesLabel}</span>
+        <span className={imported || mtbridge ? 'text-amber-400/90' : undefined}>{candlesLabel}</span>
       )}
+      {status === 'idle' && mtbridge && <span className="max-w-[28rem] truncate">{replayMessage}</span>}
       {status === 'error' && <span className="text-red-400">{error || 'Load failed'}</span>}
-      {status === 'idle' && <span>Waiting to load…</span>}
+      {status === 'idle' && !mtbridge && <span>Waiting to load…</span>}
     </div>
   )
 }
@@ -91,13 +96,15 @@ function ReplayStatus() {
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const replayMessage = useReplayStore((s) => s.replayMessage)
   const dataSource = useReplayStore((s) => s.dataSource)
+  const importMeta = useReplayStore((s) => s.importMeta)
   const imported = dataSource === 'imported'
+  const mtFeed = dataSource === 'mtbridge' || isMetatraderImport(importMeta)
 
   const ended = replayStatus === 'ended'
   const busy = replayLoading || isPrefetching
   const speedLabel = isPlaying ? `(${speed}x)` : null
   const details = compact([
-    imported ? 'Imported' : null,
+    imported ? (mtFeed ? 'MetaTrader' : 'Imported') : null,
     isPlaying ? `${speed}x` : null,
     formatUtcCandleTime(currentCandle?.time),
     bufferLength > 0 ? `${replayIndex + 1}/${bufferLength}` : '0/0'

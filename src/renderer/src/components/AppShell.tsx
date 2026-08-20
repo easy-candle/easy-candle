@@ -31,6 +31,8 @@ import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { isMetatraderImport } from '@shared/importTypes'
+import { MT_BRIDGE_WS_URL } from '@shared/mtBridgeProtocol'
 
 export default function AppShell({
   children,
@@ -43,6 +45,7 @@ export default function AppShell({
   const error = useReplayStore((s) => s.error)
   const mode = useReplayStore((s) => s.mode)
   const dataSource = useReplayStore((s) => s.dataSource)
+  const importMeta = useReplayStore((s) => s.importMeta)
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const replayStatus = useReplayStore((s) => s.replayStatus)
   const candles = useReplayStore((s) => s.candles)
@@ -68,7 +71,10 @@ export default function AppShell({
   const inReplay = mode === 'replay'
   const showOrderTicket = showPaperTrade && !chartFullscreen && (inReplay || tourPaperTradePreview)
   const imported = dataSource === 'imported'
-  const showEmptyLive = !inReplay && status === 'ready' && candles.length === 0
+  const mtbridge = dataSource === 'mtbridge'
+  const mtFeed = mtbridge || isMetatraderImport(importMeta)
+  const showEmptyLive =
+    !inReplay && candles.length === 0 && (status === 'ready' || (mtbridge && status === 'idle'))
   const showEndedBanner = inReplay && replayStatus === 'ended' && !chartFullscreen
 
   useEffect(() => {
@@ -236,7 +242,13 @@ export default function AppShell({
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/75 text-sm text-zinc-400">
                 <span>{replayLoading ? 'Loading replay window…' : 'Loading candles…'}</span>
                 <span className="text-xs text-zinc-600">
-                  {imported ? 'UTC · Imported CSV' : 'UTC · Binance klines'}
+                  {imported
+                    ? mtFeed
+                      ? 'UTC · MetaTrader'
+                      : 'UTC · Imported CSV'
+                    : mtbridge
+                      ? 'UTC · MetaTrader'
+                      : 'UTC · Binance klines'}
                 </span>
               </div>
             )}
@@ -245,9 +257,11 @@ export default function AppShell({
                 <span>
                   {imported
                     ? 'No candles in the imported file.'
-                    : 'No candles for this symbol / timeframe.'}
+                    : mtbridge
+                      ? `Attach the Easy Candle EA in MT5 and allow ${MT_BRIDGE_WS_URL}`
+                      : 'No candles for this symbol / timeframe.'}
                 </span>
-                {!imported && (
+                {!imported && !mtbridge && (
                   <button
                     type="button"
                     onClick={() => void loadCandles()}

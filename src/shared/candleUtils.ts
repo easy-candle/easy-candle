@@ -70,6 +70,25 @@ export function dedupeCandlesByTime(candles: Candle[]): Candle[] {
   return Array.from(byTime.values()).sort((a, b) => a.time - b.time)
 }
 
+/**
+ * Merge two series by open time. Incoming bars replace the same `time`.
+ * Older bars that incoming did not send are kept.
+ */
+export function mergeCandlesByTime(existing: Candle[], incoming: Candle[]): Candle[] {
+  const byTime = new Map<number, Candle>()
+  if (Array.isArray(existing)) {
+    for (const candle of existing) {
+      if (candle && Number.isFinite(candle.time)) byTime.set(candle.time, candle)
+    }
+  }
+  if (Array.isArray(incoming)) {
+    for (const candle of incoming) {
+      if (candle && Number.isFinite(candle.time)) byTime.set(candle.time, candle)
+    }
+  }
+  return Array.from(byTime.values()).sort((a, b) => a.time - b.time)
+}
+
 /** Clamp requested limit to Binance's allowed range. */
 export function clampKlineLimit(value: unknown, fallback = 500): number {
   const n = Number(value)

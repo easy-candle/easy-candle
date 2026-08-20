@@ -6,8 +6,20 @@ import {
   prefetchForward,
   PREFETCH_BATCH_SIZE
 } from '@/lib/binance'
+import { aggregateCandles } from '@shared/candleAggregate'
 import { dedupeCandlesByTime, findIndexAtOrBefore, type Candle } from '@shared/candleUtils'
-import type { DataSource, ImportedDatasetMeta } from '@shared/importTypes'
+import {
+  isBinanceDataSource,
+  isMetatraderImport,
+  type DataSource,
+  type ImportedDatasetMeta
+} from '@shared/importTypes'
+import {
+  DEFAULT_MT_BRIDGE_STATUS,
+  type MtBridgeConnectionStatus,
+  type MtBridgeIpcEvent,
+  type MtPreviewSummary
+} from '@shared/mtBridgeTypes'
 import { getIndicator } from '@/lib/indicators'
 import {
   clampRiskReward,
@@ -123,7 +135,7 @@ export type ChartStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type ViewMode = 'live' | 'replay'
 export type ChartSyncKind = 'replace' | 'append'
 export type DriverPane = 'primary' | 'secondary'
-export type { DataSource, ImportedDatasetMeta }
+export type { DataSource, ImportedDatasetMeta, MtBridgeConnectionStatus }
 export type {
   Drawing,
   DrawTool,
@@ -254,6 +266,12 @@ function intervalSecondsFor(timeframe: string): number {
   return TIMEFRAMES[timeframe]?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
 }
 
+function displayedFromSource(source1m: Candle[], timeframe: string): Candle[] {
+  if (!source1m.length) return []
+  if (timeframe === '1m') return source1m
+  return aggregateCandles(source1m, intervalSecondsFor(timeframe))
+}
+
 function emptySecondaryPaneState(): {
   secondaryCandles: Candle[]
   secondaryVisibleCandles: Candle[]
@@ -326,6 +344,11 @@ type ReplayStore = {
   importedCandles: Candle[]
   /** Persisted MT imports shown in the symbol dropdown. */
   importedList: ImportedDatasetMeta[]
+  mtBridge: MtBridgeConnectionStatus
+  /** Unsaved EA history shown in the import dialog. */
+  mtPreview: MtPreviewSummary | null
+  /** 1m series for the active MetaTrader import (live updates + higher TF). */
+  importedSourceCandles: Candle[]
   replayStatus: ReplayStatus
   isPlaying: boolean
   speed: number
@@ -418,6 +441,9 @@ type ReplayStore = {
   setSecondaryTimeframe: (timeframe: string) => void
   setDriverPane: (pane: DriverPane) => void
   loadCandles: () => Promise<void>
+  disconnectMetaTrader: () => void
+  handleMtBridgeEvent: (event: MtBridgeIpcEvent) => void
+  syncMtBridgeStatus: (status: MtBridgeConnectionStatus) => void
   activateImportedDataset: (candles: Candle[], meta: ImportedDatasetMeta) => void
   clearImportedDataset: () => void
   refreshImportedList: () => Promise<void>
@@ -648,7 +674,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (secondaryPrefetchInFlight) return
     if (!get().chartSplit) return
     if (get().mode !== 'replay') return
-    if (get().dataSource === 'imported' && get().secondaryTimeframe === get().timeframe) return
+    if (!isBinanceDataSource(get().dataSource)) return
     if (!secondaryEngine.needsPrefetch()) return
 
     const buffer = secondaryEngine.getState().candles
@@ -688,8 +714,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   async function maybePrefetch(): Promise<void> {
     if (prefetchInFlight) return
     if (get().mode !== 'replay') return
-    // Imported datasets are fully local — never call Binance.
-    if (get().dataSource === 'imported') return
+    if (!isBinanceDataSource(get().dataSource)) return
     if (!engine.needsPrefetch()) return
 
     const buffer = engine.getState().candles
@@ -752,7 +777,10 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       let candles: Candle[] = []
 
       if (dataSource === 'imported' && importMeta) {
-        if (secondaryTimeframe === timeframe) {
+        const source1m = get().importedSourceCandles
+        if (isMetatraderImport(importMeta) && source1m.length) {
+          candles = displayedFromSource(source1m, secondaryTimeframe)
+        } else if (secondaryTimeframe === timeframe) {
           candles = importedCandles
         } else if (importMeta.timeframes?.[secondaryTimeframe]) {
           const loaded = await loadImportedSeries(importMeta.id, secondaryTimeframe)
@@ -811,8 +839,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const generation = (secondaryLoadGeneration += 1)
 
     if (dataSource === 'imported' && importMeta) {
+      const source1m = get().importedSourceCandles
       let series = importedCandles
-      if (secondaryTimeframe !== timeframe) {
+      if (isMetatraderImport(importMeta) && source1m.length) {
+        series = displayedFromSource(source1m, secondaryTimeframe)
+      } else if (secondaryTimeframe !== timeframe) {
         if (!importMeta.timeframes?.[secondaryTimeframe]) {
           set({
             secondaryLoading: false,
@@ -1029,6 +1060,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       dataSource: 'imported',
       importMeta: meta,
       importedCandles: candles,
+      importedSourceCandles: [] as Candle[],
       symbol: meta.symbol,
       timeframe: meta.timeframe,
       tradeSize: clampTradeSizeForSymbol(s.tradeSize, meta.symbol),
@@ -1061,6 +1093,43 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         revision: s.chartSync.revision + 1
       }
     }))
+  }
+
+  function startBufferReplay(
+    candles: Candle[],
+    startIndex: number,
+    opts: { message?: string | null } = {}
+  ): void {
+    if (get().mode === 'replay') return
+    if (!candles.length) {
+      set({ replayMessage: 'No candles to replay.' })
+      return
+    }
+
+    stopClock()
+    const keptSpeed = engine.getState().speed
+    engine.load(candles)
+    engine.setSpeed(keptSpeed)
+
+    const idx = Math.min(
+      Math.max(0, Math.floor(Number(startIndex)) || 0),
+      Math.max(candles.length - 1, 0)
+    )
+    engine.seekToIndex(idx)
+
+    const defaultMessage =
+      idx > 0 ? `Replay from candle ${idx + 1}.` : 'Replay from start of loaded candles.'
+
+    set({
+      candles,
+      status: 'ready',
+      replayLoading: false,
+      replayMessage: opts.message ?? defaultMessage,
+      error: null,
+      speed: engine.getState().speed
+    })
+    publishReplay('replace', { fitContent: true })
+    alignSecondaryAfterPrimaryLoad()
   }
 
   function startClock(): void {
@@ -1117,7 +1186,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         : {
             dataSource: 'binance' as const,
             importMeta: null,
-            importedCandles: [] as Candle[]
+            importedCandles: [] as Candle[],
+            importedSourceCandles: [] as Candle[]
           }),
       chartSync: {
         kind: 'replace',
@@ -1760,6 +1830,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     importMeta: null,
     importedCandles: [],
     importedList: [],
+    mtBridge: { ...DEFAULT_MT_BRIDGE_STATUS },
+    mtPreview: null,
+    importedSourceCandles: [],
     replayStatus: 'idle',
     isPlaying: false,
     speed: 1,
@@ -2189,6 +2262,31 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           return
         }
         const nextIntervalSec = intervalSecondsFor(timeframe)
+        const source1m = get().importedSourceCandles
+        if (isMetatraderImport(meta) && source1m.length) {
+          const displayed = displayedFromSource(source1m, timeframe)
+          set((s) => ({
+            timeframe,
+            candles: displayed,
+            importedCandles: displayed,
+            importMeta: { ...meta, timeframe },
+            drawings: remapDrawingsToInterval(get().drawings, nextIntervalSec),
+            pendingTrend: remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec),
+            currentCandle: null,
+            status: 'ready' as const,
+            error: null,
+            replayMessage: `MetaTrader ${meta.symbol} ${timeframe} · ${displayed.length.toLocaleString()} candles`,
+            chartSync: {
+              kind: 'replace' as const,
+              fitContent: true,
+              revision: s.chartSync.revision + 1
+            }
+          }))
+          if (get().chartSplit) {
+            void loadSecondaryLiveCandles()
+          }
+          return
+        }
         void (async () => {
           set({
             status: 'loading',
@@ -2205,17 +2303,23 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             })
             return
           }
-          set({
+          set((s) => ({
             importMeta: loaded.meta,
             importedCandles: loaded.candles,
             candles: loaded.candles,
             symbol: loaded.meta.symbol,
             timeframe: loaded.meta.timeframe,
             tradeSize: clampTradeSizeForSymbol(get().tradeSize, loaded.meta.symbol),
-            status: 'ready',
+            currentCandle: null,
+            status: 'ready' as const,
             error: null,
-            replayMessage: `Imported ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${loaded.candles.length.toLocaleString()} candles`
-          })
+            replayMessage: `Imported ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${loaded.candles.length.toLocaleString()} candles`,
+            chartSync: {
+              kind: 'replace' as const,
+              fitContent: true,
+              revision: s.chartSync.revision + 1
+            }
+          }))
           if (get().chartSplit) {
             void loadSecondaryLiveCandles()
           }
@@ -2413,6 +2517,78 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }
     },
 
+    syncMtBridgeStatus(status) {
+      set({
+        mtBridge: {
+          listening: status.listening,
+          port: status.port,
+          connected: status.connected,
+          ...(status.error ? { error: status.error } : {}),
+          ...(status.symbol ? { symbol: status.symbol } : {}),
+          ...(status.timeframe ? { timeframe: status.timeframe } : {}),
+          ...(status.datasetId ? { datasetId: status.datasetId } : {}),
+          ...(status.preview ? { preview: status.preview } : {})
+        },
+        ...(status.preview ? { mtPreview: status.preview } : {})
+      })
+    },
+
+    disconnectMetaTrader() {
+      if (get().mode === 'replay') return
+      if (get().dataSource !== 'mtbridge' && !isMetatraderImport(get().importMeta)) return
+      resetReplayState()
+      set({
+        symbol: DEFAULT_SYMBOL.binanceSymbol,
+        timeframe: DEFAULT_TIMEFRAME,
+        candles: []
+      })
+      void get().loadCandles()
+    },
+
+    handleMtBridgeEvent(event) {
+      if (event.type === 'status') {
+        get().syncMtBridgeStatus(event)
+        return
+      }
+
+      if (event.type === 'error') {
+        set((s) => ({
+          mtBridge: { ...s.mtBridge, error: event.message }
+        }))
+        return
+      }
+
+      if (event.type === 'disconnected') {
+        set((s) => ({
+          mtBridge: { ...s.mtBridge, connected: false }
+        }))
+        return
+      }
+
+      if (event.type === 'hello') {
+        return
+      }
+
+      if (event.type === 'preview') {
+        set((s) => ({
+          mtPreview: event.preview,
+          mtBridge: { ...s.mtBridge, preview: event.preview, symbol: event.preview.symbol }
+        }))
+        return
+      }
+
+      if (event.type === 'dataset') {
+        void get().refreshImportedList()
+        return
+      }
+
+      if (event.type === 'bar') {
+        // Preview-only. Confirmed imports stay a static 1m snapshot so timeframe
+        // switches can aggregate without fighting an online feed.
+        return
+      }
+    },
+
     activateImportedDataset(candles, meta) {
       const normalized = dedupeCandlesByTime(candles)
       if (!normalized.length) {
@@ -2420,6 +2596,15 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         return
       }
       publishImportedPreview(normalized, meta)
+      if (isMetatraderImport(meta)) {
+        if (meta.timeframe === '1m') {
+          set({ importedSourceCandles: normalized })
+        } else {
+          void window.api.loadImport(meta.id, '1m').then((source) => {
+            if (source.ok) set({ importedSourceCandles: dedupeCandlesByTime(source.candles) })
+          })
+        }
+      }
       void get().refreshImportedList()
       if (get().chartSplit) {
         void loadSecondaryLiveCandles()
@@ -2461,6 +2646,22 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }
 
       publishImportedPreview(candles, loaded.meta)
+      if (isMetatraderImport(loaded.meta)) {
+        if (loaded.meta.timeframe === '1m') {
+          set({
+            importedSourceCandles: candles,
+            replayMessage: `MetaTrader ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${candles.length.toLocaleString()} candles`
+          })
+        } else {
+          const source = await window.api.loadImport(id, '1m')
+          if (source.ok) {
+            set({
+              importedSourceCandles: dedupeCandlesByTime(source.candles),
+              replayMessage: `MetaTrader ${loaded.meta.symbol} ${loaded.meta.timeframe} · ${candles.length.toLocaleString()} candles`
+            })
+          }
+        }
+      }
       if (get().chartSplit) {
         void loadSecondaryLiveCandles()
       }
@@ -2481,32 +2682,15 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         return
       }
 
-      stopClock()
-      const keptSpeed = engine.getState().speed
-      engine.load(candles)
-      engine.setSpeed(keptSpeed)
-
       const idx = Math.min(
         Math.max(0, Math.floor(Number(startIndex)) || 0),
         Math.max(candles.length - 1, 0)
       )
-      engine.seekToIndex(idx)
-
       const defaultMessage =
         idx > 0
           ? `Replay from candle ${idx + 1} of imported file.`
           : 'Replay from start of imported file.'
-
-      set({
-        candles,
-        status: 'ready',
-        replayLoading: false,
-        replayMessage: opts.message ?? defaultMessage,
-        error: null,
-        speed: engine.getState().speed
-      })
-      publishReplay('replace', { fitContent: true })
-      alignSecondaryAfterPrimaryLoad()
+      startBufferReplay(candles, idx, { message: opts.message ?? defaultMessage })
     },
 
     async startReplayAt(startTimeSeconds, opts = {}) {
@@ -2550,9 +2734,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         }
       }
 
-      if (get().dataSource === 'imported') {
+      if (!isBinanceDataSource(get().dataSource)) {
         set({
-          replayMessage: 'Jump time is outside the imported file range.'
+          replayMessage: 'Jump time is outside the loaded range.'
         })
         return
       }
@@ -2612,7 +2796,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       secondaryEngine.load([])
 
       if (dataSource === 'imported' && importMeta && importedCandles.length) {
+        const source1m = get().importedSourceCandles
         publishImportedPreview(importedCandles, importMeta)
+        if (isMetatraderImport(importMeta) && source1m.length) {
+          set({ importedSourceCandles: source1m })
+        }
         set({ sessionReport, driverPane: 'primary' })
         if (get().chartSplit) {
           void loadSecondaryLiveCandles()
