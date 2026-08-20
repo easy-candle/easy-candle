@@ -7,7 +7,7 @@ import type {
   DrawingStyle,
   FibLevelConfig
 } from '@/lib/chart/drawingGeometry'
-import { DEFAULT_FILL_OPACITY, withAlpha } from '@/lib/cssColor'
+import { DEFAULT_FILL_OPACITY, adoptRgb, parseColor, toHex, toColorString, withAlpha } from '@/lib/cssColor'
 import {
   DEFAULT_ZONE_COLORS,
   DRAWING_TOOL_TYPES,
@@ -15,7 +15,7 @@ import {
   useDrawingSettingsStore,
   type WidgetFieldKey
 } from '@/store/drawingSettingsStore'
-import { FillSwatch, OpacitySlider } from '@/components/OpacityColorField'
+import { ColorPickerPopup } from '@/components/OpacityColorField'
 import { useReplayStore } from '@/store/replayStore'
 import type { DrawingToolType } from '@/lib/chart/drawingGeometry'
 
@@ -54,6 +54,7 @@ function ColorSwatch({
   onChange: (color: string) => void
   compact?: boolean
 }) {
+  const parsed = parseColor(value)
   return (
     <label
       className={`flex flex-col gap-0.5 ${compact ? 'w-[4.5rem] flex-none' : 'min-w-[4.5rem] flex-1'}`}
@@ -62,12 +63,12 @@ function ColorSwatch({
         {label}
       </span>
       <label className="relative block h-6 w-full cursor-pointer overflow-hidden rounded border border-zinc-700">
-        <span className="absolute inset-0" style={{ background: value }} />
+        <span className="absolute inset-0" style={{ background: toColorString(parsed) }} />
         <input
           type="color"
-          value={value}
+          value={toHex(parsed)}
           aria-label={label}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(adoptRgb(event.target.value, value))}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         />
       </label>
@@ -89,13 +90,13 @@ function StyleControls({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-end gap-2">
-        <ColorSwatch
+        <ColorPickerPopup
           label="Color"
           value={style.color}
           onChange={(color) => onChange({ color })}
         />
         {showFillColor && (
-          <FillSwatch
+          <ColorPickerPopup
             label="Background"
             value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
             onChange={(fillColor) => onChange({ fillColor })}
@@ -134,12 +135,6 @@ function StyleControls({
           </select>
         </label>
       </div>
-      {showFillColor && (
-        <OpacitySlider
-          value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
-          onChange={(fillColor) => onChange({ fillColor })}
-        />
-      )}
       {showZoneColors && (
         <div className="flex items-end gap-2">
           <ColorSwatch
