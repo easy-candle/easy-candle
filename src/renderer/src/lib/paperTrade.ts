@@ -278,6 +278,28 @@ export function ticketEntryPrice(levels: TicketDraftLevels): number | null {
 }
 
 /**
+ * Opposite draft TP/SL at the R:R guide. Infers side from where `price` sits vs
+ * entry. Null when entry is missing (limit with no price) or the level is not
+ * on the correct side of entry.
+ */
+export function linkedTicketOpposite(
+  kind: 'tp' | 'sl',
+  price: number,
+  entryPrice: number | null | undefined,
+  riskReward: number
+): number | null {
+  if (entryPrice == null || !Number.isFinite(entryPrice) || !Number.isFinite(price)) return null
+  if (kind === 'tp') {
+    const side: PositionSide | null =
+      price > entryPrice ? 'long' : price < entryPrice ? 'short' : null
+    return side ? stopLossFromTakeProfit(side, entryPrice, price, riskReward) : null
+  }
+  const side: PositionSide | null =
+    price < entryPrice ? 'long' : price > entryPrice ? 'short' : null
+  return side ? takeProfitFromStopLoss(side, entryPrice, price, riskReward) : null
+}
+
+/**
  * Side implied by draft TP/SL vs entry. Null when both sides remain possible
  * or the levels conflict.
  */

@@ -30,6 +30,7 @@ import {
   takeProfitFromStopLoss,
   canPlaceTicketSide,
   inferTicketSide,
+  linkedTicketOpposite,
   tradesToCsv,
   unrealizedPnl,
   withPendingPrice,
@@ -204,6 +205,19 @@ describe('risk:reward helpers', () => {
     expect(takeProfitFromStopLoss('long', 100, 105, 2)).toBeNull()
     expect(stopLossFromTakeProfit('long', 100, 95, 2)).toBeNull()
     expect(realizedRiskReward('long', 100, 105, 120)).toBeNull()
+  })
+
+  it('seeds the opposite ticket level from R:R when entry is known', () => {
+    expect(linkedTicketOpposite('sl', 90, 100, 2)).toBe(120)
+    expect(linkedTicketOpposite('tp', 120, 100, 2)).toBe(90)
+    expect(linkedTicketOpposite('sl', 110, 100, 2)).toBe(80)
+    expect(linkedTicketOpposite('tp', 80, 100, 2)).toBe(110)
+  })
+
+  it('does not apply R:R without an entry (limit before price is set)', () => {
+    expect(linkedTicketOpposite('sl', 90, null, 2)).toBeNull()
+    expect(linkedTicketOpposite('tp', 120, undefined, 2)).toBeNull()
+    expect(linkedTicketOpposite('sl', 100, 100, 2)).toBeNull()
   })
 })
 

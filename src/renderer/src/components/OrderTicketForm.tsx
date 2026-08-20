@@ -3,6 +3,7 @@ import { ArrowDownCircle, ArrowUpCircle, CircleX } from 'lucide-react'
 import IconButton from '@/components/IconButton'
 import LevelPriceControl, { parseLevelPrice } from '@/components/LevelPriceControl'
 import RiskRewardControl from '@/components/RiskRewardControl'
+import Tooltip from '@/components/Tooltip'
 import TradeSizeControl from '@/components/TradeSizeControl'
 import { formatPnl, formatPositionSize, pnlScaleForSymbol, unrealizedPnl, canPlaceTicketSide, type TicketOrderType } from '@/lib/paperTrade'
 import { formatAssetPrice } from '@shared/pricePrecision'
@@ -15,7 +16,7 @@ type OrderTicketFormProps = {
   compact?: boolean
 }
 
-export default function OrderTicketForm({ compact = false }: OrderTicketFormProps) {
+export default function OrderTicketForm({ compact: _compact = false }: OrderTicketFormProps) {
   const limitInputRef = useRef<HTMLInputElement>(null)
   const tpInputRef = useRef<HTMLInputElement>(null)
   const slInputRef = useRef<HTMLInputElement>(null)
@@ -93,7 +94,7 @@ export default function OrderTicketForm({ compact = false }: OrderTicketFormProp
       setTakeProfit(value, { linkRr: true })
       return
     }
-    setTicketTakeProfit(value)
+    setTicketTakeProfit(value, { linkRr: true })
   }
 
   function onSlChange(value: number | null): void {
@@ -101,7 +102,7 @@ export default function OrderTicketForm({ compact = false }: OrderTicketFormProp
       setStopLoss(value, { linkRr: true })
       return
     }
-    setTicketStopLoss(value)
+    setTicketStopLoss(value, { linkRr: true })
   }
 
   function submit(side: 'long' | 'short'): void {
@@ -141,7 +142,7 @@ export default function OrderTicketForm({ compact = false }: OrderTicketFormProp
     }`
 
   return (
-    <div className={`flex flex-col gap-2 ${compact ? '' : 'min-h-0'}`}>
+    <div className="flex flex-col gap-2">
       <div className="flex rounded border border-zinc-800 bg-zinc-900/40 p-0.5">
         <button
           type="button"
@@ -208,9 +209,12 @@ export default function OrderTicketForm({ compact = false }: OrderTicketFormProp
         onPickClick={() => setPricePick('sl')}
       />
 
-      <div className={`flex ${compact ? 'flex-wrap' : ''} items-stretch gap-1`}>
-        <IconButton
-          tooltip={
+      <RiskRewardControl />
+
+      <div className="grid w-full grid-cols-2 gap-1">
+        <Tooltip
+          className="min-w-0 w-full"
+          text={
             !canBuy && orderType === 'limit' && limitPrice == null
               ? 'Pick or type a limit price'
               : !canBuy && orderType === 'limit'
@@ -221,17 +225,20 @@ export default function OrderTicketForm({ compact = false }: OrderTicketFormProp
                     ? 'Buy Limit — wait for price to trade down to the limit'
                     : 'Buy — open long at the current close'
           }
-          disabled={!canBuy}
-          onClick={() => submit('long')}
-          tone="success"
-          active
-          className="!h-8 !w-auto min-w-0 flex-1 gap-1 px-2.5"
         >
-          <ArrowUpCircle className="h-4 w-4" />
-          <span className="text-xs font-semibold">Buy</span>
-        </IconButton>
-        <IconButton
-          tooltip={
+          <button
+            type="button"
+            disabled={!canBuy}
+            onClick={() => submit('long')}
+            className="inline-flex h-8 w-full items-center justify-center gap-1 rounded border border-emerald-500/70 bg-emerald-950/50 text-emerald-300 transition-colors enabled:hover:border-emerald-400 enabled:hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ArrowUpCircle className="h-4 w-4" />
+            <span className="text-xs font-semibold">Buy</span>
+          </button>
+        </Tooltip>
+        <Tooltip
+          className="min-w-0 w-full"
+          text={
             !canSell && orderType === 'limit' && limitPrice == null
               ? 'Pick or type a limit price'
               : !canSell && orderType === 'limit'
@@ -242,15 +249,17 @@ export default function OrderTicketForm({ compact = false }: OrderTicketFormProp
                     ? 'Sell Limit — wait for price to trade up to the limit'
                     : 'Sell — open short at the current close'
           }
-          disabled={!canSell}
-          onClick={() => submit('short')}
-          tone="danger"
-          active
-          className="!h-8 !w-auto min-w-0 flex-1 gap-1 px-2.5"
         >
-          <ArrowDownCircle className="h-4 w-4" />
-          <span className="text-xs font-semibold">Sell</span>
-        </IconButton>
+          <button
+            type="button"
+            disabled={!canSell}
+            onClick={() => submit('short')}
+            className="inline-flex h-8 w-full items-center justify-center gap-1 rounded border border-red-500/70 bg-red-950/50 text-red-300 transition-colors enabled:hover:border-red-400 enabled:hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ArrowDownCircle className="h-4 w-4" />
+            <span className="text-xs font-semibold">Sell</span>
+          </button>
+        </Tooltip>
       </div>
 
       {canClose && (
@@ -276,8 +285,6 @@ export default function OrderTicketForm({ compact = false }: OrderTicketFormProp
           <span className="text-xs font-semibold">Cancel</span>
         </IconButton>
       )}
-
-      <RiskRewardControl compact={compact} />
 
       {pendingOrder && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] tabular-nums">

@@ -54,6 +54,7 @@ import {
   isValidStopLoss,
   isValidTakeProfit,
   inferTicketSide,
+  linkedTicketOpposite,
   pendingToPosition,
   pnlForSide,
   pnlScaleForSymbol,
@@ -117,7 +118,7 @@ type DragState =
   | { kind: 'place-two'; tool: TwoPointTool; startX: number; startY: number; moved: boolean }
   | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
   | { kind: 'pending'; moved: boolean }
-  | { kind: 'draft'; level: 'limit' | 'tp' | 'sl'; moved: boolean; linkRr: boolean }
+  | { kind: 'draft'; level: 'limit' | 'tp' | 'sl'; moved: boolean; linkRr: boolean; rrSource?: 'tp' | 'sl' }
 
 function wantsClone(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
   return event.ctrlKey || event.metaKey
@@ -611,6 +612,23 @@ export default function DrawingOverlay({
         const state = useReplayStore.getState()
         if (drag.level === 'limit') {
           setTicketLimitPrice(price)
+          if (drag.linkRr && drag.rrSource === 'sl' && state.ticketStopLoss != null) {
+            const linkedTp = linkedTicketOpposite(
+              'sl',
+              state.ticketStopLoss,
+              price,
+              state.riskReward
+            )
+            if (linkedTp != null) setTicketTakeProfit(linkedTp)
+          } else if (drag.linkRr && drag.rrSource === 'tp' && state.ticketTakeProfit != null) {
+            const linkedSl = linkedTicketOpposite(
+              'tp',
+              state.ticketTakeProfit,
+              price,
+              state.riskReward
+            )
+            if (linkedSl != null) setTicketStopLoss(linkedSl)
+          }
           return
         }
         const entry =
@@ -620,21 +638,15 @@ export default function DrawingOverlay({
         if (drag.level === 'tp') {
           setTicketTakeProfit(price)
           if (drag.linkRr && entry != null) {
-            const side = price > entry ? 'long' : price < entry ? 'short' : null
-            if (side) {
-              const linkedSl = stopLossFromTakeProfit(side, entry, price, state.riskReward)
-              if (linkedSl != null) setTicketStopLoss(linkedSl)
-            }
+            const linkedSl = linkedTicketOpposite('tp', price, entry, state.riskReward)
+            if (linkedSl != null) setTicketStopLoss(linkedSl)
           }
           return
         }
         setTicketStopLoss(price)
         if (drag.linkRr && entry != null) {
-          const side = price < entry ? 'long' : price > entry ? 'short' : null
-          if (side) {
-            const linkedTp = takeProfitFromStopLoss(side, entry, price, state.riskReward)
-            if (linkedTp != null) setTicketTakeProfit(linkedTp)
-          }
+          const linkedTp = linkedTicketOpposite('sl', price, entry, state.riskReward)
+          if (linkedTp != null) setTicketTakeProfit(linkedTp)
         }
         return
       }
@@ -1165,16 +1177,26 @@ export default function DrawingOverlay({
     const y = series?.priceToCoordinate(price)
     if (y == null) return null
     const hasEntry = ticketOrderType === 'limit' ? ticketLimitPrice != null : markCandle?.close != null
+    const rrSource: 'tp' | 'sl' | undefined =
+      level === 'limit'
+        ? ticketStopLoss != null && ticketTakeProfit == null
+          ? 'sl'
+          : ticketTakeProfit != null && ticketStopLoss == null
+            ? 'tp'
+            : undefined
+        : undefined
     const linkRr =
       draggable &&
-      hasEntry &&
-      ((level === 'tp' && ticketStopLoss == null) ||
-        (level === 'sl' && ticketTakeProfit == null))
+      (level === 'limit'
+        ? rrSource != null
+        : hasEntry &&
+          ((level === 'tp' && ticketStopLoss == null) ||
+            (level === 'sl' && ticketTakeProfit == null)))
     const badgeW = label === 'Entry' ? 44 : 28
     const badgeX = Math.max(8, plotRight - badgeW - 8)
     const start = draggable
       ? (event: ReactMouseEvent): void => {
-          startDrag(event, { kind: 'draft', level, moved: false, linkRr })
+          startDrag(event, { kind: 'draft', level, moved: false, linkRr, rrSource })
         }
       : undefined
     return (

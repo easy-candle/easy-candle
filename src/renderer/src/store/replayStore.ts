@@ -25,6 +25,8 @@ import {
   stopLossFromTakeProfit,
   summarizeSession,
   takeProfitFromStopLoss,
+  ticketEntryPrice,
+  linkedTicketOpposite,
   withPendingPrice,
   withPendingStopLoss,
   withPendingTakeProfit,
@@ -35,7 +37,8 @@ import {
   type Position,
   type PnlScale,
   type SessionSummary,
-  type TicketOrderType
+  type TicketOrderType,
+  type TicketDraftLevels
 } from '@/lib/paperTrade'
 
 export type LevelSetOptions = {
@@ -376,8 +379,8 @@ type ReplayStore = {
   setTradeSize: (value: number) => void
   setTakeProfit: (price: number | null, opts?: LevelSetOptions) => void
   setStopLoss: (price: number | null, opts?: LevelSetOptions) => void
-  setTicketTakeProfit: (price: number | null) => void
-  setTicketStopLoss: (price: number | null) => void
+  setTicketTakeProfit: (price: number | null, opts?: LevelSetOptions) => void
+  setTicketStopLoss: (price: number | null, opts?: LevelSetOptions) => void
   setTicketLimitPrice: (price: number | null) => void
   setTicketOrderType: (type: TicketOrderType) => void
   setPricePick: (kind: PricePickKind | null) => void
@@ -1307,6 +1310,78 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     set({ position: result.position, replayMessage: null })
   }
 
+  function currentDraftLevels(): TicketDraftLevels {
+    const s = get()
+    return {
+      orderType: s.ticketOrderType,
+      markPrice: s.currentCandle?.close,
+      limitPrice: s.ticketLimitPrice,
+      takeProfit: s.ticketTakeProfit,
+      stopLoss: s.ticketStopLoss
+    }
+  }
+
+  function trySetTicketTakeProfit(price: number | null, opts?: LevelSetOptions): void {
+    if (get().position || get().pendingOrder) return
+    const patch: { ticketTakeProfit: number | null; ticketStopLoss?: number | null } = {
+      ticketTakeProfit: price
+    }
+    if (opts?.linkRr && price != null && get().ticketStopLoss == null) {
+      const linked = linkedTicketOpposite(
+        'tp',
+        price,
+        ticketEntryPrice(currentDraftLevels()),
+        get().riskReward
+      )
+      if (linked != null) patch.ticketStopLoss = linked
+    }
+    set(patch)
+  }
+
+  function trySetTicketStopLoss(price: number | null, opts?: LevelSetOptions): void {
+    if (get().position || get().pendingOrder) return
+    const patch: { ticketStopLoss: number | null; ticketTakeProfit?: number | null } = {
+      ticketStopLoss: price
+    }
+    if (opts?.linkRr && price != null && get().ticketTakeProfit == null) {
+      const linked = linkedTicketOpposite(
+        'sl',
+        price,
+        ticketEntryPrice(currentDraftLevels()),
+        get().riskReward
+      )
+      if (linked != null) patch.ticketTakeProfit = linked
+    }
+    set(patch)
+  }
+
+  function trySetTicketLimitPrice(price: number | null): void {
+    if (get().position || get().pendingOrder) return
+    const s = get()
+    const patch: {
+      ticketLimitPrice: number | null
+      ticketTakeProfit?: number | null
+      ticketStopLoss?: number | null
+    } = { ticketLimitPrice: price }
+    const entry = ticketEntryPrice({
+      orderType: s.ticketOrderType,
+      markPrice: s.currentCandle?.close,
+      limitPrice: price,
+      takeProfit: s.ticketTakeProfit,
+      stopLoss: s.ticketStopLoss
+    })
+    if (entry != null) {
+      if (s.ticketStopLoss != null && s.ticketTakeProfit == null) {
+        const linked = linkedTicketOpposite('sl', s.ticketStopLoss, entry, s.riskReward)
+        if (linked != null) patch.ticketTakeProfit = linked
+      } else if (s.ticketTakeProfit != null && s.ticketStopLoss == null) {
+        const linked = linkedTicketOpposite('tp', s.ticketTakeProfit, entry, s.riskReward)
+        if (linked != null) patch.ticketStopLoss = linked
+      }
+    }
+    set(patch)
+  }
+
   /** Re-apply R:R guide to open or pending levels when the user changes the R:R control. */
   function applyRiskRewardGuide(riskReward: number): void {
     if (get().mode !== 'replay' || get().replayStatus === 'ended') return
@@ -1344,7 +1419,20 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
 
     const open = get().position
-    if (!open) return
+    if (!open) {
+      const entry = ticketEntryPrice(currentDraftLevels())
+      if (entry == null) return
+      const sl = get().ticketStopLoss
+      const tp = get().ticketTakeProfit
+      if (sl != null) {
+        const linked = linkedTicketOpposite('sl', sl, entry, riskReward)
+        if (linked != null) set({ ticketTakeProfit: linked })
+      } else if (tp != null) {
+        const linked = linkedTicketOpposite('tp', tp, entry, riskReward)
+        if (linked != null) set({ ticketStopLoss: linked })
+      }
+      return
+    }
 
     let next = open
     if (open.stopLoss != null) {
@@ -1910,19 +1998,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       setStopLoss(price, opts)
     },
 
-    setTicketTakeProfit(price) {
-      if (get().position || get().pendingOrder) return
-      set({ ticketTakeProfit: price })
+    setTicketTakeProfit(price, opts) {
+      trySetTicketTakeProfit(price, opts)
     },
 
-    setTicketStopLoss(price) {
-      if (get().position || get().pendingOrder) return
-      set({ ticketStopLoss: price })
+    setTicketStopLoss(price, opts) {
+      trySetTicketStopLoss(price, opts)
     },
 
     setTicketLimitPrice(price) {
-      if (get().position || get().pendingOrder) return
-      set({ ticketLimitPrice: price })
+      trySetTicketLimitPrice(price)
     },
 
     setTicketOrderType(type) {
@@ -1961,13 +2046,15 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           if (get().pendingOrder?.price === price) set({ pricePick: null })
           return
         }
-        set({ ticketLimitPrice: price, pricePick: null, replayMessage: null })
+        trySetTicketLimitPrice(price)
+        set({ pricePick: null, replayMessage: null })
         return
       }
 
       if (!open && !pending) {
-        if (kind === 'tp') set({ ticketTakeProfit: price, pricePick: null, replayMessage: null })
-        else set({ ticketStopLoss: price, pricePick: null, replayMessage: null })
+        if (kind === 'tp') trySetTicketTakeProfit(price, { linkRr: true })
+        else trySetTicketStopLoss(price, { linkRr: true })
+        set({ pricePick: null, replayMessage: null })
         return
       }
 
