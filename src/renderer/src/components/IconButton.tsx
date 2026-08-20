@@ -2,7 +2,7 @@ import type { MouseEvent, ReactNode } from 'react'
 import Tooltip from '@/components/Tooltip'
 
 type IconButtonProps = {
-  tooltip: string
+  tooltip?: string
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void
   disabled?: boolean
   active?: boolean
@@ -69,19 +69,25 @@ export default function IconButton({
     ? 'rounded border-0'
     : 'rounded border'
 
-  return (
+  const button = (
+    <button
+      type={type}
+      aria-label={tooltip}
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+      data-tour={dataTour}
+      className={`inline-flex shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${ghost ? 'h-9 w-9' : 'h-8 w-8'} ${chrome} ${activeClass} ${toneClass} ${className}`}
+    >
+      {children}
+    </button>
+  )
+
+  return tooltip ? (
     <Tooltip text={tooltip} kbds={shortcut} side={tooltipSide}>
-      <button
-        type={type}
-        aria-label={tooltip}
-        aria-pressed={pressed}
-        disabled={disabled}
-        onClick={onClick}
-        data-tour={dataTour}
-        className={`inline-flex shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${ghost ? 'h-9 w-9' : 'h-8 w-8'} ${chrome} ${activeClass} ${toneClass} ${className}`}
-      >
-        {children}
-      </button>
+      {button}
     </Tooltip>
+  ) : (
+    button
   )
 }

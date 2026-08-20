@@ -204,7 +204,7 @@ export default function ReplayControls() {
             onChange={(e) => setJumpTime(e.target.value)}
             className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
           />
-          <IconButton tooltip="Jump to UTC time" type="submit" tooltipSide="top" disabled={busy}>
+          <IconButton type="submit" disabled={busy}>
             <SkipForward className="h-4 w-4" />
           </IconButton>
           {jumpError && <span className="text-xs text-red-400">{jumpError}</span>}
