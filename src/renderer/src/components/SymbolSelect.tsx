@@ -35,7 +35,9 @@ export default function SymbolSelect(): ReactElement {
   const hiddenSymbols = useSymbolVisibilityStore((s) => s.hiddenSymbols)
   const hiddenImports = useSymbolVisibilityStore((s) => s.hiddenImports)
   const collapsedGroups = useSymbolVisibilityStore((s) => s.collapsedGroups)
+  const collapsedImports = useSymbolVisibilityStore((s) => s.collapsedImports)
   const toggleGroupCollapsed = useSymbolVisibilityStore((s) => s.toggleGroupCollapsed)
+  const toggleImportsCollapsed = useSymbolVisibilityStore((s) => s.toggleImportsCollapsed)
   const setSymbolManagerDialogOpen = useUiLayoutStore((s) => s.setSymbolManagerDialogOpen)
 
   const [query, setQuery] = useState('')
@@ -137,30 +139,40 @@ export default function SymbolSelect(): ReactElement {
           <div className="min-h-0 flex-1 overflow-y-auto py-1">
             {filteredImported.length > 0 && (
               <div className="mb-1">
-                <div className="px-3 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <button
+                  type="button"
+                  aria-expanded={!collapsedImports}
+                  onClick={toggleImportsCollapsed}
+                  className="flex w-full items-center gap-1.5 px-3 pb-0.5 pt-1 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-500 transition-colors hover:text-zinc-300"
+                >
+                  <ChevronDown
+                    className={`h-3 w-3 shrink-0 transition-transform ${collapsedImports ? '-rotate-90' : ''}`}
+                    aria-hidden
+                  />
                   Imported
-                </div>
-                {filteredImported.map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      void selectImported(entry.id).then(close)
-                    }}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                      imported && importMeta?.id === entry.id
-                        ? 'bg-amber-950/10 dark:bg-amber-950/40 text-amber-300'
-                        : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100'
-                    }`}
-                  >
-                    <span className="w-4 shrink-0" />
-                    <span className="flex-1">{entry.symbol}</span>
-                    {imported && importMeta?.id === entry.id && (
-                      <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    )}
-                  </button>
-                ))}
+                </button>
+                {!collapsedImports &&
+                  filteredImported.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        void selectImported(entry.id).then(close)
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                        imported && importMeta?.id === entry.id
+                          ? 'bg-amber-950/10 dark:bg-amber-950/40 text-amber-300'
+                          : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100'
+                      }`}
+                    >
+                      <span className="w-4 shrink-0" />
+                      <span className="flex-1">{entry.symbol}</span>
+                      {imported && importMeta?.id === entry.id && (
+                        <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      )}
+                    </button>
+                  ))}
               </div>
             )}
 

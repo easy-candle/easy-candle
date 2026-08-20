@@ -12,6 +12,8 @@ type SymbolVisibilityState = {
   hiddenImports: string[]
   /** Group keys currently collapsed in the symbol picker. */
   collapsedGroups: string[]
+  /** Whether the Imported section is collapsed in the symbol picker. */
+  collapsedImports: boolean
   isGroupHidden: (key: string) => boolean
   isSymbolHidden: (symbol: string) => boolean
   isImportHidden: (id: string) => boolean
@@ -20,6 +22,7 @@ type SymbolVisibilityState = {
   toggleSymbol: (symbol: string) => void
   toggleImport: (id: string) => void
   toggleGroupCollapsed: (key: string) => void
+  toggleImportsCollapsed: () => void
   reset: () => void
 }
 
@@ -49,6 +52,7 @@ function loadPersisted(): {
   hiddenSymbols: string[]
   hiddenImports: string[]
   collapsedGroups: string[]
+  collapsedImports: boolean
 } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -57,26 +61,30 @@ function loadPersisted(): {
         hiddenGroups: [],
         hiddenSymbols: [],
         hiddenImports: [],
-        collapsedGroups: defaultCollapsedGroups()
+        collapsedGroups: defaultCollapsedGroups(),
+        collapsedImports: false
       }
     const parsed = JSON.parse(raw) as {
       hiddenGroups?: unknown
       hiddenSymbols?: unknown
       hiddenImports?: unknown
       collapsedGroups?: unknown
+      collapsedImports?: unknown
     }
     return {
       hiddenGroups: sanitizeKeys(parsed?.hiddenGroups, KNOWN_GROUP_KEYS),
       hiddenSymbols: sanitizeKeys(parsed?.hiddenSymbols, KNOWN_SYMBOL_KEYS),
       hiddenImports: sanitizeImportIds(parsed?.hiddenImports),
-      collapsedGroups: sanitizeKeys(parsed?.collapsedGroups, KNOWN_GROUP_KEYS)
+      collapsedGroups: sanitizeKeys(parsed?.collapsedGroups, KNOWN_GROUP_KEYS),
+      collapsedImports: parsed?.collapsedImports === true
     }
   } catch {
     return {
       hiddenGroups: [],
       hiddenSymbols: [],
       hiddenImports: [],
-      collapsedGroups: defaultCollapsedGroups()
+      collapsedGroups: defaultCollapsedGroups(),
+      collapsedImports: false
     }
   }
 }
@@ -85,12 +93,19 @@ function persist(
   hiddenGroups: string[],
   hiddenSymbols: string[],
   hiddenImports: string[],
-  collapsedGroups: string[]
+  collapsedGroups: string[],
+  collapsedImports: boolean
 ): void {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ hiddenGroups, hiddenSymbols, hiddenImports, collapsedGroups })
+      JSON.stringify({
+        hiddenGroups,
+        hiddenSymbols,
+        hiddenImports,
+        collapsedGroups,
+        collapsedImports
+      })
     )
   } catch {
     // ignore quota / private mode
@@ -104,6 +119,7 @@ export const useSymbolVisibilityStore = create<SymbolVisibilityState>((set, get)
   hiddenSymbols: initial.hiddenSymbols,
   hiddenImports: initial.hiddenImports,
   collapsedGroups: initial.collapsedGroups,
+  collapsedImports: initial.collapsedImports,
 
   isGroupHidden: (key) => get().hiddenGroups.includes(key),
 
@@ -121,7 +137,13 @@ export const useSymbolVisibilityStore = create<SymbolVisibilityState>((set, get)
       : [...get().hiddenGroups, key]
 
     set({ hiddenGroups })
-    persist(hiddenGroups, get().hiddenSymbols, get().hiddenImports, get().collapsedGroups)
+    persist(
+      hiddenGroups,
+      get().hiddenSymbols,
+      get().hiddenImports,
+      get().collapsedGroups,
+      get().collapsedImports
+    )
   },
 
   toggleSymbol: (symbol) => {
@@ -134,7 +156,13 @@ export const useSymbolVisibilityStore = create<SymbolVisibilityState>((set, get)
       : [...get().hiddenSymbols, key]
 
     set({ hiddenSymbols })
-    persist(get().hiddenGroups, hiddenSymbols, get().hiddenImports, get().collapsedGroups)
+    persist(
+      get().hiddenGroups,
+      hiddenSymbols,
+      get().hiddenImports,
+      get().collapsedGroups,
+      get().collapsedImports
+    )
   },
 
   toggleImport: (id) => {
@@ -146,7 +174,13 @@ export const useSymbolVisibilityStore = create<SymbolVisibilityState>((set, get)
       : [...get().hiddenImports, id]
 
     set({ hiddenImports })
-    persist(get().hiddenGroups, get().hiddenSymbols, hiddenImports, get().collapsedGroups)
+    persist(
+      get().hiddenGroups,
+      get().hiddenSymbols,
+      hiddenImports,
+      get().collapsedGroups,
+      get().collapsedImports
+    )
   },
 
   toggleGroupCollapsed: (key) => {
@@ -157,7 +191,24 @@ export const useSymbolVisibilityStore = create<SymbolVisibilityState>((set, get)
       : [...get().collapsedGroups, key]
 
     set({ collapsedGroups })
-    persist(get().hiddenGroups, get().hiddenSymbols, get().hiddenImports, collapsedGroups)
+    persist(
+      get().hiddenGroups,
+      get().hiddenSymbols,
+      get().hiddenImports,
+      collapsedGroups,
+      get().collapsedImports
+    )
+  },
+
+  toggleImportsCollapsed: () => {
+    set({ collapsedImports: !get().collapsedImports })
+    persist(
+      get().hiddenGroups,
+      get().hiddenSymbols,
+      get().hiddenImports,
+      get().collapsedGroups,
+      get().collapsedImports
+    )
   },
 
   reset: () => {
@@ -165,8 +216,9 @@ export const useSymbolVisibilityStore = create<SymbolVisibilityState>((set, get)
       hiddenGroups: [],
       hiddenSymbols: [],
       hiddenImports: [],
-      collapsedGroups: defaultCollapsedGroups()
+      collapsedGroups: defaultCollapsedGroups(),
+      collapsedImports: false
     })
-    persist([], [], [], defaultCollapsedGroups())
+    persist([], [], [], defaultCollapsedGroups(), false)
   }
 }))
