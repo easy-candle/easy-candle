@@ -18,6 +18,8 @@ type IconButtonProps = {
   variant?: 'default' | 'ghost'
   /** When set, the button is a toggle and exposes aria-pressed. */
   pressed?: boolean
+  /** Stable selector for the first-run app tour spotlight. */
+  dataTour?: string
 }
 
 export default function IconButton({
@@ -32,7 +34,8 @@ export default function IconButton({
   shortcut,
   tooltipSide = 'bottom',
   variant = 'default',
-  pressed
+  pressed,
+  dataTour
 }: IconButtonProps) {
   const ghost = variant === 'ghost'
 
@@ -74,6 +77,7 @@ export default function IconButton({
         aria-pressed={pressed}
         disabled={disabled}
         onClick={onClick}
+        data-tour={dataTour}
         className={`inline-flex shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${ghost ? 'h-9 w-9' : 'h-8 w-8'} ${chrome} ${activeClass} ${toneClass} ${className}`}
       >
         {children}

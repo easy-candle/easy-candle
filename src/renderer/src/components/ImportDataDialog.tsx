@@ -306,6 +306,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     <>
       <IconButton
         tooltip="Import data"
+        dataTour="import-data"
         disabled={disabled}
         tone="accent"
         onClick={() => {

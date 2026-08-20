@@ -99,6 +99,7 @@ export default function MenuBar() {
   const togglePaperTrade = useUiLayoutStore((s) => s.togglePaperTrade)
   const setShortcutsDialogOpen = useUiLayoutStore((s) => s.setShortcutsDialogOpen)
   const setAboutDialogOpen = useUiLayoutStore((s) => s.setAboutDialogOpen)
+  const startTour = useUiLayoutStore((s) => s.startTour)
   const setImportDataDialogOpen = useUiLayoutStore((s) => s.setImportDataDialogOpen)
   const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
   const theme = useThemeStore((s) => s.theme)
@@ -178,6 +179,11 @@ export default function MenuBar() {
     {
       label: 'Help',
       entries: [
+        {
+          type: 'item',
+          label: 'Take a tour',
+          onSelect: startTour
+        },
         {
           type: 'item',
           label: 'Keyboard Shortcuts',

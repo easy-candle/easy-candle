@@ -217,6 +217,7 @@ export default function ReplayStartDialog() {
     <>
       <IconButton
         tooltip="Start replay"
+        dataTour="replay"
         disabled={disabled || !canStart}
         tone="accent"
         onClick={openModal}

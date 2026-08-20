@@ -71,6 +71,7 @@ export default function TimeframeSelect() {
             onClick={toggle}
             aria-label="Timeframe"
             aria-expanded={open}
+            data-tour="timeframe"
             className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Clock3 className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />

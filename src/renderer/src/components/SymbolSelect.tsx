@@ -43,7 +43,10 @@ export default function SymbolSelect() {
   }
 
   return (
-    <label className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400">
+    <label
+      className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400"
+      data-tour="symbol"
+    >
       <ChartCandlestick className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
       <span className="sr-only">Symbol</span>
       <select

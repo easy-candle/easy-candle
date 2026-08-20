@@ -14,6 +14,7 @@ import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import { formatAssetPrice } from '@shared/pricePrecision'
 import { usePricePrecision } from '@/hooks/usePricePrecision'
 import { useReplayStore } from '@/store/replayStore'
+import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import Tooltip from '@/components/Tooltip'
 
 /** Session PnL + open/pending/closed list. Submit lives in the right-column ticket. */
@@ -28,8 +29,9 @@ export default function TradePanel() {
   const tradeSize = useReplayStore((s) => s.tradeSize)
   const pricePrecision = usePricePrecision()
   const symbol = useReplayStore((s) => s.symbol)
+  const preview = useUiLayoutStore((s) => s.tourPaperTradePreview)
 
-  if (mode !== 'replay') return null
+  if (mode !== 'replay' && !preview) return null
 
   const mark = currentCandle?.close
   const scale = pnlScaleForSymbol(symbol, position?.lots ?? tradeSize)
@@ -48,7 +50,12 @@ export default function TradePanel() {
   const empty = !position && !pendingOrder && closedTrades.length === 0
 
   return (
-    <div className="mt-1.5 shrink-0 rounded-sm border border-zinc-800 bg-zinc-950/90">
+    <div
+      inert={preview || undefined}
+      className={`mt-1.5 shrink-0 rounded-sm border border-zinc-800 bg-zinc-950/90 ${
+        preview ? 'pointer-events-none' : ''
+      }`}
+    >
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800/80 px-3 py-2">
         <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Paper trade</span>
 

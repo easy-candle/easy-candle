@@ -25,6 +25,7 @@ export default function DrawingToolbar() {
     <div
       role="toolbar"
       aria-label="Drawing tools"
+      data-tour="drawing-toolbar"
       className="flex h-full w-[49px] rounded-sm shrink-0 flex-col items-center gap-0.5 border border-zinc-800 bg-zinc-900/60 px-1.5 py-2"
     >
       <IconButton
