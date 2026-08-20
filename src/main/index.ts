@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerImportIpc } from './importStore'
 import { registerKlinesIpc } from './klines'
+import { registerMtBridgeIpc, stopMtBridge } from './mtBridge'
 import { setupAutoUpdater } from './updater'
 
 function createWindow(): void {
@@ -93,12 +94,17 @@ app.whenReady().then(() => {
 
   registerKlinesIpc()
   registerImportIpc()
+  registerMtBridgeIpc()
   setupAutoUpdater()
   createWindow()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  stopMtBridge()
 })
 
 app.on('window-all-closed', () => {

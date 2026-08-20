@@ -10,6 +10,7 @@ import type {
   ImportSaveResult
 } from '../shared/importTypes'
 import type { KlinesFetchParams, KlinesFetchResult } from '../shared/klinesTypes'
+import type { MtBridgeIpcEvent, MtBridgeStatusResult, MtPreviewLoadResult } from '../shared/mtBridgeTypes'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
@@ -30,6 +31,12 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): () => vo
 const api = {
   fetchKlines: (params: KlinesFetchParams): Promise<KlinesFetchResult> =>
     ipcRenderer.invoke('klines:fetch', params),
+  mtBridgeStart: (): Promise<MtBridgeStatusResult> => ipcRenderer.invoke('mtbridge:start'),
+  mtBridgeStop: (): Promise<MtBridgeStatusResult> => ipcRenderer.invoke('mtbridge:stop'),
+  mtBridgeStatus: (): Promise<MtBridgeStatusResult> => ipcRenderer.invoke('mtbridge:status'),
+  mtBridgePreview: (): Promise<MtPreviewLoadResult> => ipcRenderer.invoke('mtbridge:preview'),
+  onMtBridgeEvent: (callback: (payload: MtBridgeIpcEvent) => void): (() => void) =>
+    subscribe('mtbridge:event', callback),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   minimizeWindow: (): void => ipcRenderer.send('window:minimize'),
   toggleMaximizeWindow: (): void => ipcRenderer.send('window:toggle-maximize'),

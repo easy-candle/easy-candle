@@ -40,6 +40,7 @@
     "lucide-react": "^1.25.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "ws": "^8.21.3",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
@@ -49,6 +50,7 @@
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.21",
     "electron": "^39.2.6",

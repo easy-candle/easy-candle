@@ -38,6 +38,16 @@ export default function App() {
     void loadCandles()
   }, [loadCandles])
 
+  useEffect(() => {
+    const unsub = window.api.onMtBridgeEvent((event) => {
+      useReplayStore.getState().handleMtBridgeEvent(event)
+    })
+    void window.api.mtBridgeStatus().then((status) => {
+      useReplayStore.getState().syncMtBridgeStatus(status)
+    })
+    return unsub
+  }, [])
+
   const overlaySource = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
   const secondaryOverlaySource =
     mode === 'replay' ? (secondaryVisibleCandles ?? []) : (secondaryCandles ?? [])
@@ -123,7 +133,7 @@ export default function App() {
               timeframeDisabled={secondaryTfDisabled}
               timeframeTitle={
                 dataSource === 'imported'
-                  ? 'Secondary pane can use another Binance timeframe for the same symbol'
+                  ? 'Secondary pane can use another timeframe from the same import'
                   : undefined
               }
               onTimeframeChange={setSecondaryTimeframe}

@@ -1,12 +1,18 @@
 import type { Candle } from './candleUtils'
 
-export type DataSource = 'binance' | 'imported'
+export type DataSource = 'binance' | 'imported' | 'mtbridge'
+
+export function isBinanceDataSource(source: DataSource): boolean {
+  return source === 'binance'
+}
 
 export type ImportedTimeframeStats = {
   candleCount: number
   firstTime: number
   lastTime: number
 }
+
+export type ImportOrigin = 'csv' | 'metatrader'
 
 export type ImportedDatasetMeta = {
   id: string
@@ -24,6 +30,13 @@ export type ImportedDatasetMeta = {
   timeframes: Record<string, ImportedTimeframeStats>
   createdAt: string
   updatedAt: string
+  /** Absent on older CSV imports — treat as csv. */
+  origin?: ImportOrigin
+}
+
+export function isMetatraderImport(meta: ImportedDatasetMeta | null | undefined): boolean {
+  if (!meta) return false
+  return meta.origin === 'metatrader' || meta.id.startsWith('mt-')
 }
 
 export type ImportParseSuccess = {
@@ -63,6 +76,7 @@ export type ImportSaveParams = {
   /** All stored timeframes keyed by id (must include 1m). */
   candlesByTimeframe: Record<string, Candle[]>
   replaceId?: string
+  origin?: ImportOrigin
 }
 
 export type ImportSaveResult =
