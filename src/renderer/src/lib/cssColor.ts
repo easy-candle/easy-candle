@@ -69,7 +69,8 @@ export function toColorString({ r, g, b, a }: Rgba): string {
 }
 
 export function sanitizeCssColor(value: unknown, fallback: string): string {
-  if (!isCssColor(value)) return fallback
+  if (typeof value !== 'string' || !isCssColor(value)) return fallback
+  if (value.startsWith('#')) return value
   return toColorString(parseColor(value))
 }
 
