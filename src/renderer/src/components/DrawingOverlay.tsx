@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent
-} from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   CrosshairMode,
   LineStyle,
@@ -55,8 +49,12 @@ import {
   formatPnlUsd,
   formatRiskReward,
   formatTradeSizeForSymbol,
+  isValidLimitPrice,
+  isValidPendingStopLoss,
   isValidStopLoss,
   isValidTakeProfit,
+  inferTicketSide,
+  pendingToPosition,
   pnlForSide,
   pnlScaleForSymbol,
   realizedRiskReward,
@@ -118,6 +116,8 @@ type DragState =
   | { kind: 'pos-place'; id: string; level: PositionLevel; moved: boolean }
   | { kind: 'place-two'; tool: TwoPointTool; startX: number; startY: number; moved: boolean }
   | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
+  | { kind: 'pending'; moved: boolean }
+  | { kind: 'draft'; level: 'limit' | 'tp' | 'sl'; moved: boolean; linkRr: boolean }
 
 function wantsClone(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
   return event.ctrlKey || event.metaKey
@@ -234,15 +234,7 @@ function setDrawingCrosshair(
   chart.setCrosshairPosition(price, time as Time, series)
 }
 
-function CloseGlyph({
-  cx,
-  cy,
-  color
-}: {
-  cx: number
-  cy: number
-  color: string
-}) {
+function CloseGlyph({ cx, cy, color }: { cx: number; cy: number; color: string }) {
   const s = 3.5
   return (
     <g className="pointer-events-none" stroke={color} strokeWidth={1.6} strokeLinecap="round">
@@ -267,6 +259,7 @@ export default function DrawingOverlay({
   const selectedDrawingId = useReplayStore((s) => s.selectedDrawingId)
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const position = useReplayStore((s) => s.position)
+  const pendingOrder = useReplayStore((s) => s.pendingOrder)
   const markCandle = useReplayStore((s) => s.currentCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
@@ -285,6 +278,18 @@ export default function DrawingOverlay({
   const setTakeProfit = useReplayStore((s) => s.setTakeProfit)
   const setStopLoss = useReplayStore((s) => s.setStopLoss)
   const paperClose = useReplayStore((s) => s.paperClose)
+  const cancelPending = useReplayStore((s) => s.cancelPending)
+  const setPendingPrice = useReplayStore((s) => s.setPendingPrice)
+  const pricePick = useReplayStore((s) => s.pricePick)
+  const applyPricePick = useReplayStore((s) => s.applyPricePick)
+  const setPricePick = useReplayStore((s) => s.setPricePick)
+  const ticketOrderType = useReplayStore((s) => s.ticketOrderType)
+  const ticketLimitPrice = useReplayStore((s) => s.ticketLimitPrice)
+  const ticketTakeProfit = useReplayStore((s) => s.ticketTakeProfit)
+  const ticketStopLoss = useReplayStore((s) => s.ticketStopLoss)
+  const setTicketLimitPrice = useReplayStore((s) => s.setTicketLimitPrice)
+  const setTicketTakeProfit = useReplayStore((s) => s.setTicketTakeProfit)
+  const setTicketStopLoss = useReplayStore((s) => s.setTicketStopLoss)
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
   const symbol = useReplayStore((s) => s.symbol)
@@ -401,7 +406,11 @@ export default function DrawingOverlay({
   }, [chart, canSelect, selectDrawing])
 
   const placing =
-    canDraw && (drawTool === 'hline' || isTwoPointTool(drawTool) || isPositionTool(drawTool))
+    canDraw &&
+    (drawTool === 'hline' ||
+      isTwoPointTool(drawTool) ||
+      isPositionTool(drawTool) ||
+      pricePick != null)
 
   // Overlay captures pointer events while placing, so the chart never sees
   // mousemove — keep the native haircross (and price label) in sync ourselves.
@@ -426,6 +435,73 @@ export default function DrawingOverlay({
       chart.clearCrosshairPosition()
     }
   }, [placing, chart])
+
+  // Track the pointer immediately in pick mode (mouse may already be over the chart).
+  useEffect(() => {
+    if (!pricePick || !chart || !series) return undefined
+    const pickChart = chart
+    const pickSeries = series
+
+    function onWinMove(event: MouseEvent): void {
+      const el = pickChart.chartElement()
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const plotRight = plotRightX(
+        el.clientWidth,
+        pickChart.priceScale('right').width(),
+        pickChart.timeScale().width()
+      )
+      const x = event.clientX - rect.left
+      const y = event.clientY - rect.top
+      if (x < 0 || y < 0 || x > plotRight || y > el.clientHeight) {
+        setHover(null)
+        setLevelPreview(null)
+        pickChart.clearCrosshairPosition()
+        return
+      }
+      const cx = clampXToPlot(x, plotRight)
+      setHover({ x: cx, y })
+      setDrawingCrosshair(pickChart, pickSeries, cx, y, paneCandlesRef.current, intervalSeconds)
+      const price = pickSeries.coordinateToPrice(y)
+      if (price == null || !Number.isFinite(price)) return
+      const state = useReplayStore.getState()
+      const working =
+        state.position ??
+        (state.pendingOrder != null
+          ? pendingToPosition(state.pendingOrder, state.pendingOrder.placedTime)
+          : null)
+      if (!working) {
+        setLevelPreview(null)
+        return
+      }
+      const kind = state.pricePick
+      if (kind !== 'tp' && kind !== 'sl') {
+        setLevelPreview(null)
+        return
+      }
+      const otherMissing = kind === 'tp' ? working.stopLoss == null : working.takeProfit == null
+      const linked = otherMissing
+        ? linkedLevelForDrag(
+            kind,
+            price,
+            working.side,
+            working.entryPrice,
+            state.riskReward,
+            pickSeries
+          )
+        : { linkedPrice: null, linkedY: null }
+      setLevelPreview({
+        kind,
+        price,
+        y,
+        linkedPrice: linked.linkedPrice,
+        linkedY: linked.linkedY
+      })
+    }
+
+    window.addEventListener('mousemove', onWinMove)
+    return () => window.removeEventListener('mousemove', onWinMove)
+  }, [pricePick, chart, series, intervalSeconds])
 
   // Document-level drag so handles stay under the cursor outside the SVG.
   useEffect(() => {
@@ -518,18 +594,66 @@ export default function DrawingOverlay({
         return
       }
 
+      if (drag.kind === 'pending') {
+        drag.moved = true
+        const state = useReplayStore.getState()
+        const pending = state.pendingOrder
+        const mark = state.currentCandle?.close
+        if (!pending || mark == null) return
+        if (isValidLimitPrice(pending.side, mark, price)) {
+          setPendingPrice(price)
+        }
+        return
+      }
+
+      if (drag.kind === 'draft') {
+        drag.moved = true
+        const state = useReplayStore.getState()
+        if (drag.level === 'limit') {
+          setTicketLimitPrice(price)
+          return
+        }
+        const entry =
+          state.ticketOrderType === 'limit'
+            ? state.ticketLimitPrice
+            : (state.currentCandle?.close ?? null)
+        if (drag.level === 'tp') {
+          setTicketTakeProfit(price)
+          if (drag.linkRr && entry != null) {
+            const side = price > entry ? 'long' : price < entry ? 'short' : null
+            if (side) {
+              const linkedSl = stopLossFromTakeProfit(side, entry, price, state.riskReward)
+              if (linkedSl != null) setTicketStopLoss(linkedSl)
+            }
+          }
+          return
+        }
+        setTicketStopLoss(price)
+        if (drag.linkRr && entry != null) {
+          const side = price < entry ? 'long' : price > entry ? 'short' : null
+          if (side) {
+            const linkedTp = takeProfitFromStopLoss(side, entry, price, state.riskReward)
+            if (linkedTp != null) setTicketTakeProfit(linkedTp)
+          }
+        }
+        return
+      }
+
       if (drag.kind === 'tp' || drag.kind === 'sl') {
         drag.moved = true
         const state = useReplayStore.getState()
         const open = state.position
+        const pending = state.pendingOrder
+        const working =
+          open ?? (pending != null ? pendingToPosition(pending, pending.placedTime) : null)
         // Guide preview only while placing the first level; later moves are free.
         const linked =
-          drag.mode === 'place' && open != null
+          drag.mode === 'place' && working != null
             ? linkedLevelForDrag(
                 drag.kind,
                 price,
-                open.side,
-                open.entryPrice,
+                working.side,
+                working.entryPrice,
                 state.riskReward,
                 series
               )
@@ -542,14 +666,18 @@ export default function DrawingOverlay({
           linkedY: linked.linkedY
         })
         if (drag.mode === 'move') {
-          if (!open) return
+          if (!working) return
           if (drag.kind === 'tp') {
-            if (isValidTakeProfit(open.side, open.entryPrice, price)) {
+            if (isValidTakeProfit(working.side, working.entryPrice, price)) {
               setTakeProfit(price)
+            }
+          } else if (pending && !open) {
+            if (isValidPendingStopLoss(pending.side, pending.price, price)) {
+              setStopLoss(price)
             }
           } else {
             const mark = state.currentCandle?.close
-            if (mark != null && isValidStopLoss(open.side, mark, price)) {
+            if (mark != null && isValidStopLoss(working.side, mark, price)) {
               setStopLoss(price)
             }
           }
@@ -662,6 +790,10 @@ export default function DrawingOverlay({
     setDrawTool,
     setTakeProfit,
     setStopLoss,
+    setPendingPrice,
+    setTicketLimitPrice,
+    setTicketTakeProfit,
+    setTicketStopLoss,
     intervalSeconds
   ])
 
@@ -671,7 +803,6 @@ export default function DrawingOverlay({
       return
     }
     if (!placing || !series || !chart) return
-    if (drawTool !== 'hline' && !isPositionTool(drawTool)) return
 
     const rect = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - rect.left
@@ -679,6 +810,13 @@ export default function DrawingOverlay({
     const y = event.clientY - rect.top
     const price = series.coordinateToPrice(y)
     if (price == null || !Number.isFinite(price)) return
+
+    if (pricePick) {
+      applyPricePick(price)
+      return
+    }
+
+    if (drawTool !== 'hline' && !isPositionTool(drawTool)) return
     if (isPositionTool(drawTool)) {
       const timeSec = xToUnixTime(chart, x, paneCandles, intervalSeconds)
       if (timeSec == null) return
@@ -689,6 +827,7 @@ export default function DrawingOverlay({
   }
 
   function onSvgMouseDown(event: ReactMouseEvent<SVGSVGElement>): void {
+    if (pricePick) return
     if (!canDraw || !isTwoPointTool(drawTool) || event.button !== 0 || !chart || !series) return
     const box = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - box.left
@@ -715,6 +854,31 @@ export default function DrawingOverlay({
     const y = event.clientY - rect.top
     setHover({ x, y })
     setDrawingCrosshair(chart, series, x, y, paneCandles, intervalSeconds)
+
+    if (!pricePick || (pricePick !== 'tp' && pricePick !== 'sl')) {
+      if (pricePick === 'limit') setLevelPreview(null)
+      return
+    }
+    const price = series.coordinateToPrice(y)
+    if (price == null || !Number.isFinite(price)) return
+    const working =
+      position ??
+      (pendingOrder != null ? pendingToPosition(pendingOrder, pendingOrder.placedTime) : null)
+    if (!working) {
+      setLevelPreview(null)
+      return
+    }
+    const otherMissing = pricePick === 'tp' ? working.stopLoss == null : working.takeProfit == null
+    const linked = otherMissing
+      ? linkedLevelForDrag(pricePick, price, working.side, working.entryPrice, riskReward, series)
+      : { linkedPrice: null, linkedY: null }
+    setLevelPreview({
+      kind: pricePick,
+      price,
+      y,
+      linkedPrice: linked.linkedPrice,
+      linkedY: linked.linkedY
+    })
   }
 
   function pointerAtEvent(event: ReactMouseEvent): TrendPoint | null {
@@ -733,6 +897,7 @@ export default function DrawingOverlay({
   }
 
   function startDrag(event: ReactMouseEvent, next: DragState): void {
+    if (pricePick) return
     const isDrawingDrag =
       next.kind === 'hline' ||
       next.kind === 'trend' ||
@@ -806,27 +971,37 @@ export default function DrawingOverlay({
       }
     } else if (drag.kind === 'place-two') {
       setDraggingKey('place-two')
+    } else if (drag.kind === 'pending') {
+      setDraggingKey('pending')
+    } else if (drag.kind === 'draft') {
+      setDraggingKey(`draft:${drag.level}`)
     } else {
       setDraggingKey(`${drag.kind}:${drag.mode}`)
       setPlaceHint(null)
       // Seed preview immediately at the entry handle Y so the line appears on drag start.
-      if (series && position) {
-        const seedY = series.priceToCoordinate(position.entryPrice)
+      const state = useReplayStore.getState()
+      const working =
+        state.position ??
+        (state.pendingOrder != null
+          ? pendingToPosition(state.pendingOrder, state.pendingOrder.placedTime)
+          : null)
+      if (series && working) {
+        const seedY = series.priceToCoordinate(working.entryPrice)
         if (seedY != null) {
           const linked =
             drag.mode === 'place'
               ? linkedLevelForDrag(
                   drag.kind,
-                  position.entryPrice,
-                  position.side,
-                  position.entryPrice,
+                  working.entryPrice,
+                  working.side,
+                  working.entryPrice,
                   riskReward,
                   series
                 )
               : { linkedPrice: null, linkedY: null }
           setLevelPreview({
             kind: drag.kind,
-            price: position.entryPrice,
+            price: working.entryPrice,
             y: seedY,
             linkedPrice: linked.linkedPrice,
             linkedY: linked.linkedY
@@ -843,6 +1018,7 @@ export default function DrawingOverlay({
   }
 
   function selectDrawingOnClick(event: ReactMouseEvent, id: string): void {
+    if (pricePick) return
     // A finished drag on a handle also emits a click — ignore those.
     if (suppressClickRef.current) {
       suppressClickRef.current = false
@@ -860,13 +1036,17 @@ export default function DrawingOverlay({
   const priceScaleW = chart?.priceScale('right').width() ?? 56
   const plotRight = plotRightX(width, priceScaleW, chart?.timeScale().width() ?? 0)
   const midX = plotRight / 2
+  const working =
+    position ??
+    (pendingOrder != null ? pendingToPosition(pendingOrder, pendingOrder.placedTime) : null)
+  const isPending = position == null && pendingOrder != null
   const rrLabel = formatRiskReward(
-    position != null
+    working != null
       ? (realizedRiskReward(
-          position.side,
-          position.entryPrice,
-          position.stopLoss,
-          position.takeProfit
+          working.side,
+          working.entryPrice,
+          working.stopLoss,
+          working.takeProfit
         ) ?? riskReward)
       : riskReward
   )
@@ -879,47 +1059,77 @@ export default function DrawingOverlay({
     return { x, y }
   }
 
-  const pnlScale = pnlScaleForSymbol(symbol, position?.lots)
-  const qtyLabel = formatTradeSizeForSymbol(position?.lots ?? 1, symbol)
-  const openPnl =
-    position != null ? unrealizedPnl(position, markCandle?.close, pnlScale) : null
-  const sideColor =
-    position?.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
-  const openPnlColor =
-    openPnl == null
+  const pnlScale = pnlScaleForSymbol(symbol, working?.lots)
+  const qtyLabel = formatTradeSizeForSymbol(working?.lots ?? 1, symbol)
+  const openPnl = position != null ? unrealizedPnl(position, markCandle?.close, pnlScale) : null
+  const sideColor = working?.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
+  const openPnlColor = isPending
+    ? TRADE_OVERLAY.handleTextMuted
+    : openPnl == null
       ? TRADE_OVERLAY.handleTextMuted
       : openPnl >= 0
         ? TRADE_OVERLAY.pnlProfit
         : TRADE_OVERLAY.pnlLoss
 
-  const tpPrice =
-    levelPreview?.kind === 'tp'
-      ? levelPreview.price
-      : levelPreview?.kind === 'sl' && levelPreview.linkedPrice != null
-        ? levelPreview.linkedPrice
-        : (position?.takeProfit ?? null)
-  const slPrice =
-    levelPreview?.kind === 'sl'
-      ? levelPreview.price
-      : levelPreview?.kind === 'tp' && levelPreview.linkedPrice != null
-        ? levelPreview.linkedPrice
-        : (position?.stopLoss ?? null)
-  const showTpLine = position != null && tpPrice != null
-  const showSlLine = position != null && slPrice != null
+  const draggingTradeLevel =
+    draggingKey === 'tp:place' ||
+    draggingKey === 'tp:move' ||
+    draggingKey === 'sl:place' ||
+    draggingKey === 'sl:move'
+  const liveLevelPreview =
+    pricePick === 'tp' || pricePick === 'sl' || draggingTradeLevel ? levelPreview : null
 
-  const entryY =
-    position != null ? series?.priceToCoordinate(position.entryPrice) : null
+  const tpPrice =
+    liveLevelPreview?.kind === 'tp'
+      ? liveLevelPreview.price
+      : liveLevelPreview?.kind === 'sl' && liveLevelPreview.linkedPrice != null
+        ? liveLevelPreview.linkedPrice
+        : (working?.takeProfit ?? null)
+  const slPrice =
+    liveLevelPreview?.kind === 'sl'
+      ? liveLevelPreview.price
+      : liveLevelPreview?.kind === 'tp' && liveLevelPreview.linkedPrice != null
+        ? liveLevelPreview.linkedPrice
+        : (working?.stopLoss ?? null)
+  const showTpLine = working != null && tpPrice != null
+  const showSlLine = working != null && slPrice != null
+
+  const entryY = working != null ? series?.priceToCoordinate(working.entryPrice) : null
   const tpY = tpPrice != null ? series?.priceToCoordinate(tpPrice) : null
   const slY = slPrice != null ? series?.priceToCoordinate(slPrice) : null
 
-  const openPnlLabel = formatPnlUsd(openPnl)
+  const showTicketDraft =
+    canEditTrade &&
+    working == null &&
+    (ticketTakeProfit != null ||
+      ticketStopLoss != null ||
+      (ticketOrderType === 'limit' && ticketLimitPrice != null))
+  const draftLevels = {
+    orderType: ticketOrderType,
+    markPrice: markCandle?.close,
+    limitPrice: ticketLimitPrice,
+    takeProfit: ticketTakeProfit,
+    stopLoss: ticketStopLoss
+  }
+  const draftSide = showTicketDraft ? inferTicketSide(draftLevels) : null
+  const draftEntryColor =
+    draftSide === 'short' ? TRADE_OVERLAY.shortLine : TRADE_OVERLAY.longLine
+  const draftEntryPrice =
+    ticketOrderType === 'limit'
+      ? ticketLimitPrice
+      : ticketTakeProfit != null || ticketStopLoss != null
+        ? (markCandle?.close ?? null)
+        : null
+  const draftEntryDraggable = ticketOrderType === 'limit'
+
+  const openPnlLabel = isPending ? 'Limit' : formatPnlUsd(openPnl)
   const tpPnl =
-    position != null && tpPrice != null
-      ? pnlForSide(position.side, position.entryPrice, tpPrice, pnlScale)
+    working != null && tpPrice != null
+      ? pnlForSide(working.side, working.entryPrice, tpPrice, pnlScale)
       : null
   const slPnl =
-    position != null && slPrice != null
-      ? pnlForSide(position.side, position.entryPrice, slPrice, pnlScale)
+    working != null && slPrice != null
+      ? pnlForSide(working.side, working.entryPrice, slPrice, pnlScale)
       : null
   const tpPnlLabel = formatPnlUsd(tpPnl)
   const slPnlLabel = formatPnlUsd(slPnl)
@@ -927,18 +1137,100 @@ export default function DrawingOverlay({
   // Sit labels in the blank pane after the last candle, left of the price scale.
   const paneRight = Math.max(0, plotRight - OVERLAY_LAYOUT.rightPad)
   const placeExtra =
-    (canEditTrade && position?.takeProfit == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0) +
-    (canEditTrade && position?.stopLoss == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0)
+    (canEditTrade && working?.takeProfit == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0) +
+    (canEditTrade && working?.stopLoss == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0)
   const entryPillW =
     estimateQtyWidth(qtyLabel) + estimatePnlWidth(openPnlLabel) + OVERLAY_LAYOUT.closeW
   const clusterNeedW = placeExtra + entryPillW
   const playheadCandle = paneCurrentCandle ?? markCandle
   const lastCandleX = playheadCandle ? timeToX(playheadCandle.time) : null
   const afterLast =
-    lastCandleX != null && Number.isFinite(lastCandleX) ? lastCandleX + 14 : paneRight - clusterNeedW
+    lastCandleX != null && Number.isFinite(lastCandleX)
+      ? lastCandleX + 14
+      : paneRight - clusterNeedW
   const clusterX = Math.max(8, Math.min(afterLast, paneRight - clusterNeedW))
   const entryPillX = clusterX + placeExtra
-  const connectorX = Math.min(paneRight - 2, Math.max(entryPillX + entryPillW + 8, clusterX + clusterNeedW + 8))
+  const connectorX = Math.min(
+    paneRight - 2,
+    Math.max(entryPillX + entryPillW + 8, clusterX + clusterNeedW + 8)
+  )
+
+  function renderDraftLevel(
+    level: 'limit' | 'tp' | 'sl',
+    price: number,
+    color: string,
+    label: string,
+    draggable = true
+  ) {
+    const y = series?.priceToCoordinate(price)
+    if (y == null) return null
+    const hasEntry = ticketOrderType === 'limit' ? ticketLimitPrice != null : markCandle?.close != null
+    const linkRr =
+      draggable &&
+      hasEntry &&
+      ((level === 'tp' && ticketStopLoss == null) ||
+        (level === 'sl' && ticketTakeProfit == null))
+    const badgeW = label === 'Entry' ? 44 : 28
+    const badgeX = Math.max(8, plotRight - badgeW - 8)
+    const start = draggable
+      ? (event: ReactMouseEvent): void => {
+          startDrag(event, { kind: 'draft', level, moved: false, linkRr })
+        }
+      : undefined
+    return (
+      <g key={`draft-${level}`}>
+        <line
+          x1={0}
+          x2={plotRight}
+          y1={y}
+          y2={y}
+          stroke={color}
+          strokeWidth={TRADE_OVERLAY.levelWidth}
+          strokeDasharray={TRADE_OVERLAY.levelDash}
+          className="pointer-events-none"
+        />
+        {draggable && (
+          <rect
+            x={0}
+            y={y - 5}
+            width={plotRight}
+            height={10}
+            fill="transparent"
+            className="pointer-events-auto cursor-ns-resize"
+            onMouseDown={start}
+          />
+        )}
+        <g
+          className={draggable ? 'pointer-events-auto cursor-ns-resize' : 'pointer-events-none'}
+          onMouseDown={start}
+        >
+          <title>{draggable ? `Drag to move ${label}` : label}</title>
+          <rect
+            x={badgeX}
+            y={y - 9}
+            width={badgeW}
+            height={18}
+            rx={OVERLAY_LAYOUT.radius}
+            fill={chrome.handleFill}
+            stroke={color}
+            strokeWidth={1.15}
+          />
+          <text
+            x={badgeX + badgeW / 2}
+            y={y + 3.5}
+            textAnchor="middle"
+            fill={color}
+            fontSize={9}
+            fontFamily={TRADE_OVERLAY.font}
+            fontWeight={700}
+            className="pointer-events-none select-none"
+          >
+            {label}
+          </text>
+        </g>
+      </g>
+    )
+  }
 
   function renderPlaceButton(kind: 'tp' | 'sl', x: number, y: number) {
     const color = kind === 'tp' ? TRADE_OVERLAY.tpLine : TRADE_OVERLAY.slLine
@@ -1118,18 +1410,8 @@ export default function DrawingOverlay({
             onClick={onClose}
           >
             <title>Close / cancel</title>
-            <rect
-              x={x + qtyW + pnlW}
-              y={top}
-              width={closeW}
-              height={h}
-              fill="transparent"
-            />
-            <CloseGlyph
-              cx={x + qtyW + pnlW + closeW / 2}
-              cy={y}
-              color={closeColor}
-            />
+            <rect x={x + qtyW + pnlW} y={top} width={closeW} height={h} fill="transparent" />
+            <CloseGlyph cx={x + qtyW + pnlW + closeW / 2} cy={y} color={closeColor} />
           </g>
         )}
       </g>
@@ -1148,10 +1430,16 @@ export default function DrawingOverlay({
       onClick={onClick}
       onMouseDown={onSvgMouseDown}
       onMouseMove={onMove}
+      onContextMenu={(event) => {
+        if (!pricePick) return
+        event.preventDefault()
+        setPricePick(null)
+      }}
       onMouseLeave={() => {
         if (dragRef.current?.kind === 'place-two') return
         setHover(null)
         setPlaceHint(null)
+        if (pricePick) setLevelPreview(null)
         if (placing) chart?.clearCrosshairPosition()
       }}
     >
@@ -1182,21 +1470,31 @@ export default function DrawingOverlay({
               </>
             )}
             {samePoint && (
-              <circle
-                cx={to.x}
-                cy={to.y}
-                r={4.5}
-                fill="none"
-                stroke={color}
-                strokeWidth={1.5}
-              />
+              <circle cx={to.x} cy={to.y} r={4.5} fill="none" stroke={color} strokeWidth={1.5} />
             )}
           </g>
         )
       })}
 
-      {position && entryY != null && (
-        <g key={`open-pos-${position.id}`}>
+      {showTicketDraft && (
+        <g key="ticket-draft">
+          {draftEntryPrice != null &&
+            renderDraftLevel(
+              'limit',
+              draftEntryPrice,
+              draftEntryColor,
+              'Entry',
+              draftEntryDraggable
+            )}
+          {ticketTakeProfit != null &&
+            renderDraftLevel('tp', ticketTakeProfit, TRADE_OVERLAY.tpLine, 'TP')}
+          {ticketStopLoss != null &&
+            renderDraftLevel('sl', ticketStopLoss, TRADE_OVERLAY.slLine, 'SL')}
+        </g>
+      )}
+
+      {working && entryY != null && (
+        <g key={`open-pos-${working.id}`}>
           {/* Risk / reward zones between entry and armed levels. */}
           {showSlLine && slY != null && (
             <rect
@@ -1226,8 +1524,19 @@ export default function DrawingOverlay({
             y2={entryY}
             stroke={sideColor}
             strokeWidth={TRADE_OVERLAY.entryWidth}
-            strokeDasharray={TRADE_OVERLAY.entryDash}
+            strokeDasharray={isPending ? TRADE_OVERLAY.levelDash : TRADE_OVERLAY.entryDash}
           />
+          {isPending && canEditTrade && (
+            <rect
+              x={0}
+              y={entryY - 5}
+              width={plotRight}
+              height={10}
+              fill="transparent"
+              className="pointer-events-auto cursor-ns-resize"
+              onMouseDown={(e) => startDrag(e, { kind: 'pending', moved: false })}
+            />
+          )}
 
           {showTpLine && tpY != null && (
             <line
@@ -1314,17 +1623,13 @@ export default function DrawingOverlay({
             let x = clusterX
             const nodes: React.JSX.Element[] = []
 
-            if (canEditTrade && position.takeProfit == null) {
-              nodes.push(
-                <g key="place-tp">{renderPlaceButton('tp', x, entryY)}</g>
-              )
+            if (canEditTrade && working.takeProfit == null) {
+              nodes.push(<g key="place-tp">{renderPlaceButton('tp', x, entryY)}</g>)
               x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
             }
 
-            if (canEditTrade && position.stopLoss == null) {
-              nodes.push(
-                <g key="place-sl">{renderPlaceButton('sl', x, entryY)}</g>
-              )
+            if (canEditTrade && working.stopLoss == null) {
+              nodes.push(<g key="place-sl">{renderPlaceButton('sl', x, entryY)}</g>)
               x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
             }
 
@@ -1334,14 +1639,21 @@ export default function DrawingOverlay({
                   x,
                   y: entryY,
                   border: sideColor,
+                  dashed: isPending,
                   qtyFill: sideColor,
                   pnlLabel: openPnlLabel,
                   pnlColor: openPnlColor,
                   closeColor: TRADE_OVERLAY.closeIcon,
+                  dragCursor: canEditTrade && isPending ? 'cursor-ns-resize' : undefined,
+                  onDragStart:
+                    canEditTrade && isPending
+                      ? (e) => startDrag(e, { kind: 'pending', moved: false })
+                      : undefined,
                   onClose: canEditTrade
                     ? (e) => {
                         stopAction(e)
-                        paperClose()
+                        if (isPending) cancelPending()
+                        else paperClose()
                       }
                     : undefined
                 })}
@@ -1354,7 +1666,7 @@ export default function DrawingOverlay({
           {/* Armed TP pill — drag to move, X clears before fill. */}
           {showTpLine &&
             tpY != null &&
-            position.takeProfit != null &&
+            working.takeProfit != null &&
             renderActionPill({
               x: entryPillX,
               y: tpY,
@@ -1379,7 +1691,7 @@ export default function DrawingOverlay({
           {/* Armed SL pill — drag to move, X clears before fill. */}
           {showSlLine &&
             slY != null &&
-            position.stopLoss != null &&
+            working.stopLoss != null &&
             renderActionPill({
               x: entryPillX,
               y: slY,
@@ -1402,8 +1714,8 @@ export default function DrawingOverlay({
             })}
 
           {/* Live preview pills while placing (before commit). */}
-          {levelPreview?.kind === 'tp' &&
-            position.takeProfit == null &&
+          {liveLevelPreview?.kind === 'tp' &&
+            working.takeProfit == null &&
             tpY != null &&
             renderActionPill({
               x: entryPillX,
@@ -1415,8 +1727,8 @@ export default function DrawingOverlay({
               pnlColor: TRADE_OVERLAY.tpLine,
               closeColor: TRADE_OVERLAY.tpLine
             })}
-          {levelPreview?.kind === 'sl' &&
-            position.stopLoss == null &&
+          {liveLevelPreview?.kind === 'sl' &&
+            working.stopLoss == null &&
             slY != null &&
             renderActionPill({
               x: entryPillX,
@@ -1551,9 +1863,7 @@ export default function DrawingOverlay({
           let targetPrice: number | null = drawing.target
           let stopPrice: number | null = drawing.stop
           let targetY: number | null =
-            targetPrice == null
-              ? null
-              : (series.priceToCoordinate(targetPrice) ?? null)
+            targetPrice == null ? null : (series.priceToCoordinate(targetPrice) ?? null)
           let stopY: number | null =
             stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
 
@@ -1572,10 +1882,7 @@ export default function DrawingOverlay({
                 targetY = series.priceToCoordinate(dTarget) ?? null
               }
               if (stopY == null) {
-                const dStop =
-                  drawing.type === 'long'
-                    ? drawing.entry - risk
-                    : drawing.entry + risk
+                const dStop = drawing.type === 'long' ? drawing.entry - risk : drawing.entry + risk
                 stopPrice = dStop
                 stopY = series.priceToCoordinate(dStop) ?? null
               }
@@ -1621,9 +1928,7 @@ export default function DrawingOverlay({
           const boxRight = Math.min(Math.max(spanRight, boxLeft + minBoxW), plotRight)
 
           // Box vertical extent spans the present levels; keep a visible floor.
-          const levelYs = [anchor.y, targetY, stopY].filter(
-            (y): y is number => y != null
-          )
+          const levelYs = [anchor.y, targetY, stopY].filter((y): y is number => y != null)
           let topY = Math.min(...levelYs)
           let bottomY = Math.max(...levelYs)
           if (bottomY - topY < POSITION_BOX_MIN_H) {
@@ -1648,11 +1953,7 @@ export default function DrawingOverlay({
               // range contains the entry line (low <= entry <= high).
               let entryIdx = -1
               let startX: number | null = null
-              const entryLogical = unixTimeToLogical(
-                drawing.t,
-                paneCandles,
-                intervalSeconds
-              )
+              const entryLogical = unixTimeToLogical(drawing.t, paneCandles, intervalSeconds)
               if (entryLogical != null) {
                 const fromIdx = Math.max(0, Math.floor(entryLogical))
                 for (let i = fromIdx; i < paneCandles.length; i++) {
@@ -1672,8 +1973,7 @@ export default function DrawingOverlay({
                 // Then: from the entry candle onward, the first candle whose
                 // range has crossed the stop or the target line.
                 let resolution: { candle: Candle; atTarget: boolean } | null = null
-                const effectiveTarget =
-                  targetY != null ? series.coordinateToPrice(targetY) : null
+                const effectiveTarget = targetY != null ? series.coordinateToPrice(targetY) : null
                 const effectiveStop = stopY != null ? series.coordinateToPrice(stopY) : null
                 const endLogical = unixTimeToLogical(
                   Math.min(playheadCandle.time, boxRightTime),
@@ -1687,9 +1987,7 @@ export default function DrawingOverlay({
                     if (!c) continue
                     const hitStop =
                       effectiveStop != null &&
-                      (drawing.type === 'long'
-                        ? c.low <= effectiveStop
-                        : c.high >= effectiveStop)
+                      (drawing.type === 'long' ? c.low <= effectiveStop : c.high >= effectiveStop)
                     const hitTarget =
                       effectiveTarget != null &&
                       (drawing.type === 'long'
@@ -1714,9 +2012,7 @@ export default function DrawingOverlay({
                   priceLineTowardTp = resolution.atTarget
                 } else {
                   // No level seen: end on the last candle inside the box.
-                  const lastInBox = inBox
-                    ? playheadCandle
-                    : lastCandleAtOrBefore(boxRightTime)
+                  const lastInBox = inBox ? playheadCandle : lastCandleAtOrBefore(boxRightTime)
                   if (lastInBox && Number.isFinite(lastInBox.close)) {
                     endX = timeToX(lastInBox.time)
                     endY = series.priceToCoordinate(lastInBox.close)

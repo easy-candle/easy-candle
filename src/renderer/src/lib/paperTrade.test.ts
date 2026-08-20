@@ -4,6 +4,7 @@ import {
   clampTradeSize,
   closePosition,
   cumulativeRealizedPnl,
+  evaluatePendingFill,
   evaluateStopTakeProfit,
   formatPnl,
   formatPnlUsd,
@@ -11,9 +12,13 @@ import {
   formatRiskReward,
   formatTradeSize,
   formatWinRate,
+  isValidLimitPrice,
+  isValidPendingStopLoss,
   isValidStopLoss,
   isValidTakeProfit,
   openPosition,
+  pendingToPosition,
+  placePendingLimit,
   pnlForSide,
   pnlScaleForSymbol,
   realizedRiskReward,
@@ -23,15 +28,23 @@ import {
   stopLossFromTakeProfit,
   summarizeSession,
   takeProfitFromStopLoss,
+  canPlaceTicketSide,
+  inferTicketSide,
   tradesToCsv,
   unrealizedPnl,
+  withPendingPrice,
+  withPendingStopLoss,
+  withPendingTakeProfit,
   withStopLoss,
   withTakeProfit,
   type ClosedTrade,
+  type PendingOrder,
   type Position
 } from './paperTrade'
 
-function flatClosed(partial: Partial<ClosedTrade> & Pick<ClosedTrade, 'id' | 'side' | 'pnl'>): ClosedTrade {
+function flatClosed(
+  partial: Partial<ClosedTrade> & Pick<ClosedTrade, 'id' | 'side' | 'pnl'>
+): ClosedTrade {
   return {
     entryPrice: 100,
     entryTime: 1,
@@ -57,7 +70,8 @@ describe('openPosition', () => {
         entryTime: 50,
         lots: 1,
         takeProfit: null,
-        stopLoss: null
+        stopLoss: null,
+        pendingPlacedTime: null
       })
     }
   })
@@ -260,6 +274,62 @@ describe('TP/SL validation', () => {
   })
 })
 
+describe('ticket draft side gates', () => {
+  it('requires a limit price below/above mark', () => {
+    const base = {
+      orderType: 'limit' as const,
+      markPrice: 100,
+      limitPrice: null as number | null,
+      takeProfit: null as number | null,
+      stopLoss: null as number | null
+    }
+    expect(canPlaceTicketSide('long', base)).toBe(false)
+    expect(canPlaceTicketSide('short', base)).toBe(false)
+    expect(canPlaceTicketSide('long', { ...base, limitPrice: 99 })).toBe(true)
+    expect(canPlaceTicketSide('short', { ...base, limitPrice: 99 })).toBe(false)
+    expect(canPlaceTicketSide('short', { ...base, limitPrice: 101 })).toBe(true)
+    expect(canPlaceTicketSide('long', { ...base, limitPrice: 101 })).toBe(false)
+  })
+
+  it('disables the side that TP/SL cannot serve', () => {
+    const longSetup = {
+      orderType: 'limit' as const,
+      markPrice: 100,
+      limitPrice: 95,
+      takeProfit: 110,
+      stopLoss: 90
+    }
+    expect(canPlaceTicketSide('long', longSetup)).toBe(true)
+    expect(canPlaceTicketSide('short', longSetup)).toBe(false)
+    expect(inferTicketSide(longSetup)).toBe('long')
+
+    const shortSetup = {
+      orderType: 'limit' as const,
+      markPrice: 100,
+      limitPrice: 105,
+      takeProfit: 90,
+      stopLoss: 110
+    }
+    expect(canPlaceTicketSide('short', shortSetup)).toBe(true)
+    expect(canPlaceTicketSide('long', shortSetup)).toBe(false)
+    expect(inferTicketSide(shortSetup)).toBe('short')
+  })
+
+  it('gates market tickets from TP/SL vs mark', () => {
+    const market = {
+      orderType: 'market' as const,
+      markPrice: 100,
+      limitPrice: null as number | null,
+      takeProfit: 110,
+      stopLoss: null as number | null
+    }
+    expect(canPlaceTicketSide('long', market)).toBe(true)
+    expect(canPlaceTicketSide('short', market)).toBe(false)
+    expect(canPlaceTicketSide('long', { ...market, takeProfit: null, stopLoss: null })).toBe(true)
+    expect(canPlaceTicketSide('short', { ...market, takeProfit: null, stopLoss: null })).toBe(true)
+  })
+})
+
 describe('evaluateStopTakeProfit', () => {
   const longBase: Position = {
     id: '1',
@@ -326,12 +396,14 @@ describe('evaluateStopTakeProfit', () => {
   })
 
   it('hits short TP and SL correctly', () => {
-    expect(
-      evaluateStopTakeProfit(shortBase, { high: 105, low: 88, close: 95 })
-    ).toEqual({ hit: 'tp', price: 90 })
-    expect(
-      evaluateStopTakeProfit(shortBase, { high: 112, low: 95, close: 101 })
-    ).toEqual({ hit: 'sl', price: 110 })
+    expect(evaluateStopTakeProfit(shortBase, { high: 105, low: 88, close: 95 })).toEqual({
+      hit: 'tp',
+      price: 90
+    })
+    expect(evaluateStopTakeProfit(shortBase, { high: 112, low: 95, close: 101 })).toEqual({
+      hit: 'sl',
+      price: 110
+    })
   })
 
   it('returns null when levels unset or not touched', () => {
@@ -341,9 +413,7 @@ describe('evaluateStopTakeProfit', () => {
         { high: 120, low: 80, close: 100 }
       )
     ).toBeNull()
-    expect(
-      evaluateStopTakeProfit(longBase, { high: 105, low: 95, close: 100 })
-    ).toBeNull()
+    expect(evaluateStopTakeProfit(longBase, { high: 105, low: 95, close: 100 })).toBeNull()
   })
 })
 
@@ -376,7 +446,8 @@ describe('rewindTradesAfterStepBack', () => {
       entryTime: 10,
       lots: 1,
       takeProfit: 120,
-      stopLoss: 90
+      stopLoss: 90,
+      pendingPlacedTime: null
     })
     expect(result.discardedEntryTimes).toEqual([])
   })
@@ -401,6 +472,7 @@ describe('rewindTradesAfterStepBack', () => {
       currentCandleTime: 15
     })
     expect(result.position).toBeNull()
+    expect(result.pendingOrder).toBeNull()
     expect(result.closedTrades).toHaveLength(0)
     expect(result.discardedEntryTimes).toEqual([20])
   })
@@ -422,6 +494,7 @@ describe('rewindTradesAfterStepBack', () => {
       currentCandleTime: 15
     })
     expect(result.position).toBeNull()
+    expect(result.pendingOrder).toBeNull()
     expect(result.discardedEntryTimes).toEqual([20])
   })
 
@@ -442,7 +515,190 @@ describe('rewindTradesAfterStepBack', () => {
       currentCandleTime: 10
     })
     expect(result.position).toEqual(open)
+    expect(result.pendingOrder).toBeNull()
     expect(result.discardedEntryTimes).toEqual([])
+  })
+})
+
+describe('pending limit orders', () => {
+  const buyLimit: PendingOrder = {
+    id: 'p1',
+    side: 'long',
+    price: 95,
+    placedTime: 10,
+    lots: 1,
+    takeProfit: 110,
+    stopLoss: 90
+  }
+
+  it('validates buy limit below mark and sell limit above mark', () => {
+    expect(isValidLimitPrice('long', 100, 99)).toBe(true)
+    expect(isValidLimitPrice('long', 100, 100)).toBe(false)
+    expect(isValidLimitPrice('long', 100, 101)).toBe(false)
+    expect(isValidLimitPrice('short', 100, 101)).toBe(true)
+    expect(isValidLimitPrice('short', 100, 100)).toBe(false)
+  })
+
+  it('places a buy limit when flat and price is below mark', () => {
+    const result = placePendingLimit({
+      current: null,
+      pending: null,
+      side: 'long',
+      price: 95,
+      markPrice: 100,
+      time: 10,
+      id: 'p1',
+      lots: 0.5
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.pending).toEqual({
+      id: 'p1',
+      side: 'long',
+      price: 95,
+      placedTime: 10,
+      lots: 0.5,
+      takeProfit: null,
+      stopLoss: null
+    })
+  })
+
+  it('rejects a buy limit at or above mark', () => {
+    const result = placePendingLimit({
+      current: null,
+      pending: null,
+      side: 'long',
+      price: 100,
+      markPrice: 100,
+      time: 10,
+      id: 'p1'
+    })
+    expect(result.ok).toBe(false)
+  })
+
+  it('rejects a second pending or a pending while in a position', () => {
+    const placed = placePendingLimit({
+      current: null,
+      pending: null,
+      side: 'short',
+      price: 105,
+      markPrice: 100,
+      time: 10,
+      id: 'p1'
+    })
+    expect(placed.ok).toBe(true)
+    if (!placed.ok) return
+    expect(
+      placePendingLimit({
+        current: null,
+        pending: placed.pending,
+        side: 'long',
+        price: 90,
+        markPrice: 100,
+        time: 11,
+        id: 'p2'
+      }).ok
+    ).toBe(false)
+
+    const open = openPosition(null, 'long', 100, 10, 't1')
+    expect(open.ok).toBe(true)
+    if (!open.ok) return
+    expect(
+      placePendingLimit({
+        current: open.position,
+        pending: null,
+        side: 'long',
+        price: 90,
+        markPrice: 100,
+        time: 11,
+        id: 'p2'
+      }).ok
+    ).toBe(false)
+  })
+
+  it('moves a pending limit and attaches TP/SL vs the limit price', () => {
+    const moved = withPendingPrice(buyLimit, 94, 100)
+    expect(moved.ok).toBe(true)
+    if (!moved.ok) return
+    expect(moved.pending.price).toBe(94)
+
+    const tp = withPendingTakeProfit(moved.pending, 108)
+    expect(tp.ok).toBe(true)
+    const sl = withPendingStopLoss(moved.pending, 91)
+    expect(sl.ok).toBe(true)
+    expect(isValidPendingStopLoss('long', 94, 91)).toBe(true)
+    expect(isValidPendingStopLoss('long', 94, 95)).toBe(false)
+    expect(withPendingTakeProfit(moved.pending, 90).ok).toBe(false)
+    expect(withPendingPrice(buyLimit, 101, 100).ok).toBe(false)
+
+    const crossed = withPendingPrice(buyLimit, 111, 120)
+    expect(crossed.ok).toBe(true)
+    if (crossed.ok) {
+      expect(crossed.pending.takeProfit).toBeNull()
+      expect(crossed.pending.stopLoss).toBe(90)
+    }
+  })
+
+  it('fills a buy limit when the candle trades through the price', () => {
+    expect(evaluatePendingFill(buyLimit, { high: 100, low: 96, close: 98 })).toBe(false)
+    expect(evaluatePendingFill(buyLimit, { high: 100, low: 94, close: 96 })).toBe(true)
+    expect(evaluatePendingFill(buyLimit, { high: 96, low: 96, close: 95 })).toBe(true)
+
+    const sell: PendingOrder = { ...buyLimit, side: 'short', price: 105 }
+    expect(evaluatePendingFill(sell, { high: 104, low: 100, close: 102 })).toBe(false)
+    expect(evaluatePendingFill(sell, { high: 106, low: 100, close: 104 })).toBe(true)
+  })
+
+  it('converts a filled pending into a position that keeps TP/SL and place time', () => {
+    const position = pendingToPosition(buyLimit, 20)
+    expect(position).toEqual({
+      id: 'p1',
+      side: 'long',
+      entryPrice: 95,
+      entryTime: 20,
+      lots: 1,
+      takeProfit: 110,
+      stopLoss: 90,
+      pendingPlacedTime: 10
+    })
+  })
+
+  it('rewinds a filled limit back to pending, then drops it before place time', () => {
+    const filled = pendingToPosition(buyLimit, 20)
+    const afterFill = rewindTradesAfterStepBack({
+      position: filled,
+      pendingOrder: null,
+      closedTrades: [],
+      leftCandleTime: 20,
+      currentCandleTime: 15
+    })
+    expect(afterFill.position).toBeNull()
+    expect(afterFill.pendingOrder).toEqual(buyLimit)
+    expect(afterFill.discardedEntryTimes).toEqual([20])
+
+    const beforePlace = rewindTradesAfterStepBack({
+      position: null,
+      pendingOrder: buyLimit,
+      closedTrades: [],
+      leftCandleTime: 15,
+      currentCandleTime: 5
+    })
+    expect(beforePlace.pendingOrder).toBeNull()
+  })
+
+  it('restores a pending when rewind of a same-bar fill+close lands after place', () => {
+    const filled = pendingToPosition(buyLimit, 20)
+    const closed = closePosition(filled, 90, 20, 'sl')
+    const result = rewindTradesAfterStepBack({
+      position: null,
+      pendingOrder: null,
+      closedTrades: [closed],
+      leftCandleTime: 20,
+      currentCandleTime: 15
+    })
+    expect(result.position).toBeNull()
+    expect(result.pendingOrder).toEqual(buyLimit)
+    expect(result.discardedEntryTimes).toEqual([20])
   })
 })
 
@@ -450,13 +706,29 @@ describe('unrealizedPnl / cumulative / session', () => {
   it('computes unrealized long and short', () => {
     expect(
       unrealizedPnl(
-        { id: '1', side: 'long', entryPrice: 100, entryTime: 1, lots: 1, takeProfit: null, stopLoss: null },
+        {
+          id: '1',
+          side: 'long',
+          entryPrice: 100,
+          entryTime: 1,
+          lots: 1,
+          takeProfit: null,
+          stopLoss: null
+        },
         110
       )
     ).toBeCloseTo(10)
     expect(
       unrealizedPnl(
-        { id: '1', side: 'short', entryPrice: 100, entryTime: 1, lots: 1, takeProfit: null, stopLoss: null },
+        {
+          id: '1',
+          side: 'short',
+          entryPrice: 100,
+          entryTime: 1,
+          lots: 1,
+          takeProfit: null,
+          stopLoss: null
+        },
         90
       )
     ).toBeCloseTo(10)
@@ -487,7 +759,15 @@ describe('unrealizedPnl / cumulative / session', () => {
     expect(cumulativeRealizedPnl(closed)).toBeCloseTo(5)
     const perf = sessionPerformance(
       closed,
-      { id: 'c', side: 'long', entryPrice: 10, entryTime: 5, lots: 1, takeProfit: null, stopLoss: null },
+      {
+        id: 'c',
+        side: 'long',
+        entryPrice: 10,
+        entryTime: 5,
+        lots: 1,
+        takeProfit: null,
+        stopLoss: null
+      },
       12
     )
     expect(perf.realized).toBeCloseTo(5)
