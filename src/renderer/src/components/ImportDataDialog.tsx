@@ -15,6 +15,7 @@ import { MT_BRIDGE_WS_URL } from '@shared/mtBridgeProtocol'
 import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { isDesktopRuntime } from '@/lib/runtime'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 
 const EA_DOWNLOAD_URL =
@@ -56,6 +57,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
   const selectImportedDataset = useReplayStore((s) => s.selectImportedDataset)
   const mtBridge = useReplayStore((s) => s.mtBridge)
   const mtPreview = useReplayStore((s) => s.mtPreview)
+  const desktop = isDesktopRuntime()
 
   const open = useUiLayoutStore((s) => s.importDataDialogOpen)
   const setOpen = useUiLayoutStore((s) => s.setImportDataDialogOpen)
@@ -385,7 +387,9 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
                   Import data
                 </h2>
                 <p className="mt-0.5 text-[11px] text-zinc-500">
-                  CSV files · MetaTrader EA · confirm to save locally
+                  {desktop
+                    ? 'CSV files · MetaTrader EA · confirm to save locally'
+                    : 'CSV files · confirm to save in this browser'}
                 </p>
               </div>
               <button
@@ -421,81 +425,83 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
                 </button>
               </section>
 
-              <section>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                    MetaTrader EA
-                  </span>
-                  <a
-                    href={EA_DOWNLOAD_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-300 hover:text-sky-200"
-                  >
-                    Download EasyCandleBridge.ex5
-                    <ExternalLink className="h-3 w-3" aria-hidden />
-                  </a>
-                </div>
-                <div className="mt-1.5 rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2.5">
-                  <p className="flex items-center gap-2 text-xs text-zinc-300">
-                    <span
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                        mtBridge.connected
-                          ? 'bg-emerald-400'
-                          : mtBridge.listening
-                            ? 'bg-amber-400'
-                            : 'bg-zinc-600'
-                      }`}
-                      aria-hidden
-                    />
-                    <span>{mtStatusLabel}</span>
-                  </p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                    Attach the Easy Candle EA in MT5 and allow {MT_BRIDGE_WS_URL}. Incoming M1
-                    candles stay in preview until you confirm — same as a CSV import.
-                  </p>
-                  {mtBridge.error && (
-                    <p className="mt-1 text-[11px] text-red-400">{mtBridge.error}</p>
-                  )}
-                  {mtPreview ? (
-                    <div className="mt-2 rounded border border-emerald-900/60 bg-emerald-950/30 px-2.5 py-2">
-                      <p className="flex items-center gap-2 text-xs font-medium text-emerald-300">
-                        <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                            previewFresh ? 'animate-pulse bg-emerald-400' : 'bg-emerald-700'
-                          }`}
-                          aria-hidden
-                        />
-                        <span>Preview {mtPreview.symbol} · not saved yet</span>
-                      </p>
-                      <p className="mt-1.5 text-[11px] text-zinc-200">
-                        {mtPreview.candleCount.toLocaleString()} candles · 1m
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-zinc-500">
-                        From {formatUtcCandleTime(mtPreview.firstTime)}
-                      </p>
-                      <p
-                        className={`text-[11px] ${previewFresh ? 'text-emerald-300' : 'text-zinc-400'}`}
-                      >
-                        Last bar {formatUtcCandleTime(mtPreview.lastTime)}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-[11px] text-zinc-600">
-                      Waiting for M1 history from the EA…
+              {desktop && (
+                <section>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                      MetaTrader EA
+                    </span>
+                    <a
+                      href={EA_DOWNLOAD_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-300 hover:text-sky-200"
+                    >
+                      Download EasyCandleBridge.ex5
+                      <ExternalLink className="h-3 w-3" aria-hidden />
+                    </a>
+                  </div>
+                  <div className="mt-1.5 rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2.5">
+                    <p className="flex items-center gap-2 text-xs text-zinc-300">
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                          mtBridge.connected
+                            ? 'bg-emerald-400'
+                            : mtBridge.listening
+                              ? 'bg-amber-400'
+                              : 'bg-zinc-600'
+                        }`}
+                        aria-hidden
+                      />
+                      <span>{mtStatusLabel}</span>
                     </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  disabled={disabled || !mtPreview}
-                  onClick={() => void onImportMetaTrader()}
-                  className="mt-1.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/40 bg-sky-950/40 px-3 text-xs font-medium text-sky-300 hover:border-sky-400/70 hover:text-sky-200 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Cable className="h-4 w-4" aria-hidden />
-                  Import from MetaTrader
-                </button>
-              </section>
+                    <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                      Attach the Easy Candle EA in MT5 and allow {MT_BRIDGE_WS_URL}. Incoming M1
+                      candles stay in preview until you confirm — same as a CSV import.
+                    </p>
+                    {mtBridge.error && (
+                      <p className="mt-1 text-[11px] text-red-400">{mtBridge.error}</p>
+                    )}
+                    {mtPreview ? (
+                      <div className="mt-2 rounded border border-emerald-900/60 bg-emerald-950/30 px-2.5 py-2">
+                        <p className="flex items-center gap-2 text-xs font-medium text-emerald-300">
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                              previewFresh ? 'animate-pulse bg-emerald-400' : 'bg-emerald-700'
+                            }`}
+                            aria-hidden
+                          />
+                          <span>Preview {mtPreview.symbol} · not saved yet</span>
+                        </p>
+                        <p className="mt-1.5 text-[11px] text-zinc-200">
+                          {mtPreview.candleCount.toLocaleString()} candles · 1m
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-zinc-500">
+                          From {formatUtcCandleTime(mtPreview.firstTime)}
+                        </p>
+                        <p
+                          className={`text-[11px] ${previewFresh ? 'text-emerald-300' : 'text-zinc-400'}`}
+                        >
+                          Last bar {formatUtcCandleTime(mtPreview.lastTime)}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-zinc-600">
+                        Waiting for M1 history from the EA…
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={disabled || !mtPreview}
+                    onClick={() => void onImportMetaTrader()}
+                    className="mt-1.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/40 bg-sky-950/40 px-3 text-xs font-medium text-sky-300 hover:border-sky-400/70 hover:text-sky-200 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Cable className="h-4 w-4" aria-hidden />
+                    Import from MetaTrader
+                  </button>
+                </section>
+              )}
 
               {dataSource === 'imported' && importMeta && (
                 <section className="flex items-center justify-between gap-3 rounded border border-sky-900/50 bg-sky-950/30 px-3 py-2.5">
@@ -528,7 +534,9 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
                 </span>
                 {importedList.length === 0 ? (
                   <p className="mt-1.5 text-xs text-zinc-600">
-                    No imported datasets yet. Import a CSV or confirm a MetaTrader preview.
+                    {desktop
+                      ? 'No imported datasets yet. Import a CSV or confirm a MetaTrader preview.'
+                      : 'No imported datasets yet. Import a CSV to get started.'}
                   </p>
                 ) : (
                   <ul className="mt-1.5 divide-y divide-zinc-800/80 rounded border border-zinc-800">

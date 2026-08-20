@@ -16,12 +16,24 @@ import type {
   ImportedTimeframeStats
 } from '@shared/importTypes'
 import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
+import {
+  DEFAULT_MT_BRIDGE_STATUS,
+  type MtBridgeIpcEvent,
+  type MtBridgeStatusResult,
+  type MtPreviewLoadResult
+} from '@shared/mtBridgeTypes'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
   UpdateErrorInfo,
   UpdateProgressInfo
 } from '@shared/updaterTypes'
+
+const MT_WEB_DISABLED = 'MetaTrader EA import is only available in the desktop app.'
+
+function webMtStatus(ok = true): MtBridgeStatusResult {
+  return { ...DEFAULT_MT_BRIDGE_STATUS, ok }
+}
 
 // --- In-Memory & IndexedDB Storage for Imported CSVs ---
 const DB_NAME = 'easycandle_db'
@@ -458,7 +470,19 @@ if (typeof document !== 'undefined') {
 }
 
 export const webApi = {
+  runtime: 'web' as const,
   fetchKlines: handleKlinesFetch,
+  mtBridgeStart: async (): Promise<MtBridgeStatusResult> => ({
+    ...webMtStatus(false),
+    error: MT_WEB_DISABLED
+  }),
+  mtBridgeStop: async (): Promise<MtBridgeStatusResult> => webMtStatus(),
+  mtBridgeStatus: async (): Promise<MtBridgeStatusResult> => webMtStatus(),
+  mtBridgePreview: async (): Promise<MtPreviewLoadResult> => ({
+    ok: false,
+    error: MT_WEB_DISABLED
+  }),
+  onMtBridgeEvent: (_callback: (payload: MtBridgeIpcEvent) => void): (() => void) => () => {},
   getAppVersion: async (): Promise<string> => '2.7.0',
   minimizeWindow: (): void => {
     // Web fallback: no-op
@@ -521,8 +545,9 @@ export const webElectron = {
   }
 }
 
-// Inject into window global
+// Inject only when preload did not already expose the desktop API.
 if (typeof window !== 'undefined') {
-  ;(window as unknown as { api: typeof webApi }).api = webApi
-  ;(window as unknown as { electron: typeof webElectron }).electron = webElectron
+  const w = window as unknown as { api?: typeof webApi; electron?: typeof webElectron }
+  if (!w.api) w.api = webApi
+  if (!w.electron) w.electron = webElectron
 }

@@ -18,6 +18,7 @@ import type {
 } from '../shared/updaterTypes'
 
 interface EasyCandleApi {
+  runtime: 'web' | 'desktop'
   fetchKlines: (params: KlinesFetchParams) => Promise<KlinesFetchResult>
   mtBridgeStart: () => Promise<MtBridgeStatusResult>
   mtBridgeStop: () => Promise<MtBridgeStatusResult>

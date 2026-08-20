@@ -29,6 +29,7 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): () => vo
 }
 
 const api = {
+  runtime: 'desktop' as const,
   fetchKlines: (params: KlinesFetchParams): Promise<KlinesFetchResult> =>
     ipcRenderer.invoke('klines:fetch', params),
   mtBridgeStart: (): Promise<MtBridgeStatusResult> => ipcRenderer.invoke('mtbridge:start'),
