@@ -1,9 +1,11 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
-  FIB_LEVELS,
   fibPriceAtLevel,
   formatFibLevel,
   formatPriceChangePct,
+  type DrawingLineStyle,
+  type DrawingStyle,
+  type FibLevelConfig,
   type RectHandle
 } from '@/lib/chart/drawingGeometry'
 import { fibLabelPlacement, fibLevelExtent } from '@/lib/chart/drawingPlotBounds'
@@ -15,13 +17,10 @@ export const HANDLE_FILL = '#2962ff'
 export const HANDLE_STROKE = '#ffffff'
 export const SELECT_STROKE = '#f59e0b'
 const DRAW_FILL = 'rgba(242, 54, 69, 0.08)'
-const FIB_ZONE = 'rgba(242, 54, 69, 0.06)'
 export const LONG_COLOR = '#10B981'
 export const SHORT_COLOR = '#F23645'
 export const TP_ZONE_COLOR = '#26A69A'
 export const SL_ZONE_COLOR = '#EF5350'
-const TP_ZONE_FILL = 'rgba(38, 166, 154, 0.16)'
-const SL_ZONE_FILL = 'rgba(239, 83, 80, 0.16)'
 
 /** 3 → "3", 3.5 → "3.5", 12.4 → "12" (integers keep no trailing zero). */
 function formatRr(ratio: number): string {
@@ -30,7 +29,35 @@ function formatRr(ratio: number): string {
   return rounded >= 10 ? rounded.toFixed(0) : rounded.toFixed(1)
 }
 
+/** "#RRGGBB" → "rgba(r, g, b, alpha)" for translucent zone fills. */
+function hexToRgba(hex: string, alpha: number): string {
+  const value = hex.replace('#', '')
+  const full = value.length === 3 ? value.split('').map((c) => c + c).join('') : value
+  const num = Number.parseInt(full, 16)
+  if (Number.isNaN(num)) return hex
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 export type Point = { x: number; y: number }
+
+/** SVG stroke-dasharray for a drawing style's line style (Solid → undefined). */
+export function drawingDashArray(style: { lineStyle?: DrawingLineStyle } | undefined): string | undefined {
+  switch (style?.lineStyle) {
+    case 1:
+      return '2 3'
+    case 2:
+      return '6 4'
+    case 3:
+      return '8 6'
+    case 4:
+      return '1 4'
+    default:
+      return undefined
+  }
+}
 
 type HandleEvents = {
   onMouseDown?: (event: ReactMouseEvent) => void
@@ -94,8 +121,8 @@ function PositionBadge({
   )
 }
 
-function ink(selected: boolean): string {
-  return selected ? SELECT_STROKE : DRAW_STROKE
+function ink(selected: boolean, fallback = DRAW_STROKE): string {
+  return selected ? SELECT_STROKE : fallback
 }
 
 export function HandleDot({
@@ -165,6 +192,7 @@ export function HLineShape({
   canSelect,
   canDraw,
   showHandles = true,
+  style,
   onMouseEnter,
   onMouseLeave,
   onSelect,
@@ -177,15 +205,25 @@ export function HLineShape({
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  style?: DrawingStyle
   onMouseEnter?: () => void
   onMouseLeave?: () => void
   onSelect: (event: ReactMouseEvent) => void
   onDrag: (event: ReactMouseEvent) => void
 }) {
-  const color = ink(selected)
+  const color = ink(selected, style?.color)
+  const dash = drawingDashArray(style)
   return (
     <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-      <line x1={0} x2={width || '100%'} y1={y} y2={y} stroke={color} strokeWidth={DRAW_WIDTH} />
+      <line
+        x1={0}
+        x2={width || '100%'}
+        y1={y}
+        y2={y}
+        stroke={color}
+        strokeWidth={style?.lineWidth ?? DRAW_WIDTH}
+        strokeDasharray={dash}
+      />
       {canDraw && (
         <line
           x1={0}
@@ -220,6 +258,7 @@ export function TrendLineShape({
   canSelect,
   canDraw,
   showHandles = true,
+  style,
   onMouseEnter,
   onMouseLeave,
   onSelect,
@@ -232,13 +271,15 @@ export function TrendLineShape({
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  style?: DrawingStyle
   onMouseEnter?: () => void
   onMouseLeave?: () => void
   onSelect: (event: ReactMouseEvent) => void
   onDragEnd: (end: 'start' | 'end', event: ReactMouseEvent) => void
   onDragBody: (event: ReactMouseEvent) => void
 }) {
-  const color = ink(selected)
+  const color = ink(selected, style?.color)
+  const dash = drawingDashArray(style)
   return (
     <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <line
@@ -247,7 +288,8 @@ export function TrendLineShape({
         x2={b.x}
         y2={b.y}
         stroke={color}
-        strokeWidth={DRAW_WIDTH}
+        strokeWidth={style?.lineWidth ?? DRAW_WIDTH}
+        strokeDasharray={dash}
       />
       {canDraw && (
         <line
@@ -286,17 +328,31 @@ export function TrendLineShape({
   )
 }
 
-export type FibLevelView = { ratio: number; y: number; price: number }
+export type FibLevelView = {
+  ratio: number
+  y: number
+  price: number
+  color?: string
+  lineStyle?: DrawingLineStyle
+}
 
-export function fibLevelsAt(p1: number, p2: number, priceToY: (price: number) => number | null): FibLevelView[] {
-  const levels: FibLevelView[] = []
-  for (const ratio of FIB_LEVELS) {
-    const price = fibPriceAtLevel(p1, p2, ratio)
+export function fibLevelsAt(
+  p1: number,
+  p2: number,
+  priceToY: (price: number) => number | null,
+  levels: readonly FibLevelConfig[]
+): FibLevelView[] {
+  const views: FibLevelView[] = []
+  for (const level of levels) {
+    const price = fibPriceAtLevel(p1, p2, level.ratio)
     const y = priceToY(price)
     if (y == null) continue
-    levels.push({ ratio, y, price })
+    const view: FibLevelView = { ratio: level.ratio, y, price }
+    if (level.color) view.color = level.color
+    if (level.lineStyle != null) view.lineStyle = level.lineStyle
+    views.push(view)
   }
-  return levels
+  return views
 }
 
 export function FibShape({
@@ -308,6 +364,7 @@ export function FibShape({
   canSelect,
   canDraw,
   showHandles = true,
+  style,
   onMouseEnter,
   onMouseLeave,
   pricePrecision = DEFAULT_PRICE_PRECISION,
@@ -324,6 +381,7 @@ export function FibShape({
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  style?: DrawingStyle
   onMouseEnter?: () => void
   onMouseLeave?: () => void
   pricePrecision?: number
@@ -333,11 +391,18 @@ export function FibShape({
   onDragEnd?: (end: 'start' | 'end', event: ReactMouseEvent) => void
   onDragBody?: (event: ReactMouseEvent) => void
 }) {
-  const color = ink(selected)
+  const color = ink(selected, style?.color)
+  const levelWidth = style?.lineWidth ?? DRAW_WIDTH
   const { left: xLeft, right: lineRight } = fibLevelExtent(a.x, b.x, plotRight ?? 0)
   const span = Math.max(0, lineRight - xLeft)
   const label = fibLabelPlacement(lineRight, plotRight ?? 0)
   const sorted = [...levels].sort((l, r) => l.y - r.y)
+  const levelColor = (level: FibLevelView): string =>
+    selected ? SELECT_STROKE : level.color ?? style?.color ?? DRAW_STROKE
+  const levelDash = (level: FibLevelView): string | undefined => {
+    const lineStyle = level.lineStyle ?? style?.lineStyle
+    return lineStyle == null ? undefined : drawingDashArray({ lineStyle })
+  }
 
   return (
     <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
@@ -351,7 +416,7 @@ export function FibShape({
             y={level.y}
             width={span}
             height={Math.max(0, next.y - level.y)}
-            fill={FIB_ZONE}
+            fill={hexToRgba(levelColor(level), 0.06)}
             className="pointer-events-none"
           />
         )
@@ -363,9 +428,10 @@ export function FibShape({
             x2={lineRight}
             y1={level.y}
             y2={level.y}
-            stroke={color}
-            strokeWidth={level.ratio === 0 || level.ratio === 1 ? DRAW_WIDTH : 1.25}
+            stroke={levelColor(level)}
+            strokeWidth={level.ratio === 0 || level.ratio === 1 ? levelWidth : 1.25}
             strokeOpacity={level.ratio === 0 || level.ratio === 1 ? 1 : 0.85}
+            strokeDasharray={levelDash(level)}
           />
           <text
             x={label.x}
@@ -386,7 +452,7 @@ export function FibShape({
         x2={b.x}
         y2={b.y}
         stroke={color}
-        strokeWidth={DRAW_WIDTH}
+        strokeWidth={levelWidth}
         strokeDasharray="4 3"
       />
       {canDraw && sorted.length > 0 && (
@@ -445,6 +511,7 @@ export function RectShape({
   canSelect,
   canDraw,
   showHandles = true,
+  style,
   onMouseEnter,
   onMouseLeave,
   onSelect,
@@ -457,13 +524,14 @@ export function RectShape({
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  style?: DrawingStyle
   onMouseEnter?: () => void
   onMouseLeave?: () => void
   onSelect?: (event: ReactMouseEvent) => void
   onDragHandle?: (handle: RectHandle, event: ReactMouseEvent) => void
   onDragBody?: (event: ReactMouseEvent) => void
 }) {
-  const color = ink(selected)
+  const color = ink(selected, style?.color)
   const x = Math.min(a.x, b.x)
   const y = Math.min(a.y, b.y)
   const w = Math.abs(b.x - a.x)
@@ -484,7 +552,8 @@ export function RectShape({
         height={h}
         fill={DRAW_FILL}
         stroke={color}
-        strokeWidth={DRAW_WIDTH}
+        strokeWidth={style?.lineWidth ?? DRAW_WIDTH}
+        strokeDasharray={drawingDashArray(style)}
       />
       {canDraw && (
         <rect
@@ -536,6 +605,7 @@ type PositionShapeProps = {
   canSelect: boolean
   canDraw: boolean
   showHandles?: boolean
+  style?: DrawingStyle
   pricePrecision?: number
   /** Live price line from the entry point to the current candle (clamped to the box). */
   priceLine?: { x1: number; y1: number; x2: number; y2: number } | null
@@ -566,6 +636,7 @@ export function PositionShape({
   canSelect,
   canDraw,
   showHandles = true,
+  style,
   pricePrecision = DEFAULT_PRICE_PRECISION,
   priceLine = null,
   priceLineTowardTp = true,
@@ -577,7 +648,14 @@ export function PositionShape({
   onDragTarget,
   onDragStop
 }: PositionShapeProps) {
-  const color = side === 'long' ? LONG_COLOR : SHORT_COLOR
+  const color = ink(
+    selected,
+    style?.color ?? (side === 'long' ? LONG_COLOR : SHORT_COLOR)
+  )
+  const tpColor = style?.tpColor ?? TP_ZONE_COLOR
+  const slColor = style?.slColor ?? SL_ZONE_COLOR
+  const tpFill = hexToRgba(tpColor, 0.16)
+  const slFill = hexToRgba(slColor, 0.16)
   const fill = side === 'long' ? 'rgba(16, 185, 129, 0.10)' : 'rgba(242, 54, 69, 0.10)'
   const label = side === 'long' ? 'Long' : 'Short'
   const boxW = Math.max(0, x2 - x)
@@ -644,7 +722,7 @@ export function PositionShape({
               y={tpZone.y}
               width={boxW}
               height={tpZone.h}
-              fill={TP_ZONE_FILL}
+              fill={tpFill}
             />
           )}
           {slZone != null && slZone.h > 0 && (
@@ -653,7 +731,7 @@ export function PositionShape({
               y={slZone.y}
               width={boxW}
               height={slZone.h}
-              fill={SL_ZONE_FILL}
+              fill={slFill}
             />
           )}
         </>
@@ -684,7 +762,14 @@ export function PositionShape({
       )}
 
       {/* Entry line — draggable to move just the entry price. */}
-      <line x1={x} x2={x2} y1={entryY} y2={entryY} stroke={color} strokeWidth={1.5} />
+      <line
+        x1={x}
+        x2={x2}
+        y1={entryY}
+        y2={entryY}
+        stroke={color}
+        strokeWidth={style?.lineWidth ?? 1.5}
+      />
 
       {/* Level/entry drag surfaces (grabbing the line moves that level). */}
       {canDraw && (
@@ -703,7 +788,7 @@ export function PositionShape({
           y1={priceLine.y1}
           x2={priceLine.x2}
           y2={priceLine.y2}
-          stroke={priceLineTowardTp ? TP_ZONE_COLOR : SL_ZONE_COLOR}
+          stroke={priceLineTowardTp ? tpColor : slColor}
           strokeWidth={1.5}
           strokeDasharray="4 3"
           className="pointer-events-none"
@@ -726,7 +811,7 @@ export function PositionShape({
           x={badgeLeft(x, boxW, posBadgeWidth(tpText))}
           y={targetY - POS_BADGE_H / 2}
           text={tpText}
-          fill={TP_ZONE_COLOR}
+          fill={tpColor}
           cursor={levelCursor}
           onMouseDown={onDragTarget}
           onClick={canSelect ? onSelect : undefined}
@@ -737,7 +822,7 @@ export function PositionShape({
           x={badgeLeft(x, boxW, posBadgeWidth(slText))}
           y={stopY - POS_BADGE_H / 2}
           text={slText}
-          fill={SL_ZONE_COLOR}
+          fill={slColor}
           cursor={levelCursor}
           onMouseDown={onDragStop}
           onClick={canSelect ? onSelect : undefined}

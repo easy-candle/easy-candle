@@ -7,6 +7,7 @@ import ChartTypeSelect from '@/components/ChartTypeSelect'
 import ChartSnapshotDropdown from '@/components/ChartSnapshotDropdown'
 import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
+import DrawingSettingsDialog from '@/components/DrawingSettingsDialog'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
 import FloatingTradeBar from '@/components/FloatingTradeBar'
 import IconButton from '@/components/IconButton'
@@ -252,6 +253,7 @@ export default function AppShell({
       <KeyboardShortcutsDialog />
       <AboutDialog />
       <ChartSettingsDialog />
+      <DrawingSettingsDialog />
       <SessionReportModal />
       <UpdateModal />
     </div>

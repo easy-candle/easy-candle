@@ -1,6 +1,7 @@
-import { MousePointer2, Trash2 } from 'lucide-react'
+import { MousePointer2, Settings2, Trash2 } from 'lucide-react'
 import DrawingToolIcon from '@/components/DrawingToolIcon'
 import IconButton from '@/components/IconButton'
+import { useDrawingSettingsStore } from '@/store/drawingSettingsStore'
 import { useReplayStore } from '@/store/replayStore'
 import fibonacciIcon from '@/assets/drawings/fibonacci.svg?raw'
 import hlineIcon from '@/assets/drawings/hline.svg?raw'
@@ -16,6 +17,7 @@ export default function DrawingToolbar() {
   const drawings = useReplayStore((s) => s.drawings)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const clearDrawings = useReplayStore((s) => s.clearDrawings)
+  const setDrawingDialogOpen = useDrawingSettingsStore((s) => s.setDrawingDialogOpen)
 
   const disabled = mode === 'replay' && replayStatus === 'ended'
 
@@ -107,6 +109,16 @@ export default function DrawingToolbar() {
         tone="danger"
       >
         <Trash2 className="w-6 h-6" strokeWidth={1.25} />
+      </IconButton>
+      <div className="my-1 h-px w-7 bg-zinc-800" aria-hidden />
+      <IconButton
+        variant="ghost"
+        tooltip="Drawing settings"
+        tooltipSide="right"
+        disabled={disabled}
+        onClick={() => setDrawingDialogOpen(true, 'toolbar')}
+      >
+        <Settings2 className="w-6 h-6" strokeWidth={1.25} />
       </IconButton>
     </div>
   )

@@ -68,6 +68,7 @@ import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
 import { isChartType, type ChartType } from '@/lib/chart/chartTypes'
 import {
   cloneDrawing as cloneDrawingGeom,
+  drawingToolType,
   isDrawTool,
   isPositionDrawing,
   isPositionTool,
@@ -81,13 +82,16 @@ import {
   updateRectHandle as updateRectHandleGeom,
   updateTwoPointEndpoint as updateTwoPointEndpointGeom,
   type Drawing,
+  type DrawingStyle,
   type DrawTool,
   type Endpoint,
+  type FibLevelConfig,
   type PositionDrawing,
   type PositionLevel,
   type RectHandle,
   type TrendPoint
 } from '@/lib/chart/drawingGeometry'
+import { defaultFibLevelsForTool, defaultStyleForTool } from '@/store/drawingSettingsStore'
 import { DEFAULT_SYMBOL } from '@shared/symbols'
 import {
   alignTimeToInterval,
@@ -125,6 +129,7 @@ export type {
   DrawTool,
   Endpoint,
   FibDrawing,
+  FibLevelConfig,
   HLineDrawing,
   PositionDrawing,
   PositionLevel,
@@ -385,6 +390,8 @@ type ReplayStore = {
   updatePositionSpan: (id: string, span: number) => void
   cloneDrawing: (id: string) => string | null
   moveDrawing: (id: string, origin: Drawing, dTime: number, dPrice: number) => void
+  updateDrawingStyle: (id: string, patch: Partial<DrawingStyle>) => void
+  updateDrawingLevels: (id: string, levels: FibLevelConfig[]) => void
   selectDrawing: (id: string | null) => void
   deleteDrawing: (id: string) => void
   clearDrawings: () => void
@@ -1819,9 +1826,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     addHorizontalLine(price) {
       if (get().mode === 'replay' && get().replayStatus === 'ended') return
       if (!Number.isFinite(price)) return
+      const id = nextDrawingId()
       set((s) => ({
         drawTool: 'select',
-        drawings: [...s.drawings, { id: nextDrawingId(), type: 'hline', price }]
+        drawings: [
+          ...s.drawings,
+          { id, type: 'hline', price, style: defaultStyleForTool('hline') }
+        ],
+        selectedDrawingId: id
       }))
     },
 
@@ -1848,20 +1860,24 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         return
       }
 
+      const id = nextDrawingId()
       set((s) => ({
         pendingTrend: null,
         drawTool: 'select',
         drawings: [
           ...s.drawings,
           {
-            id: nextDrawingId(),
+            id,
             type: tool,
             t1: pending.time,
             p1: pending.price,
             t2: point.time,
-            p2: point.price
+            p2: point.price,
+            style: defaultStyleForTool(tool),
+            levels: tool === 'fib' ? defaultFibLevelsForTool() : undefined
           }
-        ]
+        ],
+        selectedDrawingId: id
       }))
     },
 
@@ -1893,20 +1909,23 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const tool = get().drawTool
       if (!isPositionTool(tool)) return
       if (!point || !Number.isFinite(point.time) || !Number.isFinite(point.price)) return
+      const id = nextDrawingId()
       set((s) => ({
         drawTool: 'select',
         drawings: [
           ...s.drawings,
           {
-            id: nextDrawingId(),
+            id,
             type: tool,
             t: point.time,
             entry: point.price,
             target: null,
             stop: null,
-            span: POSITION_SPAN_DEFAULT
+            span: POSITION_SPAN_DEFAULT,
+            style: defaultStyleForTool(tool)
           } satisfies PositionDrawing
-        ]
+        ],
+        selectedDrawingId: id
       }))
     },
 
@@ -1974,6 +1993,28 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const next = translateDrawing(origin, dTime, dPrice)
       set((s) => ({
         drawings: s.drawings.map((d) => (d.id === id ? next : d))
+      }))
+    },
+
+    updateDrawingStyle(id, patch) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || !patch) return
+      set((s) => ({
+        drawings: s.drawings.map((d) => {
+          if (d.id !== id) return d
+          const base = d.style ?? defaultStyleForTool(drawingToolType(d))
+          return { ...d, style: { ...base, ...patch } }
+        })
+      }))
+    },
+
+    updateDrawingLevels(id, levels) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || !Array.isArray(levels)) return
+      set((s) => ({
+        drawings: s.drawings.map((d) =>
+          d.type === 'fib' && d.id === id ? { ...d, levels: levels.map((l) => ({ ...l })) } : d
+        )
       }))
     },
 

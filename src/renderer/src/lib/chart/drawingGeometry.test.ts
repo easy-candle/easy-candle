@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cloneFibLevels,
   cloneDrawing,
+  DEFAULT_FIB_LEVELS,
+  drawingToolType,
   FIB_LEVELS,
+  fibLevelsOf,
   fibPriceAtLevel,
   formatFibLevel,
   formatPriceChangePct,
@@ -12,6 +16,7 @@ import {
   translateDrawing,
   updateRectHandle,
   updateTwoPointEndpoint,
+  type DrawingStyle,
   type FibDrawing,
   type HLineDrawing,
   type PositionDrawing,
@@ -82,6 +87,40 @@ describe('fibPriceAtLevel', () => {
       '0.618',
       '1.0'
     ])
+  })
+})
+
+describe('fibLevelsOf', () => {
+  const defaults = [{ ratio: 0 }, { ratio: 1 }]
+
+  it('uses the drawing levels when present, sorted by ratio', () => {
+    const drawing: FibDrawing = {
+      ...fib,
+      levels: [{ ratio: 1, color: '#00ff00' }, { ratio: 0 }]
+    }
+    expect(fibLevelsOf(drawing, defaults)).toEqual([
+      { ratio: 0 },
+      { ratio: 1, color: '#00ff00' }
+    ])
+  })
+
+  it('falls back to the defaults when the drawing has no levels', () => {
+    expect(fibLevelsOf(fib, defaults)).toEqual(defaults)
+  })
+
+  it('keeps an explicitly empty level list empty (renders no levels)', () => {
+    const drawing: FibDrawing = { ...fib, levels: [] }
+    expect(fibLevelsOf(drawing, defaults)).toEqual([])
+  })
+
+  it('defaults mirror the classic FIB_LEVELS ratios with no overrides', () => {
+    expect(DEFAULT_FIB_LEVELS).toEqual(FIB_LEVELS.map((ratio) => ({ ratio })))
+  })
+
+  it('clones level configs deeply', () => {
+    const cloned = cloneFibLevels([{ ratio: 0.5, color: '#ff0000', lineStyle: 2 }])
+    expect(cloned).toEqual([{ ratio: 0.5, color: '#ff0000', lineStyle: 2 }])
+    expect(cloned[0]).not.toBe(DEFAULT_FIB_LEVELS[0])
   })
 })
 
@@ -243,5 +282,26 @@ describe('updateRectHandle', () => {
       p1: 130,
       p2: 80
     })
+  })
+})
+
+describe('drawing styles', () => {
+  const style: DrawingStyle = { color: '#10B981', lineWidth: 3, lineStyle: 2 }
+  const styled: HLineDrawing = { id: 'd-9', type: 'hline', price: 50, style }
+
+  it('maps every drawing to its settings key', () => {
+    expect(drawingToolType(hline)).toBe('hline')
+    expect(drawingToolType(trend)).toBe('trendline')
+    expect(drawingToolType(fib)).toBe('fib')
+    expect(drawingToolType(rect)).toBe('rect')
+    expect(drawingToolType(longPos)).toBe('long')
+    expect(drawingToolType(shortPos)).toBe('short')
+  })
+
+  it('survives clone, translate and remap untouched', () => {
+    const copied = cloneDrawing(styled, 'd-10')
+    expect(copied).toMatchObject({ id: 'd-10', style })
+    expect(translateDrawing(styled, 5, 2)).toMatchObject({ price: 52, style })
+    expect(remapDrawingTimes(styled, (t) => t * 2)).toMatchObject({ style })
   })
 })
