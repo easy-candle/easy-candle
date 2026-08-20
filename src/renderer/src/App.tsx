@@ -4,6 +4,7 @@ import CandleChart from '@/components/CandleChart'
 import PaneChrome from '@/components/PaneChrome'
 import { buildOverlays } from '@/lib/indicators'
 import { alignTimeToInterval, TIMEFRAMES } from '@shared/timeframes'
+import { isDesktopRuntime } from '@/lib/runtime'
 import { useReplayStore } from '@/store/replayStore'
 
 export default function App() {
@@ -39,6 +40,7 @@ export default function App() {
   }, [loadCandles])
 
   useEffect(() => {
+    if (!isDesktopRuntime()) return
     const unsub = window.api.onMtBridgeEvent((event) => {
       useReplayStore.getState().handleMtBridgeEvent(event)
     })
