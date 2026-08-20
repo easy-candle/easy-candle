@@ -175,7 +175,7 @@ describe('saveActiveSession', () => {
 })
 
 describe('loadSession', () => {
-  it('restores drawings and orders onto the chart and sets it active', async () => {
+  it('restores drawings and orders onto the chart and sets it active', () => {
     freshStore()
     seedReplay(
       [{ id: 'd-1', type: 'long', t: 10, entry: 100, target: 110, stop: 95, span: 6 }],
@@ -198,7 +198,7 @@ describe('loadSession', () => {
     const id = useSessionStore.getState().createSession('Load Me')!
     // Wipe the chart, then restore from the session.
     seedReplay()
-    expect(await useSessionStore.getState().loadSession(id)).toBe(true)
+    expect(useSessionStore.getState().loadSession(id)).toBe(true)
     const chart = useReplayStore.getState()
     expect(chart.drawings).toEqual([
       { id: 'd-1', type: 'long', t: 10, entry: 100, target: 110, stop: 95, span: 6 }
@@ -208,9 +208,9 @@ describe('loadSession', () => {
     expect(useSessionStore.getState().activeSessionId).toBe(id)
   })
 
-  it('returns false for an unknown session', async () => {
+  it('returns false for an unknown session', () => {
     freshStore()
-    expect(await useSessionStore.getState().loadSession('missing')).toBe(false)
+    expect(useSessionStore.getState().loadSession('missing')).toBe(false)
   })
 })
 
