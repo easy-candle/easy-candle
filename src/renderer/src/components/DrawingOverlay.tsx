@@ -52,7 +52,6 @@ import {
   type Point
 } from '@/components/DrawingShapes'
 import {
-  canPlaceTicketSide,
   formatPnlUsd,
   formatRiskReward,
   formatTradeSizeForSymbol,
@@ -1195,17 +1194,24 @@ export default function DrawingOverlay({
   const limitAction =
     selectedDrawing != null && isPositionDrawing(selectedDrawing) && canEditTrade
       ? (() => {
-          const levels = {
-            orderType: 'limit' as const,
-            markPrice: markCandle?.close,
-            limitPrice: selectedDrawing.entry,
-            takeProfit: selectedDrawing.target,
-            stopLoss: selectedDrawing.stop
-          }
+          const tpOk =
+            selectedDrawing.target == null ||
+            isValidTakeProfit(
+              selectedDrawing.type,
+              selectedDrawing.entry,
+              selectedDrawing.target
+            )
+          const slOk =
+            selectedDrawing.stop == null ||
+            isValidPendingStopLoss(
+              selectedDrawing.type,
+              selectedDrawing.entry,
+              selectedDrawing.stop
+            )
           const blocked = Boolean(position || pendingOrder)
           return {
             side: selectedDrawing.type,
-            disabled: blocked || !canPlaceTicketSide(selectedDrawing.type, levels),
+            disabled: blocked || markCandle?.close == null || !tpOk || !slOk,
             onPlace: () => {
               placeLimit(selectedDrawing.type, selectedDrawing.entry)
               if (selectedDrawing.target != null) {
@@ -2391,7 +2397,7 @@ export default function DrawingOverlay({
                 className="h-full w-full"
                 text={
                   limitAction.disabled
-                    ? 'Cannot place a limit — an open position or pending order exists, or the entry/TP/SL is not valid for a limit'
+                    ? 'Cannot place a limit — an open position or pending order exists, or the drawn TP/SL is not valid for the entry'
                     : limitAction.side === 'long'
                       ? 'Place a Buy Limit at the drawing entry with its drawn TP/SL'
                       : 'Place a Sell Limit at the drawing entry with its drawn TP/SL'
