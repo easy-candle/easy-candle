@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react'
 import {
   ChevronsLeft,
   ChevronsRight,
+  CirclePause,
   Gauge,
   LogOut,
   Pause,
@@ -36,6 +37,8 @@ export default function ReplayControls() {
   const setDriverPane = useReplayStore((s) => s.setDriverPane)
   const jumpToTime = useReplayStore((s) => s.jumpToTime)
   const exitReplay = useReplayStore((s) => s.exitReplay)
+  const pauseOnTpSl = useReplayStore((s) => s.pauseOnTpSl)
+  const setPauseOnTpSl = useReplayStore((s) => s.setPauseOnTpSl)
 
   const seed = currentCandle ? toUtcParts(currentCandle.time) : defaultUtcParts(7)
   const [jumpDate, setJumpDate] = useState(seed.date)
@@ -150,6 +153,19 @@ export default function ReplayControls() {
           ))}
         </select>
       </label>
+
+      <IconButton
+        tooltip="Pause after price hits TP or SL"
+        active={pauseOnTpSl}
+        pressed={pauseOnTpSl}
+        tooltipSide="top"
+        onClick={(event) => {
+          setPauseOnTpSl(!pauseOnTpSl)
+          event.currentTarget.blur()
+        }}
+      >
+        <CirclePause className="h-4 w-4" />
+      </IconButton>
 
       <form
         onSubmit={onJump}
