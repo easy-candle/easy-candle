@@ -383,7 +383,7 @@ type ReplayStore = {
   addTwoPoint: (point: TrendPoint) => void
   updateTwoPointEndpoint: (id: string, end: Endpoint, point: TrendPoint) => void
   updateRectHandle: (id: string, handle: RectHandle, point: TrendPoint) => void
-  addPosition: (point: TrendPoint) => void
+  addPosition: (point: TrendPoint, levels?: { target: number | null; stop: number | null }) => void
   updatePositionLevel: (id: string, level: PositionLevel, price: number) => void
   clearPositionLevel: (id: string, level: PositionLevel) => void
   updatePositionEntry: (id: string, price: number) => void
@@ -1904,12 +1904,20 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }))
     },
 
-    addPosition(point) {
+    addPosition(point, levels) {
       if (get().mode === 'replay' && get().replayStatus === 'ended') return
       const tool = get().drawTool
       if (!isPositionTool(tool)) return
       if (!point || !Number.isFinite(point.time) || !Number.isFinite(point.price)) return
       const id = nextDrawingId()
+      let target = levels?.target ?? null
+      let stop = levels?.stop ?? null
+      if (target != null && !isValidPositionLevel(tool, 'target', point.price, target)) {
+        target = null
+      }
+      if (stop != null && !isValidPositionLevel(tool, 'stop', point.price, stop)) {
+        stop = null
+      }
       set((s) => ({
         drawTool: 'select',
         drawings: [
@@ -1919,8 +1927,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             type: tool,
             t: point.time,
             entry: point.price,
-            target: null,
-            stop: null,
+            target,
+            stop,
             span: POSITION_SPAN_DEFAULT,
             style: defaultStyleForTool(tool)
           } satisfies PositionDrawing

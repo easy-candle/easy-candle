@@ -3,6 +3,7 @@ import {
   cloneFibLevels,
   cloneDrawing,
   DEFAULT_FIB_LEVELS,
+  defaultPositionLevels,
   drawingToolType,
   FIB_LEVELS,
   fibLevelsOf,
@@ -12,6 +13,10 @@ import {
   isPositionTool,
   isValidPositionLevel,
   mirrorPositionLevel,
+  positionLimitPlacementBlock,
+  positionLimitPlacementHint,
+  remapDrawingTimes,
+  resolvedPositionLevels,
   remapDrawingTimes,
   translateDrawing,
   updateRectHandle,
@@ -245,6 +250,67 @@ describe('position drawings', () => {
   it('keeps null levels null when translating', () => {
     const bare: PositionDrawing = { id: 'd-7', type: 'short', t: 10, entry: 50, target: null, stop: null, span: 3 }
     expect(translateDrawing(bare, 2, 1)).toEqual({ ...bare, t: 12, entry: 51 })
+  })
+
+  it('blocks placing a limit when TP or SL cannot be resolved', () => {
+    const ready = { hasWorkingTrade: false, hasMark: true }
+    const unset: Pick<PositionDrawing, 'type' | 'entry' | 'target' | 'stop'> = {
+      type: 'long',
+      entry: 100,
+      target: null,
+      stop: null
+    }
+    expect(positionLimitPlacementBlock(unset, ready)).toBe('missing-levels')
+    expect(positionLimitPlacementHint('missing-levels', 'long')).toMatch(/drag the TP and SL handles/i)
+    expect(positionLimitPlacementBlock({ ...unset, stop: 90 }, ready)).toBe('missing-tp')
+    expect(positionLimitPlacementHint('missing-tp', 'long')).toMatch(/take profit is not set/i)
+    expect(positionLimitPlacementBlock({ ...unset, target: 110 }, ready)).toBe('missing-sl')
+    expect(positionLimitPlacementHint('missing-sl', 'short')).toMatch(/stop loss is not set/i)
+    expect(
+      positionLimitPlacementBlock({ type: 'long', entry: 100, target: 110, stop: 90 }, ready)
+    ).toBe(null)
+    expect(positionLimitPlacementHint(null, 'long')).toMatch(/buy limit/i)
+  })
+
+  it('uses the painted 1:3 guide when TP/SL are still null on a fresh drawing', () => {
+    const range = { from: 0, to: 100 }
+    const unset = { type: 'long' as const, entry: 50, target: null, stop: null }
+    expect(defaultPositionLevels('long', 50, range)).toEqual({ target: 65, stop: 45 })
+    expect(defaultPositionLevels('short', 50, range)).toEqual({ target: 35, stop: 55 })
+    expect(defaultPositionLevels('long', 50, { from: 10, to: 10 })).toBe(null)
+    expect(resolvedPositionLevels(unset, range)).toEqual({ target: 65, stop: 45 })
+    expect(
+      resolvedPositionLevels({ ...unset, target: 80 }, range)
+    ).toEqual({ target: 80, stop: 45 })
+    expect(
+      positionLimitPlacementBlock(unset, {
+        hasWorkingTrade: false,
+        hasMark: true,
+        visibleRange: range
+      })
+    ).toBe(null)
+  })
+
+  it('blocks placing a limit when a trade is already working or a level is invalid', () => {
+    const drawing = { type: 'long' as const, entry: 100, target: 110, stop: 90 }
+    expect(
+      positionLimitPlacementBlock(drawing, { hasWorkingTrade: true, hasMark: true })
+    ).toBe('working-trade')
+    expect(
+      positionLimitPlacementBlock(drawing, { hasWorkingTrade: false, hasMark: false })
+    ).toBe('no-mark')
+    expect(
+      positionLimitPlacementBlock(
+        { ...drawing, target: 90 },
+        { hasWorkingTrade: false, hasMark: true }
+      )
+    ).toBe('invalid-tp')
+    expect(
+      positionLimitPlacementBlock(
+        { ...drawing, stop: 110 },
+        { hasWorkingTrade: false, hasMark: true }
+      )
+    ).toBe('invalid-sl')
   })
 
   it('clones position drawings with a new id', () => {
