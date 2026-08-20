@@ -8,6 +8,7 @@ import {
   tourElementSelector
 } from '@/lib/appTourSteps'
 import { useDrawingSettingsStore } from '@/store/drawingSettingsStore'
+import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
 let didRequestFirstRunTour = false
@@ -49,6 +50,7 @@ export default function AppTour(): null {
 
   useEffect(() => {
     if (tourRequestId === 0) return
+    if (useReplayStore.getState().mode === 'replay') return
 
     let cancelled = false
     let instance: Driver | null = null
