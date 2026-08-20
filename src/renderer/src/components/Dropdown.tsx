@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 type DropdownProps = {
   trigger: (props: { open: boolean; toggle: () => void }) => ReactNode
-  children: ReactNode
+  children: ReactNode | ((props: { close: () => void }) => ReactNode)
   align?: 'start' | 'end'
   menuClassName?: string
 }
@@ -51,7 +51,7 @@ export default function Dropdown({
             align === 'end' ? 'right-0' : 'left-0'
           } ${menuClassName}`}
         >
-          {children}
+          {typeof children === 'function' ? children({ close: () => setOpen(false) }) : children}
         </div>
       )}
     </div>

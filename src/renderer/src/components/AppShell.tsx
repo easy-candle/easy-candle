@@ -18,6 +18,7 @@ import ReplayStartDialog from '@/components/ReplayStartDialog'
 import SessionReportModal from '@/components/SessionReportModal'
 import UpdateModal from '@/components/UpdateModal'
 import StatusBar from '@/components/StatusBar'
+import SymbolManagerDialog from '@/components/SymbolManagerDialog'
 import SymbolSelect from '@/components/SymbolSelect'
 import TimeframeSelect from '@/components/TimeframeSelect'
 import TitleBar from '@/components/TitleBar'
@@ -265,6 +266,7 @@ export default function AppShell({
       <AboutDialog />
       <ChartSettingsDialog />
       <DrawingSettingsDialog />
+      <SymbolManagerDialog />
       <SessionReportModal />
       <UpdateModal />
     </div>

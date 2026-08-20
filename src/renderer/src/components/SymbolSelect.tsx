@@ -1,12 +1,25 @@
-import { useEffect } from 'react'
-import { ChartCandlestick } from 'lucide-react'
-import { SYMBOLS } from '@shared/symbols'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { ChartCandlestick, Check, ChevronDown, Search, Settings2, X } from 'lucide-react'
+import { SYMBOL_GROUPS, SYMBOLS } from '@shared/symbols'
+import Dropdown from '@/components/Dropdown'
 import { useReplayStore } from '@/store/replayStore'
+import { useSymbolVisibilityStore } from '@/store/symbolVisibilityStore'
+import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
-const CRYPTO_PREFIX = 'crypto:'
-const IMPORT_PREFIX = 'import:'
+function matchesQuery(
+  entry: { label: string; binanceSymbol: string; id: string },
+  query: string
+): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return (
+    entry.label.toLowerCase().includes(q) ||
+    entry.binanceSymbol.toLowerCase().includes(q) ||
+    entry.id.toLowerCase().includes(q)
+  )
+}
 
-export default function SymbolSelect() {
+export default function SymbolSelect(): ReactElement {
   const symbol = useReplayStore((s) => s.symbol)
   const status = useReplayStore((s) => s.status)
   const mode = useReplayStore((s) => s.mode)
@@ -18,6 +31,15 @@ export default function SymbolSelect() {
   const selectImportedDataset = useReplayStore((s) => s.selectImportedDataset)
   const refreshImportedList = useReplayStore((s) => s.refreshImportedList)
 
+  const hiddenGroups = useSymbolVisibilityStore((s) => s.hiddenGroups)
+  const hiddenSymbols = useSymbolVisibilityStore((s) => s.hiddenSymbols)
+  const hiddenImports = useSymbolVisibilityStore((s) => s.hiddenImports)
+  const collapsedGroups = useSymbolVisibilityStore((s) => s.collapsedGroups)
+  const toggleGroupCollapsed = useSymbolVisibilityStore((s) => s.toggleGroupCollapsed)
+  const setSymbolManagerDialogOpen = useUiLayoutStore((s) => s.setSymbolManagerDialogOpen)
+
+  const [query, setQuery] = useState('')
+
   const disabled = status === 'loading' || replayLoading || mode === 'replay'
   const imported = dataSource === 'imported'
 
@@ -25,63 +47,185 @@ export default function SymbolSelect() {
     void refreshImportedList()
   }, [refreshImportedList])
 
-  const selectValue = imported && importMeta ? `${IMPORT_PREFIX}${importMeta.id}` : `${CRYPTO_PREFIX}${symbol}`
+  const currentLabel = useMemo(() => {
+    if (imported && importMeta) return importMeta.symbol
+    return SYMBOLS.find((entry) => entry.binanceSymbol === symbol)?.label ?? symbol
+  }, [imported, importMeta, symbol])
 
-  async function onChange(raw: string): Promise<void> {
-    if (raw.startsWith(IMPORT_PREFIX)) {
-      const id = raw.slice(IMPORT_PREFIX.length)
-      if (!id) return
-      await selectImportedDataset(id)
-      return
-    }
+  const filteredImported = useMemo(() => {
+    const hiddenImportSet = new Set(hiddenImports)
+    const q = query.trim().toLowerCase()
+    return importedList
+      .filter((entry) => !hiddenImportSet.has(entry.id))
+      .filter((entry) => !q || entry.symbol.toLowerCase().includes(q))
+  }, [importedList, hiddenImports, query])
 
-    if (raw.startsWith(CRYPTO_PREFIX)) {
-      const next = raw.slice(CRYPTO_PREFIX.length)
-      if (!next) return
-      setSymbol(next)
-    }
+  const visibleGroups = useMemo(() => {
+    const hiddenGroupSet = new Set(hiddenGroups)
+    const hiddenSymbolSet = new Set(hiddenSymbols)
+    const collapsedGroupSet = new Set(collapsedGroups)
+    return SYMBOL_GROUPS.map((group) => {
+      if (hiddenGroupSet.has(group.key)) return null
+      const symbols = group.symbols.filter((entry) => !hiddenSymbolSet.has(entry.binanceSymbol))
+      const collapsed = collapsedGroupSet.has(group.key)
+      const matching = symbols.filter((entry) => matchesQuery(entry, query))
+      if (symbols.length === 0 || (!collapsed && matching.length === 0)) return null
+      return { ...group, symbols: matching, collapsed }
+    }).filter((group): group is NonNullable<typeof group> => group != null)
+  }, [hiddenGroups, hiddenSymbols, collapsedGroups, query])
+
+  const hasResults = filteredImported.length > 0 || visibleGroups.length > 0
+
+  async function selectCrypto(binanceSymbol: string): Promise<void> {
+    if (!binanceSymbol) return
+    setSymbol(binanceSymbol)
+  }
+
+  async function selectImported(id: string): Promise<void> {
+    if (!id) return
+    await selectImportedDataset(id)
   }
 
   return (
-    <label
-      className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400"
-      data-tour="symbol"
+    <Dropdown
+      align="start"
+      menuClassName="w-72"
+      trigger={({ open, toggle }) => (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={toggle}
+          aria-label="Symbol"
+          data-tour="symbol"
+          aria-expanded={open}
+          title={mode === 'replay' ? 'Exit replay to change symbol' : undefined}
+          className="flex h-8 items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900/80 px-2 text-xs text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <ChartCandlestick className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+          <span className="max-w-[8rem] truncate text-zinc-100">{currentLabel}</span>
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+      )}
     >
-      <ChartCandlestick className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
-      <span className="sr-only">Symbol</span>
-      <select
-        className="max-w-[10.5rem] rounded bg-zinc-900 text-zinc-100 outline-none disabled:opacity-60"
-        value={selectValue}
-        disabled={disabled}
-        title={mode === 'replay' ? 'Exit replay to change symbol' : undefined}
-        aria-label="Symbol"
-        onChange={(event) => void onChange(event.target.value)}
-      >
-        {importedList.length > 0 && (
-          <optgroup label="Imported" className="bg-zinc-900 text-zinc-100">
-            {importedList.map((entry) => (
-              <option
-                key={entry.id}
-                value={`${IMPORT_PREFIX}${entry.id}`}
-                className="bg-zinc-900 text-zinc-100"
+      {({ close }) => (
+        <div className="flex max-h-[24rem] flex-col">
+          <div className="flex items-center gap-1.5 border-b border-zinc-800 px-2.5 py-2">
+            <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search symbols…"
+              className="h-6 w-full bg-transparent text-xs text-zinc-100 placeholder-zinc-500 outline-none"
+              aria-label="Search symbols"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+                className="rounded p-0.5 text-zinc-500 hover:text-zinc-200"
               >
-                {entry.symbol}
-              </option>
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            )}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto py-1">
+            {filteredImported.length > 0 && (
+              <div className="mb-1">
+                <div className="px-3 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Imported
+                </div>
+                {filteredImported.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      void selectImported(entry.id).then(close)
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                      imported && importMeta?.id === entry.id
+                        ? 'bg-amber-950/10 dark:bg-amber-950/40 text-amber-300'
+                        : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100'
+                    }`}
+                  >
+                    <span className="w-4 shrink-0" />
+                    <span className="flex-1">{entry.symbol}</span>
+                    {imported && importMeta?.id === entry.id && (
+                      <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {visibleGroups.map((group) => (
+              <div key={group.key} className="mb-1">
+                <button
+                  type="button"
+                  aria-expanded={!group.collapsed}
+                  onClick={() => toggleGroupCollapsed(group.key)}
+                  className="flex w-full items-center gap-1.5 px-3 pb-0.5 pt-1 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-500 transition-colors hover:text-zinc-300"
+                >
+                  <ChevronDown
+                    className={`h-3 w-3 shrink-0 transition-transform ${group.collapsed ? '-rotate-90' : ''}`}
+                    aria-hidden
+                  />
+                  {group.label}
+                </button>
+                {!group.collapsed &&
+                  group.symbols.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        void selectCrypto(entry.binanceSymbol).then(close)
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                        !imported && symbol === entry.binanceSymbol
+                          ? 'bg-amber-950/10 dark:bg-amber-950/40 text-amber-300'
+                          : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100'
+                      }`}
+                    >
+                      <span className="flex w-4 shrink-0 items-center justify-center">
+                        {!imported && symbol === entry.binanceSymbol && (
+                          <Check className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                      </span>
+                      <span className="flex-1">{entry.label}</span>
+                    </button>
+                  ))}
+              </div>
             ))}
-          </optgroup>
-        )}
-        <optgroup label="Crypto" className="bg-zinc-900 text-zinc-100">
-          {SYMBOLS.map((entry) => (
-            <option
-              key={entry.id}
-              value={`${CRYPTO_PREFIX}${entry.binanceSymbol}`}
-              className="bg-zinc-900 text-zinc-100"
+
+            {!hasResults && (
+              <div className="px-3 py-6 text-center text-xs text-zinc-500">
+                No symbols match “{query.trim()}”.
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-zinc-800">
+            <button
+              type="button"
+              onClick={() => {
+                close()
+                setSymbolManagerDialogOpen(true)
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-400 transition-colors hover:bg-zinc-800/80 hover:text-zinc-100"
             >
-              {entry.label}
-            </option>
-          ))}
-        </optgroup>
-      </select>
-    </label>
+              <Settings2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Manage symbols
+            </button>
+          </div>
+        </div>
+      )}
+    </Dropdown>
   )
 }

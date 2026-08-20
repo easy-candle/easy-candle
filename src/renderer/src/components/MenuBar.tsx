@@ -102,6 +102,7 @@ export default function MenuBar() {
   const startTour = useUiLayoutStore((s) => s.startTour)
   const setImportDataDialogOpen = useUiLayoutStore((s) => s.setImportDataDialogOpen)
   const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
+  const setSymbolManagerDialogOpen = useUiLayoutStore((s) => s.setSymbolManagerDialogOpen)
   const theme = useThemeStore((s) => s.theme)
   const setTheme = useThemeStore((s) => s.setTheme)
 
@@ -173,6 +174,11 @@ export default function MenuBar() {
           type: 'item',
           label: 'Settings',
           onSelect: () => setChartSettingsDialogOpen(true)
+        },
+        {
+          type: 'item',
+          label: 'Symbol Manager',
+          onSelect: () => setSymbolManagerDialogOpen(true)
         }
       ]
     },
