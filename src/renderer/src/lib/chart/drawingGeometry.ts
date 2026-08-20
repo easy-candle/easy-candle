@@ -90,6 +90,40 @@ export const POSITION_SPAN_MIN = 1
 export const POSITION_SPAN_MAX = 200
 /** Default reward multiple of risk when mirroring a missing level (1:3 R:R). */
 export const POSITION_RR_REWARD_MULT = 3
+/** Visible-range fraction used as default risk while a TP/SL handle is not armed. */
+export const POSITION_DEFAULT_RISK_FRAC = 0.05
+
+export type VisiblePriceRange = { from: number; to: number }
+
+/**
+ * Guide TP/SL for a fresh position box: 5% of the visible range as risk,
+ * reward at {@link POSITION_RR_REWARD_MULT}. Null when the scale has no span.
+ */
+export function defaultPositionLevels(
+  side: 'long' | 'short',
+  entry: number,
+  range: VisiblePriceRange | null | undefined
+): { target: number; stop: number } | null {
+  if (!range || !(range.to > range.from) || !Number.isFinite(entry)) return null
+  const risk = (range.to - range.from) * POSITION_DEFAULT_RISK_FRAC
+  if (!(risk > 0)) return null
+  if (side === 'long') {
+    return { target: entry + risk * POSITION_RR_REWARD_MULT, stop: entry - risk }
+  }
+  return { target: entry - risk * POSITION_RR_REWARD_MULT, stop: entry + risk }
+}
+
+/** Stored levels, filling any nulls from the same 1:3 guide the overlay paints. */
+export function resolvedPositionLevels(
+  drawing: Pick<PositionDrawing, 'type' | 'entry' | 'target' | 'stop'>,
+  range: VisiblePriceRange | null | undefined
+): { target: number | null; stop: number | null } {
+  const defaults = defaultPositionLevels(drawing.type, drawing.entry, range)
+  return {
+    target: drawing.target ?? defaults?.target ?? null,
+    stop: drawing.stop ?? defaults?.stop ?? null
+  }
+}
 
 /** MetaTrader retracement defaults (no 0.786 / extensions). */
 export const FIB_LEVELS: readonly number[] = [0, 0.236, 0.382, 0.5, 0.618, 1]
@@ -151,6 +185,70 @@ export function isValidPositionLevel(
 ): boolean {
   if (level === 'target') return side === 'long' ? price > entry : price < entry
   return side === 'long' ? price < entry : price > entry
+}
+
+/** Why the place-limit chip cannot submit from a position drawing. */
+export type PositionLimitPlacementBlock =
+  | 'working-trade'
+  | 'no-mark'
+  | 'missing-tp'
+  | 'missing-sl'
+  | 'missing-levels'
+  | 'invalid-tp'
+  | 'invalid-sl'
+
+/**
+ * A fresh long/short drawing may still have null `target`/`stop` while the
+ * overlay paints the 1:3 guide. Resolve those guide prices before blocking so
+ * Place Limit uses the box the user already sees.
+ */
+export function positionLimitPlacementBlock(
+  drawing: Pick<PositionDrawing, 'type' | 'entry' | 'target' | 'stop'>,
+  opts: {
+    hasWorkingTrade: boolean
+    hasMark: boolean
+    visibleRange?: VisiblePriceRange | null
+  }
+): PositionLimitPlacementBlock | null {
+  if (opts.hasWorkingTrade) return 'working-trade'
+  if (!opts.hasMark) return 'no-mark'
+  const levels = resolvedPositionLevels(drawing, opts.visibleRange)
+  if (levels.target == null && levels.stop == null) return 'missing-levels'
+  if (levels.target == null) return 'missing-tp'
+  if (levels.stop == null) return 'missing-sl'
+  if (!isValidPositionLevel(drawing.type, 'target', drawing.entry, levels.target)) {
+    return 'invalid-tp'
+  }
+  if (!isValidPositionLevel(drawing.type, 'stop', drawing.entry, levels.stop)) {
+    return 'invalid-sl'
+  }
+  return null
+}
+
+export function positionLimitPlacementHint(
+  block: PositionLimitPlacementBlock | null,
+  side: 'long' | 'short'
+): string {
+  switch (block) {
+    case 'working-trade':
+      return 'Cannot place a limit — an open position or pending order already exists'
+    case 'no-mark':
+      return 'Cannot place a limit — no current price'
+    case 'missing-levels':
+      return 'Take profit and stop loss are not set — drag the TP and SL handles first'
+    case 'missing-tp':
+      return 'Take profit is not set — drag the TP handle first'
+    case 'missing-sl':
+      return 'Stop loss is not set — drag the SL handle first'
+    case 'invalid-tp':
+      return 'Drawn take profit is not valid for this entry'
+    case 'invalid-sl':
+      return 'Drawn stop loss is not valid for this entry'
+    default:
+      return side === 'long'
+        ? 'Place a Buy Limit at the drawing entry with its drawn TP/SL'
+        : 'Place a Sell Limit at the drawing entry with its drawn TP/SL'
+  }
 }
 
 /** Mirror the missing opposite level at the default 1:3 R:R guide. */
