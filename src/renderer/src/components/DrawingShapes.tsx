@@ -121,14 +121,13 @@ function PositionBadge({
   )
 }
 
-function ink(selected: boolean, fallback = DRAW_STROKE): string {
-  return selected ? SELECT_STROKE : fallback
+function ink(_selected: boolean, fallback = DRAW_STROKE): string {
+  return fallback
 }
 
 export function HandleDot({
   x,
   y,
-  selected,
   cursor,
   onMouseDown,
   onClick
@@ -143,7 +142,7 @@ export function HandleDot({
       cx={x}
       cy={y}
       r={4.5}
-      fill={selected ? SELECT_STROKE : HANDLE_FILL}
+      fill={HANDLE_FILL}
       stroke={HANDLE_STROKE}
       strokeWidth={1.25}
       className={`pointer-events-auto ${cursor}`}
@@ -156,7 +155,6 @@ export function HandleDot({
 export function HandleSquare({
   x,
   y,
-  selected,
   cursor,
   onMouseDown,
   onClick
@@ -174,7 +172,7 @@ export function HandleSquare({
       height={9}
       rx={2}
       ry={2}
-      fill={selected ? SELECT_STROKE : HANDLE_FILL}
+      fill={HANDLE_FILL}
       stroke={HANDLE_STROKE}
       strokeWidth={1.25}
       className={`pointer-events-auto ${cursor}`}
@@ -398,7 +396,7 @@ export function FibShape({
   const label = fibLabelPlacement(lineRight, plotRight ?? 0)
   const sorted = [...levels].sort((l, r) => l.y - r.y)
   const levelColor = (level: FibLevelView): string =>
-    selected ? SELECT_STROKE : level.color ?? style?.color ?? DRAW_STROKE
+    level.color ?? style?.color ?? DRAW_STROKE
   const levelDash = (level: FibLevelView): string | undefined => {
     const lineStyle = level.lineStyle ?? style?.lineStyle
     return lineStyle == null ? undefined : drawingDashArray({ lineStyle })
@@ -803,7 +801,7 @@ export function PositionShape({
         x={badgeX}
         y={badgeY}
         text={badgeText}
-        fill={selected ? SELECT_STROKE : color}
+        fill={color}
         cursor={canDraw ? 'cursor-move' : 'cursor-default'}
         onMouseDown={onDragBox}
         onClick={canSelect ? onSelect : undefined}
