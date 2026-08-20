@@ -483,7 +483,7 @@ export const webApi = {
     error: MT_WEB_DISABLED
   }),
   onMtBridgeEvent: (_callback: (payload: MtBridgeIpcEvent) => void): (() => void) => () => {},
-  getAppVersion: async (): Promise<string> => '2.7.0',
+  getAppVersion: async (): Promise<string> => __APP_VERSION__,
   minimizeWindow: (): void => {
     // Web fallback: no-op
   },
