@@ -18,6 +18,7 @@ export default function ChartSnapshotDropdown() {
           onClick={toggle}
           aria-label="Chart snapshot"
           aria-expanded={open}
+          data-tour="snapshot"
           className={`inline-flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium transition-colors ${
             open
               ? 'border-amber-500/70 bg-amber-950/40 text-amber-300'

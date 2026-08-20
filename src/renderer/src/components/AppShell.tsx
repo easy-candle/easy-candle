@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Maximize2, Minimize2, Moon, Settings2, SquareSplitVertical, Sun, X } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
+import AppTour from '@/components/AppTour'
 import ChartSettingsDialog from '@/components/ChartSettingsDialog'
 import ChartTypeSelect from '@/components/ChartTypeSelect'
 import ChartSnapshotDropdown from '@/components/ChartSnapshotDropdown'
@@ -54,6 +55,7 @@ export default function AppShell({
   const showDrawingToolbar = useUiLayoutStore((s) => s.showDrawingToolbar)
   const showReplayControls = useUiLayoutStore((s) => s.showReplayControls)
   const showPaperTrade = useUiLayoutStore((s) => s.showPaperTrade)
+  const tourPaperTradePreview = useUiLayoutStore((s) => s.tourPaperTradePreview)
   const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
@@ -61,6 +63,7 @@ export default function AppShell({
   const feedbackTimer = useRef<number | null>(null)
 
   const inReplay = mode === 'replay'
+  const showOrderTicket = showPaperTrade && !chartFullscreen && (inReplay || tourPaperTradePreview)
   const imported = dataSource === 'imported'
   const showEmptyLive = !inReplay && status === 'ready' && candles.length === 0
   const showEndedBanner = inReplay && replayStatus === 'ended' && !chartFullscreen
@@ -112,17 +115,23 @@ export default function AppShell({
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
             <IconButton
               tooltip={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
+              dataTour="split"
               active={chartSplit}
               onClick={() => setChartSplit(!chartSplit)}
             >
               <SquareSplitVertical className="h-4 w-4" />
             </IconButton>
-            <IconButton tooltip="Chart settings" onClick={() => setChartSettingsDialogOpen(true)}>
+            <IconButton
+              tooltip="Chart settings"
+              dataTour="chart-settings"
+              onClick={() => setChartSettingsDialogOpen(true)}
+            >
               <Settings2 className="h-4 w-4" />
             </IconButton>
             <ChartSnapshotDropdown />
             <IconButton
               tooltip="Full-screen chart"
+              dataTour="fullscreen"
               shortcut={['F']}
               active={false}
               onClick={toggleChartFullscreen}
@@ -131,6 +140,7 @@ export default function AppShell({
             </IconButton>
             <IconButton
               tooltip={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              dataTour="theme"
               onClick={toggleTheme}
             >
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -245,11 +255,12 @@ export default function AppShell({
               </div>
             )}
           </div>
-          {showPaperTrade && !chartFullscreen && inReplay && <OrderTicket />}
+          {showOrderTicket && <OrderTicket />}
         </div>
         {showPaperTrade && !chartFullscreen && <TradePanel />}
       </main>
 
+      <AppTour />
       <KeyboardShortcutsDialog />
       <AboutDialog />
       <ChartSettingsDialog />

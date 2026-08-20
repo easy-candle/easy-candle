@@ -15,6 +15,7 @@ type PersistedLayout = {
   showDrawingToolbar?: boolean
   showReplayControls?: boolean
   showPaperTrade?: boolean
+  hasCompletedTour?: boolean
 }
 
 type UiLayoutState = {
@@ -34,6 +35,13 @@ type UiLayoutState = {
   aboutDialogOpen: boolean
   importDataDialogOpen: boolean
   chartSettingsDialogOpen: boolean
+  hasCompletedTour: boolean
+  /** Session-only counter; bumping it asks AppTour to (re)start. */
+  tourRequestId: number
+  /** Session-only: show the paper-trade chrome during the tour without entering replay. */
+  tourPaperTradePreview: boolean
+  /** Session-only: `showPaperTrade` to restore after the tour preview. */
+  tourPaperTradeRestore: boolean | null
   /** Primary chart instance, used by chart snapshot actions. */
   primaryChart: IChartApi | null
   toggleChartFullscreen: () => void
@@ -51,6 +59,11 @@ type UiLayoutState = {
   setAboutDialogOpen: (value: boolean) => void
   setImportDataDialogOpen: (value: boolean) => void
   setChartSettingsDialogOpen: (value: boolean) => void
+  startTour: () => void
+  completeTour: () => void
+  skipTour: () => void
+  beginPaperTradePreview: () => void
+  endPaperTradePreview: () => void
   setPrimaryChart: (chart: IChartApi | null) => void
 }
 
@@ -103,6 +116,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   aboutDialogOpen: false,
   importDataDialogOpen: false,
   chartSettingsDialogOpen: false,
+  hasCompletedTour: initial.hasCompletedTour === true,
+  tourRequestId: 0,
+  tourPaperTradePreview: false,
+  tourPaperTradeRestore: null,
   primaryChart: null,
 
   toggleChartFullscreen: () => {
@@ -185,6 +202,55 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
 
   setChartSettingsDialogOpen: (value) => {
     set({ chartSettingsDialogOpen: value })
+  },
+
+  startTour: () => {
+    const showMainToolbar = get().showMainToolbar
+    const showDrawingToolbar = get().showDrawingToolbar
+    const persistPatch: PersistedLayout = {}
+    if (!showMainToolbar) persistPatch.showMainToolbar = true
+    if (!showDrawingToolbar) persistPatch.showDrawingToolbar = true
+    if (Object.keys(persistPatch).length > 0) persist(persistPatch)
+    set({
+      showMainToolbar: true,
+      showDrawingToolbar: true,
+      chartFullscreen: false,
+      shortcutsDialogOpen: false,
+      aboutDialogOpen: false,
+      importDataDialogOpen: false,
+      chartSettingsDialogOpen: false,
+      tourRequestId: get().tourRequestId + 1
+    })
+  },
+
+  completeTour: () => {
+    get().endPaperTradePreview()
+    if (get().hasCompletedTour) return
+    set({ hasCompletedTour: true })
+    persist({ hasCompletedTour: true })
+  },
+
+  skipTour: () => {
+    get().completeTour()
+  },
+
+  beginPaperTradePreview: () => {
+    if (get().tourPaperTradePreview) return
+    set({
+      tourPaperTradePreview: true,
+      tourPaperTradeRestore: get().showPaperTrade,
+      showPaperTrade: true
+    })
+  },
+
+  endPaperTradePreview: () => {
+    if (!get().tourPaperTradePreview && get().tourPaperTradeRestore == null) return
+    const restore = get().tourPaperTradeRestore
+    set({
+      tourPaperTradePreview: false,
+      tourPaperTradeRestore: null,
+      showPaperTrade: restore ?? get().showPaperTrade
+    })
   },
 
   setPrimaryChart: (chart) => {
