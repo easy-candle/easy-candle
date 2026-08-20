@@ -6,7 +6,11 @@ import {
 } from '@shared/candleUtils'
 
 export const BINANCE_API_BASE = 'https://api.binance.com'
+/** Public market-data mirror used when `api.binance.com` is geo-blocked or otherwise unreachable. */
+export const BINANCE_VISION_API_BASE = 'https://data-api.binance.vision'
 export const BINANCE_KLINES_PATH = '/api/v3/klines'
+
+export const BINANCE_KLINES_BASES = [BINANCE_API_BASE, BINANCE_VISION_API_BASE] as const
 
 export type BinanceKlinesParams = {
   symbol: string
@@ -27,8 +31,11 @@ export class BinanceUpstreamError extends Error {
 }
 
 /** Build a Binance klines URL from allowlisted params. */
-export function buildKlinesUrl(params: BinanceKlinesParams): string {
-  const url = new URL(BINANCE_KLINES_PATH, BINANCE_API_BASE)
+export function buildKlinesUrl(
+  params: BinanceKlinesParams,
+  base: string = BINANCE_API_BASE
+): string {
+  const url = new URL(BINANCE_KLINES_PATH, base)
   url.searchParams.set('symbol', params.symbol.toUpperCase())
   url.searchParams.set('interval', params.interval)
 
@@ -51,18 +58,9 @@ export function isHistoricalRange(endTimeMs: number | undefined): boolean {
   return endTimeMs < Date.now() - 60_000
 }
 
-/**
- * Fetch Binance klines and normalize to chart candles (`time` in seconds).
- * Plain fetch — no Next.js cache options.
- */
-export async function fetchBinanceKlines(
-  params: BinanceKlinesParams
+async function fetchKlinesFromUrl(
+  url: string
 ): Promise<{ candles: Candle[]; upstreamStatus: number }> {
-  const url = buildKlinesUrl({
-    ...params,
-    limit: clampKlineLimit(params.limit, 500)
-  })
-
   const response = await fetch(url, {
     headers: {
       Accept: 'application/json'
@@ -86,4 +84,29 @@ export async function fetchBinanceKlines(
     candles,
     upstreamStatus: response.status
   }
+}
+
+/**
+ * Fetch Binance klines and normalize to chart candles (`time` in seconds).
+ * Tries `api.binance.com` first, then `data-api.binance.vision` on failure.
+ */
+export async function fetchBinanceKlines(
+  params: BinanceKlinesParams
+): Promise<{ candles: Candle[]; upstreamStatus: number }> {
+  const limited: BinanceKlinesParams = {
+    ...params,
+    limit: clampKlineLimit(params.limit, 500)
+  }
+
+  let lastError: unknown
+
+  for (const base of BINANCE_KLINES_BASES) {
+    try {
+      return await fetchKlinesFromUrl(buildKlinesUrl(limited, base))
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  throw lastError
 }
