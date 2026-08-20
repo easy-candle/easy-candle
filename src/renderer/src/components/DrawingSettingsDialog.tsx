@@ -7,6 +7,7 @@ import type {
   DrawingStyle,
   FibLevelConfig
 } from '@/lib/chart/drawingGeometry'
+import { DEFAULT_FILL_OPACITY, withAlpha } from '@/lib/cssColor'
 import {
   DEFAULT_ZONE_COLORS,
   DRAWING_TOOL_TYPES,
@@ -14,6 +15,7 @@ import {
   useDrawingSettingsStore,
   type WidgetFieldKey
 } from '@/store/drawingSettingsStore'
+import { FillSwatch, OpacitySlider } from '@/components/OpacityColorField'
 import { useReplayStore } from '@/store/replayStore'
 import type { DrawingToolType } from '@/lib/chart/drawingGeometry'
 
@@ -76,11 +78,13 @@ function ColorSwatch({
 function StyleControls({
   style,
   onChange,
-  showZoneColors = false
+  showZoneColors = false,
+  showFillColor = false
 }: {
   style: DrawingStyle
   onChange: (patch: Partial<DrawingStyle>) => void
   showZoneColors?: boolean
+  showFillColor?: boolean
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -90,6 +94,13 @@ function StyleControls({
           value={style.color}
           onChange={(color) => onChange({ color })}
         />
+        {showFillColor && (
+          <FillSwatch
+            label="Background"
+            value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
+            onChange={(fillColor) => onChange({ fillColor })}
+          />
+        )}
         <label className="flex min-w-[4rem] flex-col gap-0.5">
           <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-500">
             Width
@@ -123,6 +134,12 @@ function StyleControls({
           </select>
         </label>
       </div>
+      {showFillColor && (
+        <OpacitySlider
+          value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
+          onChange={(fillColor) => onChange({ fillColor })}
+        />
+      )}
       {showZoneColors && (
         <div className="flex items-end gap-2">
           <ColorSwatch
@@ -372,6 +389,7 @@ export default function DrawingSettingsDialog(): ReactElement | null {
           color: preset.color,
           lineWidth: preset.lineWidth,
           lineStyle: preset.lineStyle,
+          fillColor: preset.fillColor,
           tpColor: preset.tpColor,
           slColor: preset.slColor
         })
@@ -441,6 +459,7 @@ export default function DrawingSettingsDialog(): ReactElement | null {
             <StyleControls
               style={defaultStyle}
               showZoneColors={activeTool === 'long' || activeTool === 'short'}
+              showFillColor={activeTool === 'rect'}
               onChange={(patch) => setToolDefault(activeTool, patch)}
             />
             <button
@@ -457,6 +476,7 @@ export default function DrawingSettingsDialog(): ReactElement | null {
               <StyleControls
                 style={selectedStyle}
                 showZoneColors={activeTool === 'long' || activeTool === 'short'}
+                showFillColor={activeTool === 'rect'}
                 onChange={(patch) => updateDrawingStyle(selectedDrawing.id, patch)}
               />
               <button
@@ -466,6 +486,7 @@ export default function DrawingSettingsDialog(): ReactElement | null {
                     color: defaultStyle.color,
                     lineWidth: defaultStyle.lineWidth,
                     lineStyle: defaultStyle.lineStyle,
+                    fillColor: defaultStyle.fillColor,
                     tpColor: defaultStyle.tpColor,
                     slColor: defaultStyle.slColor
                   })
@@ -516,6 +537,9 @@ export default function DrawingSettingsDialog(): ReactElement | null {
                   { key: 'color', label: 'Color' },
                   { key: 'lineWidth', label: 'Width' },
                   { key: 'lineStyle', label: 'Line style' },
+                  ...(activeTool === 'rect'
+                    ? [{ key: 'fillColor' as const, label: 'Background' }]
+                    : []),
                   ...(activeTool === 'long' || activeTool === 'short'
                     ? [
                         { key: 'tpColor' as const, label: 'TP fill' },

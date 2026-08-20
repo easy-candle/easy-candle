@@ -18,6 +18,8 @@ export type DrawingStyle = {
   color: string
   lineWidth: number
   lineStyle: DrawingLineStyle
+  /** Rectangle fill; hex or rgba so opacity is part of the selected color. */
+  fillColor?: string
   /** Zone fill color for the take-profit area (position tools only). */
   tpColor?: string
   /** Zone fill color for the stop-loss area (position tools only). */

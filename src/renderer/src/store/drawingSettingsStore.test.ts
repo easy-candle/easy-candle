@@ -15,13 +15,21 @@ function freshStore() {
   const presets = {} as Record<string, never[]>
   const widgetFields = {} as Record<
     string,
-    { color: boolean; lineWidth: boolean; lineStyle: boolean; tpColor: boolean; slColor: boolean }
+    {
+      color: boolean
+      fillColor: boolean
+      lineWidth: boolean
+      lineStyle: boolean
+      tpColor: boolean
+      slColor: boolean
+    }
   >
   for (const tool of DRAWING_TOOL_TYPES) {
     toolDefaults[tool] = { ...DEFAULT_TOOL_DEFAULTS[tool] }
     presets[tool] = []
     widgetFields[tool] = {
       color: true,
+      fillColor: tool === 'rect',
       lineWidth: true,
       lineStyle: true,
       tpColor: false,
@@ -100,6 +108,21 @@ describe('tool defaults', () => {
     const clamped = useDrawingSettingsStore.getState().toolDefaults.long
     expect(clamped.tpColor).toBe('#26A69A')
     expect(clamped.slColor).toBe('#EF5350')
+  })
+
+  it('updates and clamps rectangle fill color, including rgba opacity', () => {
+    freshStore()
+    const store = useDrawingSettingsStore.getState()
+    store.setToolDefault('rect', { fillColor: '#123456' })
+    expect(useDrawingSettingsStore.getState().toolDefaults.rect.fillColor).toBe('#123456')
+    store.setToolDefault('rect', { fillColor: 'rgba(18, 52, 86, 0.4)' })
+    expect(useDrawingSettingsStore.getState().toolDefaults.rect.fillColor).toBe(
+      'rgba(18, 52, 86, 0.4)'
+    )
+    store.setToolDefault('rect', { fillColor: 'nope' })
+    expect(useDrawingSettingsStore.getState().toolDefaults.rect.fillColor).toBe(
+      DEFAULT_DRAWING_STYLE.fillColor
+    )
   })
 })
 
@@ -185,6 +208,13 @@ describe('widget fields', () => {
     useDrawingSettingsStore.getState().setWidgetField('rect', 'lineStyle', false)
     expect(useDrawingSettingsStore.getState().widgetFields.rect.lineStyle).toBe(false)
     expect(useDrawingSettingsStore.getState().widgetFields.rect.color).toBe(true)
+    expect(useDrawingSettingsStore.getState().widgetFields.rect.fillColor).toBe(true)
+  })
+
+  it('toggles background fill on the rectangle widget', () => {
+    freshStore()
+    useDrawingSettingsStore.getState().setWidgetField('rect', 'fillColor', false)
+    expect(useDrawingSettingsStore.getState().widgetFields.rect.fillColor).toBe(false)
   })
 })
 
@@ -297,11 +327,13 @@ describe('persistence', () => {
       color: '#123456',
       lineWidth: 1,
       lineStyle: 4,
+      fillColor: DEFAULT_DRAWING_STYLE.fillColor,
       tpColor: '#26A69A',
       slColor: '#EF5350'
     })
     expect(state.widgetFields.rect.color).toBe(true)
     expect(state.widgetFields.rect.lineWidth).toBe(false)
+    expect(state.widgetFields.rect.fillColor).toBe(true)
     const presets = state.presets.fib
     expect(presets).toHaveLength(1)
     expect(presets[0]).toMatchObject({

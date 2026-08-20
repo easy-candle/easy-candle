@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Palette, Settings2, Trash2 } from 'lucide-react'
 import FloatingPanel from '@/components/FloatingPanel'
+import { FillSwatch, OpacitySlider } from '@/components/OpacityColorField'
 import type { DrawingLineStyle, DrawingStyle, DrawingToolType } from '@/lib/chart/drawingGeometry'
+import { DEFAULT_FILL_OPACITY, withAlpha } from '@/lib/cssColor'
 import {
   DEFAULT_ZONE_COLORS,
   useDrawingSettingsStore,
@@ -110,6 +112,7 @@ export default function DrawingStyleWidget({
 
   const hasControls =
     fields.color ||
+    (tool === 'rect' && fields.fillColor) ||
     fields.lineWidth ||
     fields.lineStyle ||
     (showZoneColors && (fields.tpColor || fields.slColor))
@@ -191,12 +194,21 @@ export default function DrawingStyleWidget({
         </>
       }
     >
-      <div className="flex items-end gap-1.5">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-end gap-1.5">
           {fields.color && (
             <ColorField
               label="Color"
               value={style.color}
               onChange={(color) => onStyleChange({ color })}
+            />
+          )}
+
+          {tool === 'rect' && fields.fillColor && (
+            <FillSwatch
+              label="Background"
+              value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
+              onChange={(fillColor) => onStyleChange({ fillColor })}
             />
           )}
 
@@ -258,6 +270,13 @@ export default function DrawingStyleWidget({
             </span>
           )}
         </div>
+        {tool === 'rect' && fields.fillColor && (
+          <OpacitySlider
+            value={style.fillColor ?? withAlpha(style.color, DEFAULT_FILL_OPACITY)}
+            onChange={(fillColor) => onStyleChange({ fillColor })}
+          />
+        )}
+      </div>
     </FloatingPanel>
   )
 }

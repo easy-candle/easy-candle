@@ -8,6 +8,7 @@ import {
   type DrawingToolType,
   type FibLevelConfig
 } from '@/lib/chart/drawingGeometry'
+import { DEFAULT_FILL_OPACITY, sanitizeCssColor, withAlpha } from '@/lib/cssColor'
 
 const STORAGE_KEY = 'easy-candle:drawing-settings'
 
@@ -32,6 +33,7 @@ export const DEFAULT_DRAWING_STYLE: DrawingStyle = {
   color: '#f23645',
   lineWidth: 2,
   lineStyle: LineStyle.Solid,
+  fillColor: withAlpha('#f23645', DEFAULT_FILL_OPACITY),
   tpColor: DEFAULT_ZONE_COLORS.tp,
   slColor: DEFAULT_ZONE_COLORS.sl
 }
@@ -45,16 +47,64 @@ export const DEFAULT_TOOL_DEFAULTS: Record<DrawingToolType, DrawingStyle> = {
   short: { ...DEFAULT_DRAWING_STYLE, color: '#F23645' }
 }
 
-export type WidgetFieldKey = 'color' | 'lineWidth' | 'lineStyle' | 'tpColor' | 'slColor'
+export type WidgetFieldKey =
+  | 'color'
+  | 'fillColor'
+  | 'lineWidth'
+  | 'lineStyle'
+  | 'tpColor'
+  | 'slColor'
 export type WidgetFieldSet = Record<WidgetFieldKey, boolean>
 
 export const DEFAULT_WIDGET_FIELDS: Record<DrawingToolType, WidgetFieldSet> = {
-  hline: { color: true, lineWidth: true, lineStyle: true, tpColor: false, slColor: false },
-  trendline: { color: true, lineWidth: true, lineStyle: true, tpColor: false, slColor: false },
-  fib: { color: true, lineWidth: true, lineStyle: true, tpColor: false, slColor: false },
-  rect: { color: true, lineWidth: true, lineStyle: true, tpColor: false, slColor: false },
-  long: { color: true, lineWidth: true, lineStyle: true, tpColor: true, slColor: true },
-  short: { color: true, lineWidth: true, lineStyle: true, tpColor: true, slColor: true }
+  hline: {
+    color: true,
+    fillColor: false,
+    lineWidth: true,
+    lineStyle: true,
+    tpColor: false,
+    slColor: false
+  },
+  trendline: {
+    color: true,
+    fillColor: false,
+    lineWidth: true,
+    lineStyle: true,
+    tpColor: false,
+    slColor: false
+  },
+  fib: {
+    color: true,
+    fillColor: false,
+    lineWidth: true,
+    lineStyle: true,
+    tpColor: false,
+    slColor: false
+  },
+  rect: {
+    color: true,
+    fillColor: true,
+    lineWidth: true,
+    lineStyle: true,
+    tpColor: false,
+    slColor: false
+  },
+  long: {
+    color: true,
+    fillColor: false,
+    lineWidth: true,
+    lineStyle: true,
+    tpColor: true,
+    slColor: true
+  },
+  short: {
+    color: true,
+    fillColor: false,
+    lineWidth: true,
+    lineStyle: true,
+    tpColor: true,
+    slColor: true
+  }
 }
 
 export type DrawingPreset = DrawingStyle & {
@@ -111,6 +161,7 @@ function sanitizeStyle(raw: unknown, fallback: DrawingStyle): DrawingStyle {
     color: isHexColor(source.color) ? source.color : fallback.color,
     lineWidth: isLineWidth(source.lineWidth) ? source.lineWidth : fallback.lineWidth,
     lineStyle: isLineStyle(source.lineStyle) ? source.lineStyle : fallback.lineStyle,
+    fillColor: sanitizeCssColor(source.fillColor, fallback.fillColor ?? DEFAULT_DRAWING_STYLE.fillColor!),
     tpColor: isHexColor(source.tpColor) ? source.tpColor : fallback.tpColor,
     slColor: isHexColor(source.slColor) ? source.slColor : fallback.slColor
   }
@@ -138,6 +189,10 @@ function sanitizeWidgetFields(
     out[tool] = {
       color:
         typeof rec.color === 'boolean' ? rec.color : DEFAULT_WIDGET_FIELDS[tool].color,
+      fillColor:
+        typeof rec.fillColor === 'boolean'
+          ? rec.fillColor
+          : DEFAULT_WIDGET_FIELDS[tool].fillColor,
       lineWidth:
         typeof rec.lineWidth === 'boolean'
           ? rec.lineWidth
@@ -292,6 +347,7 @@ function clampStyle(style: DrawingStyle): DrawingStyle {
     lineStyle: isLineStyle(style.lineStyle)
       ? style.lineStyle
       : DEFAULT_DRAWING_STYLE.lineStyle,
+    fillColor: sanitizeCssColor(style.fillColor, DEFAULT_DRAWING_STYLE.fillColor!),
     tpColor: isHexColor(style.tpColor) ? style.tpColor : DEFAULT_DRAWING_STYLE.tpColor,
     slColor: isHexColor(style.slColor) ? style.slColor : DEFAULT_DRAWING_STYLE.slColor
   }
@@ -343,6 +399,7 @@ export const useDrawingSettingsStore = create<DrawingSettingsState>((set, get) =
       color: preset.color,
       lineWidth: preset.lineWidth,
       lineStyle: preset.lineStyle,
+      fillColor: preset.fillColor,
       tpColor: preset.tpColor,
       slColor: preset.slColor
     })

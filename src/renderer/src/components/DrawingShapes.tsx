@@ -9,6 +9,7 @@ import {
   type RectHandle
 } from '@/lib/chart/drawingGeometry'
 import { fibLabelPlacement, fibLevelExtent } from '@/lib/chart/drawingPlotBounds'
+import { DEFAULT_FILL_OPACITY, isCssColor, withAlpha } from '@/lib/cssColor'
 import { DEFAULT_PRICE_PRECISION, formatAssetPrice } from '@shared/pricePrecision'
 
 export const DRAW_STROKE = '#f23645'
@@ -16,7 +17,6 @@ export const DRAW_WIDTH = 2.5
 export const HANDLE_FILL = '#2962ff'
 export const HANDLE_STROKE = '#ffffff'
 export const SELECT_STROKE = '#f59e0b'
-const DRAW_FILL = 'rgba(242, 54, 69, 0.08)'
 export const LONG_COLOR = '#10B981'
 export const SHORT_COLOR = '#F23645'
 export const TP_ZONE_COLOR = '#26A69A'
@@ -532,6 +532,9 @@ export function RectShape({
   onDragBody?: (event: ReactMouseEvent) => void
 }) {
   const color = ink(selected, style?.color)
+  const fill = isCssColor(style?.fillColor)
+    ? style.fillColor
+    : withAlpha(style?.color ?? DRAW_STROKE, DEFAULT_FILL_OPACITY)
   const x = Math.min(a.x, b.x)
   const y = Math.min(a.y, b.y)
   const w = Math.abs(b.x - a.x)
@@ -550,7 +553,7 @@ export function RectShape({
         y={y}
         width={w}
         height={h}
-        fill={DRAW_FILL}
+        fill={fill}
         stroke={color}
         strokeWidth={style?.lineWidth ?? DRAW_WIDTH}
         strokeDasharray={drawingDashArray(style)}

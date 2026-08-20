@@ -2228,6 +2228,7 @@ export default function DrawingOverlay({
                     canSelect={false}
                     canDraw={false}
                     showHandles={false}
+                    style={toolDefaults.rect}
                   />
                   {firstHandle}
                 </g>
@@ -2287,6 +2288,7 @@ export default function DrawingOverlay({
                 color: preset.color,
                 lineWidth: preset.lineWidth,
                 lineStyle: preset.lineStyle,
+                fillColor: preset.fillColor,
                 tpColor: preset.tpColor,
                 slColor: preset.slColor
               })
