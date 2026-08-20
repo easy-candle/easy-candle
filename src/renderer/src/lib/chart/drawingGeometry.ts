@@ -3,9 +3,32 @@ import { alignTimeToInterval } from '@shared/timeframes'
 export const DRAW_TOOLS = ['select', 'hline', 'trendline', 'fib', 'rect', 'long', 'short'] as const
 export type DrawTool = (typeof DRAW_TOOLS)[number]
 
+/** A drawable tool (excludes the non-drawing Select tool). */
+export type DrawingToolType = Exclude<DrawTool, 'select'>
+
+/**
+ * Line style values mirroring lightweight-charts `LineStyle` enum
+ * (Solid=0, Dotted=1, Dashed=2, LargeDashed=3, SparseDotted=4).
+ * Kept dependency-free so this module stays pure geometry.
+ */
+export type DrawingLineStyle = 0 | 1 | 2 | 3 | 4
+
+/** Per-drawing visual style: line color, stroke width and line style. */
+export type DrawingStyle = {
+  color: string
+  lineWidth: number
+  lineStyle: DrawingLineStyle
+  /** Rectangle fill; hex or rgba so opacity is part of the selected color. */
+  fillColor?: string
+  /** Zone fill color for the take-profit area (position tools only). */
+  tpColor?: string
+  /** Zone fill color for the stop-loss area (position tools only). */
+  slColor?: string
+}
+
 export type TrendPoint = { time: number; price: number }
 
-export type HLineDrawing = { id: string; type: 'hline'; price: number }
+export type HLineDrawing = { id: string; type: 'hline'; price: number; style?: DrawingStyle }
 export type TrendDrawing = {
   id: string
   type: 'trendline'
@@ -13,6 +36,7 @@ export type TrendDrawing = {
   p1: number
   t2: number
   p2: number
+  style?: DrawingStyle
 }
 export type FibDrawing = {
   id: string
@@ -21,6 +45,9 @@ export type FibDrawing = {
   p1: number
   t2: number
   p2: number
+  style?: DrawingStyle
+  /** Per-level overrides; omitted levels inherit the drawing style. */
+  levels?: FibLevelConfig[]
 }
 export type RectDrawing = {
   id: string
@@ -29,6 +56,7 @@ export type RectDrawing = {
   p1: number
   t2: number
   p2: number
+  style?: DrawingStyle
 }
 export type PositionDrawing = {
   id: string
@@ -39,6 +67,7 @@ export type PositionDrawing = {
   stop: number | null
   /** Box width in bars to the right of the entry time. */
   span: number
+  style?: DrawingStyle
 }
 export type Drawing =
   | HLineDrawing
@@ -65,6 +94,33 @@ export const POSITION_RR_REWARD_MULT = 3
 /** MetaTrader retracement defaults (no 0.786 / extensions). */
 export const FIB_LEVELS: readonly number[] = [0, 0.236, 0.382, 0.5, 0.618, 1]
 
+/** A single Fibonacci level: the ratio plus optional color/line-style overrides. */
+export type FibLevelConfig = {
+  ratio: number
+  /** Overrides the drawing's line color for this level; undefined inherits it. */
+  color?: string
+  /** Overrides the drawing's line style for this level; undefined inherits it. */
+  lineStyle?: DrawingLineStyle
+}
+
+/** Default Fibonacci level set (ratios only; every level inherits the drawing style). */
+export const DEFAULT_FIB_LEVELS: readonly FibLevelConfig[] = FIB_LEVELS.map((ratio) => ({
+  ratio
+}))
+
+export function cloneFibLevels(levels: readonly FibLevelConfig[]): FibLevelConfig[] {
+  return levels.map((level) => ({ ...level }))
+}
+
+/** The level list a fib drawing should render: its own overrides, else the tool defaults. */
+export function fibLevelsOf(
+  drawing: FibDrawing,
+  defaults: readonly FibLevelConfig[]
+): FibLevelConfig[] {
+  const source = drawing.levels ? drawing.levels : defaults
+  return [...source].sort((a, b) => a.ratio - b.ratio)
+}
+
 export function isDrawTool(value: unknown): value is DrawTool {
   return DRAW_TOOLS.includes(value as DrawTool)
 }
@@ -79,6 +135,11 @@ export function isPositionTool(tool: DrawTool): tool is PositionTool {
 
 export function isPositionDrawing(drawing: Drawing): drawing is PositionDrawing {
   return drawing.type === 'long' || drawing.type === 'short'
+}
+
+/** The settings key that backs a drawing's visual defaults. */
+export function drawingToolType(drawing: Drawing): DrawingToolType {
+  return drawing.type
 }
 
 /** A level is valid when it sits in its profit/loss direction from entry. */

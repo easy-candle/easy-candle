@@ -8,7 +8,10 @@ import {
   type Time
 } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
+import DrawingStyleWidget from '@/components/DrawingStyleWidget'
 import {
+  drawingToolType,
+  fibLevelsOf,
   isPositionDrawing,
   isPositionTool,
   isTwoPointTool,
@@ -16,6 +19,7 @@ import {
   mirrorPositionLevel,
   POSITION_RR_REWARD_MULT,
   type Drawing,
+  type DrawingStyle,
   type Endpoint,
   type PositionLevel,
   type RectHandle,
@@ -69,7 +73,9 @@ import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/time
 import type { Candle } from '@shared/candleUtils'
 import { DEFAULT_PRICE_PRECISION } from '@shared/pricePrecision'
 import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
+import { useDrawingSettingsStore } from '@/store/drawingSettingsStore'
 import { useReplayStore } from '@/store/replayStore'
+import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { useThemeStore } from '@/store/themeStore'
 
 type BodyOrigin = { drawing: Drawing; time: number; price: number }
@@ -118,7 +124,13 @@ type DragState =
   | { kind: 'place-two'; tool: TwoPointTool; startX: number; startY: number; moved: boolean }
   | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
   | { kind: 'pending'; moved: boolean }
-  | { kind: 'draft'; level: 'limit' | 'tp' | 'sl'; moved: boolean; linkRr: boolean; rrSource?: 'tp' | 'sl' }
+  | {
+      kind: 'draft'
+      level: 'limit' | 'tp' | 'sl'
+      moved: boolean
+      linkRr: boolean
+      rrSource?: 'tp' | 'sl'
+    }
 
 function wantsClone(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
   return event.ctrlKey || event.metaKey
@@ -274,6 +286,8 @@ export default function DrawingOverlay({
   const updatePositionSpan = useReplayStore((s) => s.updatePositionSpan)
   const cloneDrawing = useReplayStore((s) => s.cloneDrawing)
   const moveDrawing = useReplayStore((s) => s.moveDrawing)
+  const updateDrawingStyle = useReplayStore((s) => s.updateDrawingStyle)
+  const deleteDrawing = useReplayStore((s) => s.deleteDrawing)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const selectDrawing = useReplayStore((s) => s.selectDrawing)
   const setTakeProfit = useReplayStore((s) => s.setTakeProfit)
@@ -299,6 +313,12 @@ export default function DrawingOverlay({
   const colorOverrides = useChartSettingsStore((s) => s.colors)
   const crosshairSettings = useChartSettingsStore((s) => s.crosshair)
   const palette = resolveChartPalette(theme, colorOverrides)
+  const toolDefaults = useDrawingSettingsStore((s) => s.toolDefaults)
+  const widgetFields = useDrawingSettingsStore((s) => s.widgetFields)
+  const fibLevelDefaults = useDrawingSettingsStore((s) => s.fibLevels)
+  const setDrawingDialogOpen = useDrawingSettingsStore((s) => s.setDrawingDialogOpen)
+  const widgetPos = useUiLayoutStore((s) => s.drawingWidgetPos)
+  const setWidgetPos = useUiLayoutStore((s) => s.setDrawingWidgetPos)
 
   const intervalSeconds =
     TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
@@ -1071,6 +1091,32 @@ export default function DrawingOverlay({
     return { x, y }
   }
 
+  /** Anchor point used to place the floating style widget near a drawing. */
+  function drawingAnchor(drawing: Drawing): Point | null {
+    if (drawing.type === 'hline') {
+      const y = series?.priceToCoordinate(drawing.price)
+      return y == null ? null : { x: midX, y }
+    }
+    if (isPositionDrawing(drawing)) {
+      const x = timeToX(drawing.t)
+      const y = series?.priceToCoordinate(drawing.entry)
+      return x == null || y == null ? null : { x, y }
+    }
+    const a = toXY(drawing.t1, drawing.p1)
+    const b = toXY(drawing.t2, drawing.p2)
+    if (!a || !b) return null
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  }
+
+  const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId) ?? null
+  const selectedAnchor = selectedDrawing ? drawingAnchor(selectedDrawing) : null
+  const selectedStyle: DrawingStyle | null =
+    selectedDrawing != null
+      ? (selectedDrawing.style ?? toolDefaults[drawingToolType(selectedDrawing)])
+      : null
+  const selectedFields =
+    selectedDrawing != null ? widgetFields[drawingToolType(selectedDrawing)] : null
+
   const pnlScale = pnlScaleForSymbol(symbol, working?.lots)
   const qtyLabel = formatTradeSizeForSymbol(working?.lots ?? 1, symbol)
   const openPnl = position != null ? unrealizedPnl(position, markCandle?.close, pnlScale) : null
@@ -1124,8 +1170,7 @@ export default function DrawingOverlay({
     stopLoss: ticketStopLoss
   }
   const draftSide = showTicketDraft ? inferTicketSide(draftLevels) : null
-  const draftEntryColor =
-    draftSide === 'short' ? TRADE_OVERLAY.shortLine : TRADE_OVERLAY.longLine
+  const draftEntryColor = draftSide === 'short' ? TRADE_OVERLAY.shortLine : TRADE_OVERLAY.longLine
   const draftEntryPrice =
     ticketOrderType === 'limit'
       ? ticketLimitPrice
@@ -1176,7 +1221,8 @@ export default function DrawingOverlay({
   ) {
     const y = series?.priceToCoordinate(price)
     if (y == null) return null
-    const hasEntry = ticketOrderType === 'limit' ? ticketLimitPrice != null : markCandle?.close != null
+    const hasEntry =
+      ticketOrderType === 'limit' ? ticketLimitPrice != null : markCandle?.close != null
     const rrSource: 'tp' | 'sl' | undefined =
       level === 'limit'
         ? ticketStopLoss != null && ticketTakeProfit == null
@@ -1441,768 +1487,816 @@ export default function DrawingOverlay({
   }
 
   return (
-    <svg
-      data-snapshot-layer
-      className={`absolute left-0 top-0 z-[2] h-full overflow-hidden ${
-        placing ? 'cursor-crosshair' : 'pointer-events-none'
-      }`}
-      width={plotRight || 0}
-      height={height || '100%'}
-      style={{ width: plotRight }}
-      onClick={onClick}
-      onMouseDown={onSvgMouseDown}
-      onMouseMove={onMove}
-      onContextMenu={(event) => {
-        if (!pricePick) return
-        event.preventDefault()
-        setPricePick(null)
-      }}
-      onMouseLeave={() => {
-        if (dragRef.current?.kind === 'place-two') return
-        setHover(null)
-        setPlaceHint(null)
-        if (pricePick) setLevelPreview(null)
-        if (placing) chart?.clearCrosshairPosition()
-      }}
-    >
-      {closedTrades.map((trade) => {
-        const from = toXY(trade.entryTime, trade.entryPrice)
-        const to = toXY(trade.exitTime, trade.exitPrice)
-        if (!from || !to) return null
+    <>
+      <svg
+        data-snapshot-layer
+        className={`absolute left-0 top-0 z-[2] h-full overflow-hidden ${
+          placing ? 'cursor-crosshair' : 'pointer-events-none'
+        }`}
+        width={plotRight || 0}
+        height={height || '100%'}
+        style={{ width: plotRight }}
+        onClick={onClick}
+        onMouseDown={onSvgMouseDown}
+        onMouseMove={onMove}
+        onContextMenu={(event) => {
+          if (!pricePick) return
+          event.preventDefault()
+          setPricePick(null)
+        }}
+        onMouseLeave={() => {
+          if (dragRef.current?.kind === 'place-two') return
+          setHover(null)
+          setPlaceHint(null)
+          if (pricePick) setLevelPreview(null)
+          if (placing) chart?.clearCrosshairPosition()
+        }}
+      >
+        {closedTrades.map((trade) => {
+          const from = toXY(trade.entryTime, trade.entryPrice)
+          const to = toXY(trade.exitTime, trade.exitPrice)
+          if (!from || !to) return null
 
-        const color = trade.pnl >= 0 ? '#22c55e' : '#ef4444'
-        const samePoint = Math.abs(from.x - to.x) < 0.5 && Math.abs(from.y - to.y) < 0.5
+          const color = trade.pnl >= 0 ? '#22c55e' : '#ef4444'
+          const samePoint = Math.abs(from.x - to.x) < 0.5 && Math.abs(from.y - to.y) < 0.5
 
-        return (
-          <g key={`trade-${trade.id}-${trade.exitTime}`}>
-            <circle cx={from.x} cy={from.y} r={3} fill={color} />
-            {!samePoint && (
-              <>
-                <line
-                  x1={from.x}
-                  y1={from.y}
-                  x2={to.x}
-                  y2={to.y}
-                  stroke={color}
-                  strokeWidth={TRADE_OVERLAY.historyWidth}
-                  strokeOpacity={0.9}
-                  strokeDasharray={TRADE_OVERLAY.historyDash}
-                />
-                <polygon points={arrowHeadPoints(from, to)} fill={color} stroke="none" />
-              </>
-            )}
-            {samePoint && (
-              <circle cx={to.x} cy={to.y} r={4.5} fill="none" stroke={color} strokeWidth={1.5} />
-            )}
-          </g>
-        )
-      })}
-
-      {showTicketDraft && (
-        <g key="ticket-draft">
-          {draftEntryPrice != null &&
-            renderDraftLevel(
-              'limit',
-              draftEntryPrice,
-              draftEntryColor,
-              'Entry',
-              draftEntryDraggable
-            )}
-          {ticketTakeProfit != null &&
-            renderDraftLevel('tp', ticketTakeProfit, TRADE_OVERLAY.tpLine, 'TP')}
-          {ticketStopLoss != null &&
-            renderDraftLevel('sl', ticketStopLoss, TRADE_OVERLAY.slLine, 'SL')}
-        </g>
-      )}
-
-      {working && entryY != null && (
-        <g key={`open-pos-${working.id}`}>
-          {/* Risk / reward zones between entry and armed levels. */}
-          {showSlLine && slY != null && (
-            <rect
-              x={0}
-              y={Math.min(entryY, slY)}
-              width={plotRight}
-              height={Math.abs(slY - entryY)}
-              fill={TRADE_OVERLAY.zoneSl}
-              className="pointer-events-none"
-            />
-          )}
-          {showTpLine && tpY != null && (
-            <rect
-              x={0}
-              y={Math.min(entryY, tpY)}
-              width={plotRight}
-              height={Math.abs(tpY - entryY)}
-              fill={TRADE_OVERLAY.zoneTp}
-              className="pointer-events-none"
-            />
-          )}
-
-          <line
-            x1={0}
-            x2={plotRight}
-            y1={entryY}
-            y2={entryY}
-            stroke={sideColor}
-            strokeWidth={TRADE_OVERLAY.entryWidth}
-            strokeDasharray={isPending ? TRADE_OVERLAY.levelDash : TRADE_OVERLAY.entryDash}
-          />
-          {isPending && canEditTrade && (
-            <rect
-              x={0}
-              y={entryY - 5}
-              width={plotRight}
-              height={10}
-              fill="transparent"
-              className="pointer-events-auto cursor-ns-resize"
-              onMouseDown={(e) => startDrag(e, { kind: 'pending', moved: false })}
-            />
-          )}
-
-          {showTpLine && tpY != null && (
-            <line
-              x1={0}
-              x2={plotRight}
-              y1={tpY}
-              y2={tpY}
-              stroke={TRADE_OVERLAY.tpLine}
-              strokeWidth={TRADE_OVERLAY.levelWidth}
-              strokeDasharray={TRADE_OVERLAY.levelDash}
-            />
-          )}
-
-          {showSlLine && slY != null && (
-            <line
-              x1={0}
-              x2={plotRight}
-              y1={slY}
-              y2={slY}
-              stroke={TRADE_OVERLAY.slLine}
-              strokeWidth={TRADE_OVERLAY.levelWidth}
-              strokeDasharray={TRADE_OVERLAY.levelDash}
-            />
-          )}
-
-          {/* Vertical connector tying entry ↔ TP ↔ SL. */}
-          {(showTpLine || showSlLine) && (
-            <g className="pointer-events-none">
-              {showTpLine && tpY != null && (
-                <line
-                  x1={connectorX}
-                  x2={connectorX}
-                  y1={Math.min(entryY, tpY)}
-                  y2={Math.max(entryY, tpY)}
-                  stroke={TRADE_OVERLAY.connector}
-                  strokeWidth={1}
-                  strokeDasharray={TRADE_OVERLAY.connectorDash}
-                  strokeOpacity={0.85}
-                />
+          return (
+            <g key={`trade-${trade.id}-${trade.exitTime}`}>
+              <circle cx={from.x} cy={from.y} r={3} fill={color} />
+              {!samePoint && (
+                <>
+                  <line
+                    x1={from.x}
+                    y1={from.y}
+                    x2={to.x}
+                    y2={to.y}
+                    stroke={color}
+                    strokeWidth={TRADE_OVERLAY.historyWidth}
+                    strokeOpacity={0.9}
+                    strokeDasharray={TRADE_OVERLAY.historyDash}
+                  />
+                  <polygon points={arrowHeadPoints(from, to)} fill={color} stroke="none" />
+                </>
               )}
-              {showSlLine && slY != null && (
-                <line
-                  x1={connectorX}
-                  x2={connectorX}
-                  y1={Math.min(entryY, slY)}
-                  y2={Math.max(entryY, slY)}
-                  stroke={TRADE_OVERLAY.connector}
-                  strokeWidth={1}
-                  strokeDasharray={TRADE_OVERLAY.connectorDash}
-                  strokeOpacity={0.85}
-                />
-              )}
-              <circle
-                cx={connectorX}
-                cy={entryY}
-                r={OVERLAY_LAYOUT.connectorR}
-                fill={TRADE_OVERLAY.connector}
-              />
-              {showTpLine && tpY != null && (
-                <circle
-                  cx={connectorX}
-                  cy={tpY}
-                  r={OVERLAY_LAYOUT.connectorR}
-                  fill={chrome.handleFill}
-                  stroke={TRADE_OVERLAY.connector}
-                  strokeWidth={1.25}
-                />
-              )}
-              {showSlLine && slY != null && (
-                <circle
-                  cx={connectorX}
-                  cy={slY}
-                  r={OVERLAY_LAYOUT.connectorR}
-                  fill={chrome.handleFill}
-                  stroke={TRADE_OVERLAY.connector}
-                  strokeWidth={1.25}
-                />
+              {samePoint && (
+                <circle cx={to.x} cy={to.y} r={4.5} fill="none" stroke={color} strokeWidth={1.5} />
               )}
             </g>
-          )}
+          )
+        })}
 
-          {/* Entry cluster: optional TP/SL place grips + qty / live PNL / close. */}
-          {(() => {
-            let x = clusterX
-            const nodes: React.JSX.Element[] = []
+        {showTicketDraft && (
+          <g key="ticket-draft">
+            {draftEntryPrice != null &&
+              renderDraftLevel(
+                'limit',
+                draftEntryPrice,
+                draftEntryColor,
+                'Entry',
+                draftEntryDraggable
+              )}
+            {ticketTakeProfit != null &&
+              renderDraftLevel('tp', ticketTakeProfit, TRADE_OVERLAY.tpLine, 'TP')}
+            {ticketStopLoss != null &&
+              renderDraftLevel('sl', ticketStopLoss, TRADE_OVERLAY.slLine, 'SL')}
+          </g>
+        )}
 
-            if (canEditTrade && working.takeProfit == null) {
-              nodes.push(<g key="place-tp">{renderPlaceButton('tp', x, entryY)}</g>)
-              x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
-            }
+        {working && entryY != null && (
+          <g key={`open-pos-${working.id}`}>
+            {/* Risk / reward zones between entry and armed levels. */}
+            {showSlLine && slY != null && (
+              <rect
+                x={0}
+                y={Math.min(entryY, slY)}
+                width={plotRight}
+                height={Math.abs(slY - entryY)}
+                fill={TRADE_OVERLAY.zoneSl}
+                className="pointer-events-none"
+              />
+            )}
+            {showTpLine && tpY != null && (
+              <rect
+                x={0}
+                y={Math.min(entryY, tpY)}
+                width={plotRight}
+                height={Math.abs(tpY - entryY)}
+                fill={TRADE_OVERLAY.zoneTp}
+                className="pointer-events-none"
+              />
+            )}
 
-            if (canEditTrade && working.stopLoss == null) {
-              nodes.push(<g key="place-sl">{renderPlaceButton('sl', x, entryY)}</g>)
-              x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
-            }
+            <line
+              x1={0}
+              x2={plotRight}
+              y1={entryY}
+              y2={entryY}
+              stroke={sideColor}
+              strokeWidth={TRADE_OVERLAY.entryWidth}
+              strokeDasharray={isPending ? TRADE_OVERLAY.levelDash : TRADE_OVERLAY.entryDash}
+            />
+            {isPending && canEditTrade && (
+              <rect
+                x={0}
+                y={entryY - 5}
+                width={plotRight}
+                height={10}
+                fill="transparent"
+                className="pointer-events-auto cursor-ns-resize"
+                onMouseDown={(e) => startDrag(e, { kind: 'pending', moved: false })}
+              />
+            )}
 
-            nodes.push(
-              <g key="entry-pill">
-                {renderActionPill({
-                  x,
-                  y: entryY,
-                  border: sideColor,
-                  dashed: isPending,
-                  qtyFill: sideColor,
-                  pnlLabel: openPnlLabel,
-                  pnlColor: openPnlColor,
-                  closeColor: TRADE_OVERLAY.closeIcon,
-                  dragCursor: canEditTrade && isPending ? 'cursor-ns-resize' : undefined,
-                  onDragStart:
-                    canEditTrade && isPending
-                      ? (e) => startDrag(e, { kind: 'pending', moved: false })
-                      : undefined,
-                  onClose: canEditTrade
-                    ? (e) => {
-                        stopAction(e)
-                        if (isPending) cancelPending()
-                        else paperClose()
-                      }
-                    : undefined
-                })}
+            {showTpLine && tpY != null && (
+              <line
+                x1={0}
+                x2={plotRight}
+                y1={tpY}
+                y2={tpY}
+                stroke={TRADE_OVERLAY.tpLine}
+                strokeWidth={TRADE_OVERLAY.levelWidth}
+                strokeDasharray={TRADE_OVERLAY.levelDash}
+              />
+            )}
+
+            {showSlLine && slY != null && (
+              <line
+                x1={0}
+                x2={plotRight}
+                y1={slY}
+                y2={slY}
+                stroke={TRADE_OVERLAY.slLine}
+                strokeWidth={TRADE_OVERLAY.levelWidth}
+                strokeDasharray={TRADE_OVERLAY.levelDash}
+              />
+            )}
+
+            {/* Vertical connector tying entry ↔ TP ↔ SL. */}
+            {(showTpLine || showSlLine) && (
+              <g className="pointer-events-none">
+                {showTpLine && tpY != null && (
+                  <line
+                    x1={connectorX}
+                    x2={connectorX}
+                    y1={Math.min(entryY, tpY)}
+                    y2={Math.max(entryY, tpY)}
+                    stroke={TRADE_OVERLAY.connector}
+                    strokeWidth={1}
+                    strokeDasharray={TRADE_OVERLAY.connectorDash}
+                    strokeOpacity={0.85}
+                  />
+                )}
+                {showSlLine && slY != null && (
+                  <line
+                    x1={connectorX}
+                    x2={connectorX}
+                    y1={Math.min(entryY, slY)}
+                    y2={Math.max(entryY, slY)}
+                    stroke={TRADE_OVERLAY.connector}
+                    strokeWidth={1}
+                    strokeDasharray={TRADE_OVERLAY.connectorDash}
+                    strokeOpacity={0.85}
+                  />
+                )}
+                <circle
+                  cx={connectorX}
+                  cy={entryY}
+                  r={OVERLAY_LAYOUT.connectorR}
+                  fill={TRADE_OVERLAY.connector}
+                />
+                {showTpLine && tpY != null && (
+                  <circle
+                    cx={connectorX}
+                    cy={tpY}
+                    r={OVERLAY_LAYOUT.connectorR}
+                    fill={chrome.handleFill}
+                    stroke={TRADE_OVERLAY.connector}
+                    strokeWidth={1.25}
+                  />
+                )}
+                {showSlLine && slY != null && (
+                  <circle
+                    cx={connectorX}
+                    cy={slY}
+                    r={OVERLAY_LAYOUT.connectorR}
+                    fill={chrome.handleFill}
+                    stroke={TRADE_OVERLAY.connector}
+                    strokeWidth={1.25}
+                  />
+                )}
               </g>
+            )}
+
+            {/* Entry cluster: optional TP/SL place grips + qty / live PNL / close. */}
+            {(() => {
+              let x = clusterX
+              const nodes: React.JSX.Element[] = []
+
+              if (canEditTrade && working.takeProfit == null) {
+                nodes.push(<g key="place-tp">{renderPlaceButton('tp', x, entryY)}</g>)
+                x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
+              }
+
+              if (canEditTrade && working.stopLoss == null) {
+                nodes.push(<g key="place-sl">{renderPlaceButton('sl', x, entryY)}</g>)
+                x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
+              }
+
+              nodes.push(
+                <g key="entry-pill">
+                  {renderActionPill({
+                    x,
+                    y: entryY,
+                    border: sideColor,
+                    dashed: isPending,
+                    qtyFill: sideColor,
+                    pnlLabel: openPnlLabel,
+                    pnlColor: openPnlColor,
+                    closeColor: TRADE_OVERLAY.closeIcon,
+                    dragCursor: canEditTrade && isPending ? 'cursor-ns-resize' : undefined,
+                    onDragStart:
+                      canEditTrade && isPending
+                        ? (e) => startDrag(e, { kind: 'pending', moved: false })
+                        : undefined,
+                    onClose: canEditTrade
+                      ? (e) => {
+                          stopAction(e)
+                          if (isPending) cancelPending()
+                          else paperClose()
+                        }
+                      : undefined
+                  })}
+                </g>
+              )
+
+              return <g>{nodes}</g>
+            })()}
+
+            {/* Armed TP pill — drag to move, X clears before fill. */}
+            {showTpLine &&
+              tpY != null &&
+              working.takeProfit != null &&
+              renderActionPill({
+                x: entryPillX,
+                y: tpY,
+                border: TRADE_OVERLAY.tpLine,
+                dashed: true,
+                qtyFill: TRADE_OVERLAY.tpLine,
+                pnlLabel: tpPnlLabel,
+                pnlColor: TRADE_OVERLAY.tpLine,
+                closeColor: TRADE_OVERLAY.tpLine,
+                dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
+                onDragStart: canEditTrade
+                  ? (e) => startDrag(e, { kind: 'tp', mode: 'move', moved: false })
+                  : undefined,
+                onClose: canEditTrade
+                  ? (e) => {
+                      stopAction(e)
+                      setTakeProfit(null)
+                    }
+                  : undefined
+              })}
+
+            {/* Armed SL pill — drag to move, X clears before fill. */}
+            {showSlLine &&
+              slY != null &&
+              working.stopLoss != null &&
+              renderActionPill({
+                x: entryPillX,
+                y: slY,
+                border: TRADE_OVERLAY.slLine,
+                dashed: true,
+                qtyFill: TRADE_OVERLAY.slLine,
+                pnlLabel: slPnlLabel,
+                pnlColor: TRADE_OVERLAY.slLine,
+                closeColor: TRADE_OVERLAY.slLine,
+                dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
+                onDragStart: canEditTrade
+                  ? (e) => startDrag(e, { kind: 'sl', mode: 'move', moved: false })
+                  : undefined,
+                onClose: canEditTrade
+                  ? (e) => {
+                      stopAction(e)
+                      setStopLoss(null)
+                    }
+                  : undefined
+              })}
+
+            {/* Live preview pills while placing (before commit). */}
+            {liveLevelPreview?.kind === 'tp' &&
+              working.takeProfit == null &&
+              tpY != null &&
+              renderActionPill({
+                x: entryPillX,
+                y: tpY,
+                border: TRADE_OVERLAY.tpLine,
+                dashed: true,
+                qtyFill: TRADE_OVERLAY.tpLine,
+                pnlLabel: `${tpPnlLabel} · ${rrLabel}`,
+                pnlColor: TRADE_OVERLAY.tpLine,
+                closeColor: TRADE_OVERLAY.tpLine
+              })}
+            {liveLevelPreview?.kind === 'sl' &&
+              working.stopLoss == null &&
+              slY != null &&
+              renderActionPill({
+                x: entryPillX,
+                y: slY,
+                border: TRADE_OVERLAY.slLine,
+                dashed: true,
+                qtyFill: TRADE_OVERLAY.slLine,
+                pnlLabel: `${slPnlLabel} · ${rrLabel}`,
+                pnlColor: TRADE_OVERLAY.slLine,
+                closeColor: TRADE_OVERLAY.slLine
+              })}
+          </g>
+        )}
+
+        {drawings.map((drawing) => {
+          const selected = drawing.id === selectedDrawingId
+          const hovered = drawing.id === hoveredDrawingId
+          const dragging = draggingKey?.includes(drawing.id) ?? false
+          const showHandles = selected || hovered || dragging
+          const hoverHandlers = {
+            onMouseEnter: (): void => setHoveredDrawingId(drawing.id),
+            onMouseLeave: (): void =>
+              setHoveredDrawingId((current) => (current === drawing.id ? null : current))
+          }
+
+          if (drawing.type === 'hline') {
+            const y = series?.priceToCoordinate(drawing.price)
+            if (y == null) return null
+            return (
+              <HLineShape
+                key={drawing.id}
+                y={y}
+                width={plotRight}
+                midX={midX}
+                selected={selected}
+                canSelect={canSelect}
+                canDraw={canDraw}
+                showHandles={showHandles}
+                style={drawing.style}
+                onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+                onDrag={(e) => startDrag(e, { kind: 'hline', id: drawing.id, moved: false })}
+                {...hoverHandlers}
+              />
+            )
+          }
+
+          if (drawing.type === 'trendline') {
+            const a = toXY(drawing.t1, drawing.p1)
+            const b = toXY(drawing.t2, drawing.p2)
+            if (!a || !b) return null
+            return (
+              <TrendLineShape
+                key={drawing.id}
+                a={a}
+                b={b}
+                selected={selected}
+                canSelect={canSelect}
+                canDraw={canDraw}
+                showHandles={showHandles}
+                style={drawing.style}
+                onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+                onDragEnd={(end, e) =>
+                  startDrag(e, { kind: 'trend', id: drawing.id, end, moved: false })
+                }
+                onDragBody={(e) =>
+                  startDrag(e, { kind: 'trend', id: drawing.id, end: 'body', moved: false })
+                }
+                {...hoverHandlers}
+              />
+            )
+          }
+
+          if (drawing.type === 'fib') {
+            const a = toXY(drawing.t1, drawing.p1)
+            const b = toXY(drawing.t2, drawing.p2)
+            if (!a || !b || !series) return null
+            const levelConfigs = fibLevelsOf(drawing, fibLevelDefaults)
+            return (
+              <FibShape
+                key={drawing.id}
+                a={a}
+                b={b}
+                levels={fibLevelsAt(
+                  drawing.p1,
+                  drawing.p2,
+                  (price) => series.priceToCoordinate(price),
+                  levelConfigs
+                )}
+                selected={selected}
+                labelColor={chrome.hintText}
+                canSelect={canSelect}
+                canDraw={canDraw}
+                showHandles={showHandles}
+                style={drawing.style}
+                pricePrecision={pricePrecision}
+                plotRight={plotRight}
+                onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+                onDragEnd={(end, e) =>
+                  startDrag(e, { kind: 'fib', id: drawing.id, end, moved: false })
+                }
+                onDragBody={(e) =>
+                  startDrag(e, { kind: 'fib', id: drawing.id, end: 'body', moved: false })
+                }
+                {...hoverHandlers}
+              />
+            )
+          }
+
+          if (drawing.type === 'rect') {
+            const a = toXY(drawing.t1, drawing.p1)
+            const b = toXY(drawing.t2, drawing.p2)
+            if (!a || !b) return null
+            return (
+              <RectShape
+                key={drawing.id}
+                a={a}
+                b={b}
+                selected={selected}
+                canSelect={canSelect}
+                canDraw={canDraw}
+                showHandles={showHandles}
+                style={drawing.style}
+                onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+                onDragHandle={(handle, e) =>
+                  startDrag(e, { kind: 'rect', id: drawing.id, handle, moved: false })
+                }
+                onDragBody={(e) =>
+                  startDrag(e, { kind: 'rect', id: drawing.id, handle: 'body', moved: false })
+                }
+                {...hoverHandlers}
+              />
+            )
+          }
+
+          if (isPositionDrawing(drawing)) {
+            const anchor = toXY(drawing.t, drawing.entry)
+            if (!anchor || !series) return null
+            const preview = posPreview?.id === drawing.id ? posPreview : null
+
+            let targetPrice: number | null = drawing.target
+            let stopPrice: number | null = drawing.stop
+            let targetY: number | null =
+              targetPrice == null ? null : (series.priceToCoordinate(targetPrice) ?? null)
+            let stopY: number | null =
+              stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
+
+            // Default 1:2 guide while a level is still missing so the box shape,
+            // zones and badge R:R are visible right after placement.
+            if (targetY == null || stopY == null) {
+              const range = chart?.priceScale('right').getVisibleRange()
+              if (range && range.to > range.from) {
+                const risk = (range.to - range.from) * 0.05
+                if (targetY == null) {
+                  const dTarget =
+                    drawing.type === 'long'
+                      ? drawing.entry + risk * POSITION_RR_REWARD_MULT
+                      : drawing.entry - risk * POSITION_RR_REWARD_MULT
+                  targetPrice = dTarget
+                  targetY = series.priceToCoordinate(dTarget) ?? null
+                }
+                if (stopY == null) {
+                  const dStop =
+                    drawing.type === 'long' ? drawing.entry - risk : drawing.entry + risk
+                  stopPrice = dStop
+                  stopY = series.priceToCoordinate(dStop) ?? null
+                }
+              }
+            }
+
+            if (preview) {
+              if (preview.level === 'target') {
+                targetY = preview.y
+                targetPrice = preview.price
+                if (preview.mirrorPrice != null && drawing.stop == null) {
+                  stopY = preview.mirrorY
+                  stopPrice = preview.mirrorPrice
+                }
+              } else {
+                stopY = preview.y
+                stopPrice = preview.price
+                if (preview.mirrorPrice != null && drawing.target == null) {
+                  targetY = preview.mirrorY
+                  targetPrice = preview.mirrorPrice
+                }
+              }
+            }
+
+            // Box horizontal extent: drawing.span bars right of the entry anchor,
+            // but never narrower than the TP/SL badges so they can sit centered.
+            const boxRightTime = drawing.t + intervalSeconds * drawing.span
+            const boxLeft = anchor.x
+            const tpLabel =
+              targetPrice == null
+                ? null
+                : positionLevelLabel(targetPrice, drawing.entry, drawing.type, pricePrecision)
+            const slLabel =
+              stopPrice == null
+                ? null
+                : positionLevelLabel(stopPrice, drawing.entry, drawing.type, pricePrecision)
+            const labelFitW = Math.max(
+              tpLabel != null ? posBadgeWidth(tpLabel) : 0,
+              slLabel != null ? posBadgeWidth(slLabel) : 0
+            )
+            const minBoxW = Math.max(POSITION_BOX_MIN_W, labelFitW + POS_BADGE_INSET)
+            const spanRight = timeToX(boxRightTime) ?? boxLeft + minBoxW
+            const boxRight = Math.min(Math.max(spanRight, boxLeft + minBoxW), plotRight)
+
+            // Box vertical extent spans the present levels; keep a visible floor.
+            const levelYs = [anchor.y, targetY, stopY].filter((y): y is number => y != null)
+            let topY = Math.min(...levelYs)
+            let bottomY = Math.max(...levelYs)
+            if (bottomY - topY < POSITION_BOX_MIN_H) {
+              const mid = (bottomY + topY) / 2
+              topY = mid - POSITION_BOX_MIN_H / 2
+              bottomY = mid + POSITION_BOX_MIN_H / 2
+            }
+
+            // Live price line from the entry point to the position's status. The
+            // entry candle is the basis: the first candle inside the box whose
+            // range has seen the entry point. If no candle in the box has seen
+            // the entry, the line is not shown at all. From the entry candle
+            // onward, if a candle crosses the stop or the target, the end sits on
+            // that line at the first crossing candle's x; otherwise the end is
+            // placed on the last candle still inside the box (both x and y).
+            let priceLine: { x1: number; y1: number; x2: number; y2: number } | null = null
+            let priceLineTowardTp = true
+            if (playheadCandle && Number.isFinite(playheadCandle.close)) {
+              if (playheadCandle.time >= drawing.t) {
+                const inBox = playheadCandle.time <= boxRightTime
+                // First: the entry candle — the first candle inside the box whose
+                // range contains the entry line (low <= entry <= high).
+                let entryIdx = -1
+                let startX: number | null = null
+                const entryLogical = unixTimeToLogical(drawing.t, paneCandles, intervalSeconds)
+                if (entryLogical != null) {
+                  const fromIdx = Math.max(0, Math.floor(entryLogical))
+                  for (let i = fromIdx; i < paneCandles.length; i++) {
+                    const c = paneCandles[i]
+                    if (c.time > boxRightTime) break
+                    if (c.low <= drawing.entry && drawing.entry <= c.high) {
+                      const cx = timeToX(c.time)
+                      if (cx != null) {
+                        startX = cx
+                        entryIdx = i
+                      }
+                      break
+                    }
+                  }
+                }
+                if (entryIdx >= 0 && startX != null) {
+                  // Then: from the entry candle onward, the first candle whose
+                  // range has crossed the stop or the target line.
+                  let resolution: { candle: Candle; atTarget: boolean } | null = null
+                  const effectiveTarget = targetY != null ? series.coordinateToPrice(targetY) : null
+                  const effectiveStop = stopY != null ? series.coordinateToPrice(stopY) : null
+                  const endLogical = unixTimeToLogical(
+                    Math.min(playheadCandle.time, boxRightTime),
+                    paneCandles,
+                    intervalSeconds
+                  )
+                  if (endLogical != null) {
+                    const endIdx = Math.min(Math.floor(endLogical), paneCandles.length - 1)
+                    for (let i = entryIdx; i <= endIdx; i++) {
+                      const c = paneCandles[i]
+                      if (!c) continue
+                      const hitStop =
+                        effectiveStop != null &&
+                        (drawing.type === 'long' ? c.low <= effectiveStop : c.high >= effectiveStop)
+                      const hitTarget =
+                        effectiveTarget != null &&
+                        (drawing.type === 'long'
+                          ? c.high >= effectiveTarget
+                          : c.low <= effectiveTarget)
+                      if (hitStop) {
+                        resolution = { candle: c, atTarget: false }
+                        break
+                      }
+                      if (hitTarget) {
+                        resolution = { candle: c, atTarget: true }
+                        break
+                      }
+                    }
+                  }
+                  let endX: number | null = null
+                  let endY: number | null = null
+                  if (resolution) {
+                    // Exited at a level: end on that line at the crossing candle.
+                    endX = timeToX(resolution.candle.time)
+                    endY = resolution.atTarget ? targetY : stopY
+                    priceLineTowardTp = resolution.atTarget
+                  } else {
+                    // No level seen: end on the last candle inside the box.
+                    const lastInBox = inBox ? playheadCandle : lastCandleAtOrBefore(boxRightTime)
+                    if (lastInBox && Number.isFinite(lastInBox.close)) {
+                      endX = timeToX(lastInBox.time)
+                      endY = series.priceToCoordinate(lastInBox.close)
+                      priceLineTowardTp = isValidPositionLevel(
+                        drawing.type,
+                        'target',
+                        drawing.entry,
+                        lastInBox.close
+                      )
+                    }
+                  }
+                  if (endX != null && endY != null) {
+                    const clampedX = Math.min(Math.max(endX, startX), boxRight)
+                    if (clampedX > startX) {
+                      priceLine = { x1: startX, y1: anchor.y, x2: clampedX, y2: endY }
+                    }
+                  }
+                }
+              }
+            }
+
+            return (
+              <PositionShape
+                key={drawing.id}
+                side={drawing.type}
+                x={boxLeft}
+                x2={boxRight}
+                entryY={anchor.y}
+                targetY={targetY}
+                stopY={stopY}
+                entryPrice={drawing.entry}
+                targetPrice={targetPrice}
+                stopPrice={stopPrice}
+                topY={topY}
+                bottomY={bottomY}
+                selected={selected}
+                canSelect={canSelect}
+                canDraw={canDraw}
+                showHandles={showHandles}
+                style={drawing.style}
+                pricePrecision={pricePrecision}
+                priceLine={priceLine}
+                priceLineTowardTp={priceLineTowardTp}
+                onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+                onDragBox={(e) =>
+                  startDrag(e, { kind: 'pos', id: drawing.id, end: 'body', moved: false })
+                }
+                onDragEntry={(e) =>
+                  startDrag(e, {
+                    kind: 'pos-entry',
+                    id: drawing.id,
+                    moved: false,
+                    axis: 'pending',
+                    startX: e.clientX,
+                    startY: e.clientY
+                  })
+                }
+                onDragTarget={(e) =>
+                  startDrag(e, {
+                    kind: 'pos-level',
+                    id: drawing.id,
+                    level: 'target',
+                    moved: false
+                  })
+                }
+                onDragStop={(e) =>
+                  startDrag(e, {
+                    kind: 'pos-level',
+                    id: drawing.id,
+                    level: 'stop',
+                    moved: false
+                  })
+                }
+                {...hoverHandlers}
+              />
+            )
+          }
+
+          return null
+        })}
+
+        {pendingTrend &&
+          (() => {
+            const a = toXY(pendingTrend.time, pendingTrend.price)
+            if (!a) return null
+
+            const firstHandle = (
+              <circle
+                cx={a.x}
+                cy={a.y}
+                r={4.5}
+                fill={HANDLE_FILL}
+                stroke={HANDLE_STROKE}
+                strokeWidth={1.25}
+              />
             )
 
-            return <g>{nodes}</g>
+            if (drawTool === 'fib' && hover && series) {
+              const hoverPrice = series.coordinateToPrice(hover.y)
+              const levels =
+                hoverPrice != null && Number.isFinite(hoverPrice)
+                  ? fibLevelsAt(
+                      pendingTrend.price,
+                      hoverPrice,
+                      (price) => series.priceToCoordinate(price),
+                      fibLevelDefaults
+                    )
+                  : []
+              return (
+                <g key="pending">
+                  <FibShape
+                    a={a}
+                    b={hover}
+                    levels={levels}
+                    selected={false}
+                    labelColor={chrome.hintText}
+                    canSelect={false}
+                    canDraw={false}
+                    showHandles={false}
+                    pricePrecision={pricePrecision}
+                    plotRight={plotRight}
+                  />
+                  {firstHandle}
+                </g>
+              )
+            }
+
+            if (drawTool === 'rect' && hover) {
+              return (
+                <g key="pending">
+                  <RectShape
+                    a={a}
+                    b={hover}
+                    selected={false}
+                    canSelect={false}
+                    canDraw={false}
+                    showHandles={false}
+                    style={toolDefaults.rect}
+                  />
+                  {firstHandle}
+                </g>
+              )
+            }
+
+            return (
+              <g key="pending">
+                {firstHandle}
+                {hover && (
+                  <line
+                    x1={a.x}
+                    y1={a.y}
+                    x2={hover.x}
+                    y2={hover.y}
+                    stroke={DRAW_STROKE}
+                    strokeWidth={DRAW_WIDTH}
+                    strokeDasharray="4 3"
+                  />
+                )}
+              </g>
+            )
           })()}
 
-          {/* Armed TP pill — drag to move, X clears before fill. */}
-          {showTpLine &&
-            tpY != null &&
-            working.takeProfit != null &&
-            renderActionPill({
-              x: entryPillX,
-              y: tpY,
-              border: TRADE_OVERLAY.tpLine,
-              dashed: true,
-              qtyFill: TRADE_OVERLAY.tpLine,
-              pnlLabel: tpPnlLabel,
-              pnlColor: TRADE_OVERLAY.tpLine,
-              closeColor: TRADE_OVERLAY.tpLine,
-              dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
-              onDragStart: canEditTrade
-                ? (e) => startDrag(e, { kind: 'tp', mode: 'move', moved: false })
-                : undefined,
-              onClose: canEditTrade
-                ? (e) => {
-                    stopAction(e)
-                    setTakeProfit(null)
-                  }
-                : undefined
-            })}
+        {placing && hover && (
+          <g
+            className="pointer-events-none"
+            stroke={palette.crosshairColor}
+            strokeWidth={crosshairSettings.lineWidth}
+            strokeDasharray={crosshairDasharray(crosshairSettings.lineStyle)}
+          >
+            <line x1={0} y1={hover.y} x2={plotRight} y2={hover.y} />
+            <line x1={hover.x} y1={0} x2={hover.x} y2={height} />
+          </g>
+        )}
+      </svg>
 
-          {/* Armed SL pill — drag to move, X clears before fill. */}
-          {showSlLine &&
-            slY != null &&
-            working.stopLoss != null &&
-            renderActionPill({
-              x: entryPillX,
-              y: slY,
-              border: TRADE_OVERLAY.slLine,
-              dashed: true,
-              qtyFill: TRADE_OVERLAY.slLine,
-              pnlLabel: slPnlLabel,
-              pnlColor: TRADE_OVERLAY.slLine,
-              closeColor: TRADE_OVERLAY.slLine,
-              dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
-              onDragStart: canEditTrade
-                ? (e) => startDrag(e, { kind: 'sl', mode: 'move', moved: false })
-                : undefined,
-              onClose: canEditTrade
-                ? (e) => {
-                    stopAction(e)
-                    setStopLoss(null)
-                  }
-                : undefined
-            })}
-
-          {/* Live preview pills while placing (before commit). */}
-          {liveLevelPreview?.kind === 'tp' &&
-            working.takeProfit == null &&
-            tpY != null &&
-            renderActionPill({
-              x: entryPillX,
-              y: tpY,
-              border: TRADE_OVERLAY.tpLine,
-              dashed: true,
-              qtyFill: TRADE_OVERLAY.tpLine,
-              pnlLabel: `${tpPnlLabel} · ${rrLabel}`,
-              pnlColor: TRADE_OVERLAY.tpLine,
-              closeColor: TRADE_OVERLAY.tpLine
-            })}
-          {liveLevelPreview?.kind === 'sl' &&
-            working.stopLoss == null &&
-            slY != null &&
-            renderActionPill({
-              x: entryPillX,
-              y: slY,
-              border: TRADE_OVERLAY.slLine,
-              dashed: true,
-              qtyFill: TRADE_OVERLAY.slLine,
-              pnlLabel: `${slPnlLabel} · ${rrLabel}`,
-              pnlColor: TRADE_OVERLAY.slLine,
-              closeColor: TRADE_OVERLAY.slLine
-            })}
-        </g>
-      )}
-
-      {drawings.map((drawing) => {
-        const selected = drawing.id === selectedDrawingId
-        const hovered = drawing.id === hoveredDrawingId
-        const dragging = draggingKey?.includes(drawing.id) ?? false
-        const showHandles = selected || hovered || dragging
-        const hoverHandlers = {
-          onMouseEnter: (): void => setHoveredDrawingId(drawing.id),
-          onMouseLeave: (): void =>
-            setHoveredDrawingId((current) => (current === drawing.id ? null : current))
-        }
-
-        if (drawing.type === 'hline') {
-          const y = series?.priceToCoordinate(drawing.price)
-          if (y == null) return null
-          return (
-            <HLineShape
-              key={drawing.id}
-              y={y}
-              width={plotRight}
-              midX={midX}
-              selected={selected}
-              canSelect={canSelect}
-              canDraw={canDraw}
-              showHandles={showHandles}
-              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
-              onDrag={(e) => startDrag(e, { kind: 'hline', id: drawing.id, moved: false })}
-              {...hoverHandlers}
-            />
-          )
-        }
-
-        if (drawing.type === 'trendline') {
-          const a = toXY(drawing.t1, drawing.p1)
-          const b = toXY(drawing.t2, drawing.p2)
-          if (!a || !b) return null
-          return (
-            <TrendLineShape
-              key={drawing.id}
-              a={a}
-              b={b}
-              selected={selected}
-              canSelect={canSelect}
-              canDraw={canDraw}
-              showHandles={showHandles}
-              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
-              onDragEnd={(end, e) =>
-                startDrag(e, { kind: 'trend', id: drawing.id, end, moved: false })
-              }
-              onDragBody={(e) =>
-                startDrag(e, { kind: 'trend', id: drawing.id, end: 'body', moved: false })
-              }
-              {...hoverHandlers}
-            />
-          )
-        }
-
-        if (drawing.type === 'fib') {
-          const a = toXY(drawing.t1, drawing.p1)
-          const b = toXY(drawing.t2, drawing.p2)
-          if (!a || !b || !series) return null
-          return (
-            <FibShape
-              key={drawing.id}
-              a={a}
-              b={b}
-              levels={fibLevelsAt(drawing.p1, drawing.p2, (price) =>
-                series.priceToCoordinate(price)
-              )}
-              selected={selected}
-              labelColor={chrome.hintText}
-              canSelect={canSelect}
-              canDraw={canDraw}
-              showHandles={showHandles}
-              pricePrecision={pricePrecision}
-              plotRight={plotRight}
-              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
-              onDragEnd={(end, e) =>
-                startDrag(e, { kind: 'fib', id: drawing.id, end, moved: false })
-              }
-              onDragBody={(e) =>
-                startDrag(e, { kind: 'fib', id: drawing.id, end: 'body', moved: false })
-              }
-              {...hoverHandlers}
-            />
-          )
-        }
-
-        if (drawing.type === 'rect') {
-          const a = toXY(drawing.t1, drawing.p1)
-          const b = toXY(drawing.t2, drawing.p2)
-          if (!a || !b) return null
-          return (
-            <RectShape
-              key={drawing.id}
-              a={a}
-              b={b}
-              selected={selected}
-              canSelect={canSelect}
-              canDraw={canDraw}
-              showHandles={showHandles}
-              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
-              onDragHandle={(handle, e) =>
-                startDrag(e, { kind: 'rect', id: drawing.id, handle, moved: false })
-              }
-              onDragBody={(e) =>
-                startDrag(e, { kind: 'rect', id: drawing.id, handle: 'body', moved: false })
-              }
-              {...hoverHandlers}
-            />
-          )
-        }
-
-        if (isPositionDrawing(drawing)) {
-          const anchor = toXY(drawing.t, drawing.entry)
-          if (!anchor || !series) return null
-          const preview = posPreview?.id === drawing.id ? posPreview : null
-
-          let targetPrice: number | null = drawing.target
-          let stopPrice: number | null = drawing.stop
-          let targetY: number | null =
-            targetPrice == null ? null : (series.priceToCoordinate(targetPrice) ?? null)
-          let stopY: number | null =
-            stopPrice == null ? null : (series.priceToCoordinate(stopPrice) ?? null)
-
-          // Default 1:2 guide while a level is still missing so the box shape,
-          // zones and badge R:R are visible right after placement.
-          if (targetY == null || stopY == null) {
-            const range = chart?.priceScale('right').getVisibleRange()
-            if (range && range.to > range.from) {
-              const risk = (range.to - range.from) * 0.05
-              if (targetY == null) {
-                const dTarget =
-                  drawing.type === 'long'
-                    ? drawing.entry + risk * POSITION_RR_REWARD_MULT
-                    : drawing.entry - risk * POSITION_RR_REWARD_MULT
-                targetPrice = dTarget
-                targetY = series.priceToCoordinate(dTarget) ?? null
-              }
-              if (stopY == null) {
-                const dStop = drawing.type === 'long' ? drawing.entry - risk : drawing.entry + risk
-                stopPrice = dStop
-                stopY = series.priceToCoordinate(dStop) ?? null
-              }
-            }
-          }
-
-          if (preview) {
-            if (preview.level === 'target') {
-              targetY = preview.y
-              targetPrice = preview.price
-              if (preview.mirrorPrice != null && drawing.stop == null) {
-                stopY = preview.mirrorY
-                stopPrice = preview.mirrorPrice
-              }
-            } else {
-              stopY = preview.y
-              stopPrice = preview.price
-              if (preview.mirrorPrice != null && drawing.target == null) {
-                targetY = preview.mirrorY
-                targetPrice = preview.mirrorPrice
-              }
-            }
-          }
-
-          // Box horizontal extent: drawing.span bars right of the entry anchor,
-          // but never narrower than the TP/SL badges so they can sit centered.
-          const boxRightTime = drawing.t + intervalSeconds * drawing.span
-          const boxLeft = anchor.x
-          const tpLabel =
-            targetPrice == null
-              ? null
-              : positionLevelLabel(targetPrice, drawing.entry, drawing.type, pricePrecision)
-          const slLabel =
-            stopPrice == null
-              ? null
-              : positionLevelLabel(stopPrice, drawing.entry, drawing.type, pricePrecision)
-          const labelFitW = Math.max(
-            tpLabel != null ? posBadgeWidth(tpLabel) : 0,
-            slLabel != null ? posBadgeWidth(slLabel) : 0
-          )
-          const minBoxW = Math.max(POSITION_BOX_MIN_W, labelFitW + POS_BADGE_INSET)
-          const spanRight = timeToX(boxRightTime) ?? boxLeft + minBoxW
-          const boxRight = Math.min(Math.max(spanRight, boxLeft + minBoxW), plotRight)
-
-          // Box vertical extent spans the present levels; keep a visible floor.
-          const levelYs = [anchor.y, targetY, stopY].filter((y): y is number => y != null)
-          let topY = Math.min(...levelYs)
-          let bottomY = Math.max(...levelYs)
-          if (bottomY - topY < POSITION_BOX_MIN_H) {
-            const mid = (bottomY + topY) / 2
-            topY = mid - POSITION_BOX_MIN_H / 2
-            bottomY = mid + POSITION_BOX_MIN_H / 2
-          }
-
-          // Live price line from the entry point to the position's status. The
-          // entry candle is the basis: the first candle inside the box whose
-          // range has seen the entry point. If no candle in the box has seen
-          // the entry, the line is not shown at all. From the entry candle
-          // onward, if a candle crosses the stop or the target, the end sits on
-          // that line at the first crossing candle's x; otherwise the end is
-          // placed on the last candle still inside the box (both x and y).
-          let priceLine: { x1: number; y1: number; x2: number; y2: number } | null = null
-          let priceLineTowardTp = true
-          if (playheadCandle && Number.isFinite(playheadCandle.close)) {
-            if (playheadCandle.time >= drawing.t) {
-              const inBox = playheadCandle.time <= boxRightTime
-              // First: the entry candle — the first candle inside the box whose
-              // range contains the entry line (low <= entry <= high).
-              let entryIdx = -1
-              let startX: number | null = null
-              const entryLogical = unixTimeToLogical(drawing.t, paneCandles, intervalSeconds)
-              if (entryLogical != null) {
-                const fromIdx = Math.max(0, Math.floor(entryLogical))
-                for (let i = fromIdx; i < paneCandles.length; i++) {
-                  const c = paneCandles[i]
-                  if (c.time > boxRightTime) break
-                  if (c.low <= drawing.entry && drawing.entry <= c.high) {
-                    const cx = timeToX(c.time)
-                    if (cx != null) {
-                      startX = cx
-                      entryIdx = i
-                    }
-                    break
-                  }
-                }
-              }
-              if (entryIdx >= 0 && startX != null) {
-                // Then: from the entry candle onward, the first candle whose
-                // range has crossed the stop or the target line.
-                let resolution: { candle: Candle; atTarget: boolean } | null = null
-                const effectiveTarget = targetY != null ? series.coordinateToPrice(targetY) : null
-                const effectiveStop = stopY != null ? series.coordinateToPrice(stopY) : null
-                const endLogical = unixTimeToLogical(
-                  Math.min(playheadCandle.time, boxRightTime),
-                  paneCandles,
-                  intervalSeconds
-                )
-                if (endLogical != null) {
-                  const endIdx = Math.min(Math.floor(endLogical), paneCandles.length - 1)
-                  for (let i = entryIdx; i <= endIdx; i++) {
-                    const c = paneCandles[i]
-                    if (!c) continue
-                    const hitStop =
-                      effectiveStop != null &&
-                      (drawing.type === 'long' ? c.low <= effectiveStop : c.high >= effectiveStop)
-                    const hitTarget =
-                      effectiveTarget != null &&
-                      (drawing.type === 'long'
-                        ? c.high >= effectiveTarget
-                        : c.low <= effectiveTarget)
-                    if (hitStop) {
-                      resolution = { candle: c, atTarget: false }
-                      break
-                    }
-                    if (hitTarget) {
-                      resolution = { candle: c, atTarget: true }
-                      break
-                    }
-                  }
-                }
-                let endX: number | null = null
-                let endY: number | null = null
-                if (resolution) {
-                  // Exited at a level: end on that line at the crossing candle.
-                  endX = timeToX(resolution.candle.time)
-                  endY = resolution.atTarget ? targetY : stopY
-                  priceLineTowardTp = resolution.atTarget
-                } else {
-                  // No level seen: end on the last candle inside the box.
-                  const lastInBox = inBox ? playheadCandle : lastCandleAtOrBefore(boxRightTime)
-                  if (lastInBox && Number.isFinite(lastInBox.close)) {
-                    endX = timeToX(lastInBox.time)
-                    endY = series.priceToCoordinate(lastInBox.close)
-                    priceLineTowardTp = isValidPositionLevel(
-                      drawing.type,
-                      'target',
-                      drawing.entry,
-                      lastInBox.close
-                    )
-                  }
-                }
-                if (endX != null && endY != null) {
-                  const clampedX = Math.min(Math.max(endX, startX), boxRight)
-                  if (clampedX > startX) {
-                    priceLine = { x1: startX, y1: anchor.y, x2: clampedX, y2: endY }
-                  }
-                }
-              }
-            }
-          }
-
-          return (
-            <PositionShape
-              key={drawing.id}
-              side={drawing.type}
-              x={boxLeft}
-              x2={boxRight}
-              entryY={anchor.y}
-              targetY={targetY}
-              stopY={stopY}
-              entryPrice={drawing.entry}
-              targetPrice={targetPrice}
-              stopPrice={stopPrice}
-              topY={topY}
-              bottomY={bottomY}
-              selected={selected}
-              canSelect={canSelect}
-              canDraw={canDraw}
-              showHandles={showHandles}
-              pricePrecision={pricePrecision}
-              priceLine={priceLine}
-              priceLineTowardTp={priceLineTowardTp}
-              onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
-              onDragBox={(e) =>
-                startDrag(e, { kind: 'pos', id: drawing.id, end: 'body', moved: false })
-              }
-              onDragEntry={(e) =>
-                startDrag(e, {
-                  kind: 'pos-entry',
-                  id: drawing.id,
-                  moved: false,
-                  axis: 'pending',
-                  startX: e.clientX,
-                  startY: e.clientY
-                })
-              }
-              onDragTarget={(e) =>
-                startDrag(e, {
-                  kind: 'pos-level',
-                  id: drawing.id,
-                  level: 'target',
-                  moved: false
-                })
-              }
-              onDragStop={(e) =>
-                startDrag(e, {
-                  kind: 'pos-level',
-                  id: drawing.id,
-                  level: 'stop',
-                  moved: false
-                })
-              }
-              {...hoverHandlers}
-            />
-          )
-        }
-
-        return null
-      })}
-
-      {pendingTrend &&
-        (() => {
-          const a = toXY(pendingTrend.time, pendingTrend.price)
-          if (!a) return null
-
-          const firstHandle = (
-            <circle
-              cx={a.x}
-              cy={a.y}
-              r={4.5}
-              fill={HANDLE_FILL}
-              stroke={HANDLE_STROKE}
-              strokeWidth={1.25}
-            />
-          )
-
-          if (drawTool === 'fib' && hover && series) {
-            const hoverPrice = series.coordinateToPrice(hover.y)
-            const levels =
-              hoverPrice != null && Number.isFinite(hoverPrice)
-                ? fibLevelsAt(pendingTrend.price, hoverPrice, (price) =>
-                    series.priceToCoordinate(price)
-                  )
-                : []
-            return (
-              <g key="pending">
-                <FibShape
-                  a={a}
-                  b={hover}
-                  levels={levels}
-                  selected={false}
-                  labelColor={chrome.hintText}
-                  canSelect={false}
-                  canDraw={false}
-                  showHandles={false}
-                  pricePrecision={pricePrecision}
-                  plotRight={plotRight}
-                />
-                {firstHandle}
-              </g>
-            )
-          }
-
-          if (drawTool === 'rect' && hover) {
-            return (
-              <g key="pending">
-                <RectShape
-                  a={a}
-                  b={hover}
-                  selected={false}
-                  canSelect={false}
-                  canDraw={false}
-                  showHandles={false}
-                />
-                {firstHandle}
-              </g>
-            )
-          }
-
-          return (
-            <g key="pending">
-              {firstHandle}
-              {hover && (
-                <line
-                  x1={a.x}
-                  y1={a.y}
-                  x2={hover.x}
-                  y2={hover.y}
-                  stroke={DRAW_STROKE}
-                  strokeWidth={DRAW_WIDTH}
-                  strokeDasharray="4 3"
-                />
-              )}
-            </g>
-          )
-        })()}
-
-      {placing && hover && (
-        <g
-          className="pointer-events-none"
-          stroke={palette.crosshairColor}
-          strokeWidth={crosshairSettings.lineWidth}
-          strokeDasharray={crosshairDasharray(crosshairSettings.lineStyle)}
-        >
-          <line x1={0} y1={hover.y} x2={plotRight} y2={hover.y} />
-          <line x1={hover.x} y1={0} x2={hover.x} y2={height} />
-        </g>
-      )}
-    </svg>
+      {canSelect &&
+        selectedDrawing != null &&
+        selectedAnchor != null &&
+        selectedStyle != null &&
+        selectedFields != null && (
+          <DrawingStyleWidget
+            pos={widgetPos ?? { x: selectedAnchor.x + 12, y: selectedAnchor.y + 12 }}
+            onPosChange={setWidgetPos}
+            style={selectedStyle}
+            fields={selectedFields}
+            tool={drawingToolType(selectedDrawing)}
+            showZoneColors={isPositionDrawing(selectedDrawing)}
+            onStyleChange={(patch) => updateDrawingStyle(selectedDrawing.id, patch)}
+            onApplyPreset={(presetId) => {
+              const preset = useDrawingSettingsStore
+                .getState()
+                .presets[drawingToolType(selectedDrawing)].find((p) => p.id === presetId)
+              if (!preset) return
+              updateDrawingStyle(selectedDrawing.id, {
+                color: preset.color,
+                lineWidth: preset.lineWidth,
+                lineStyle: preset.lineStyle,
+                fillColor: preset.fillColor,
+                tpColor: preset.tpColor,
+                slColor: preset.slColor
+              })
+            }}
+            onOpenSettings={() => setDrawingDialogOpen(true, 'widget')}
+            onDelete={() => deleteDrawing(selectedDrawing.id)}
+          />
+        )}
+    </>
   )
 }
