@@ -9,6 +9,7 @@ type TooltipProps = {
   side?: 'top' | 'bottom' | 'left' | 'right'
   sideOffset?: number
   disabled?: boolean
+  className?: string
 }
 
 const VIEWPORT_MARGIN = 8
@@ -21,7 +22,8 @@ export default function Tooltip({
   children,
   side = 'bottom',
   sideOffset = 6,
-  disabled = false
+  disabled = false,
+  className = ''
 }: TooltipProps) {
   const triggerRef = useRef<HTMLSpanElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -104,7 +106,7 @@ export default function Tooltip({
     <>
       <span
         ref={triggerRef}
-        className="inline-flex"
+        className={`inline-flex ${className}`}
         onMouseEnter={scheduleOpen}
         onMouseLeave={scheduleClose}
         onFocusCapture={scheduleOpen}

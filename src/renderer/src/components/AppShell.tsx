@@ -19,6 +19,7 @@ import StatusBar from '@/components/StatusBar'
 import SymbolSelect from '@/components/SymbolSelect'
 import TimeframeSelect from '@/components/TimeframeSelect'
 import TitleBar from '@/components/TitleBar'
+import OrderTicket from '@/components/OrderTicket'
 import TradePanel from '@/components/TradePanel'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
 import { useUiHotkeys } from '@/hooks/useUiHotkeys'
@@ -197,7 +198,7 @@ export default function AppShell({
           }`}
         >
           {showDrawingToolbar && <DrawingToolbar />}
-          <div className="relative h-full min-h-0 min-w-0 flex-1 rounded-r-sm border border-zinc-800">
+          <div className="relative h-full min-h-0 min-w-0 flex-1 rounded-sm border border-zinc-800">
             {children}
             {showReplayControls && inReplay && <FloatingReplayBar />}
             {chartFullscreen && inReplay && <FloatingTradeBar />}
@@ -243,6 +244,7 @@ export default function AppShell({
               </div>
             )}
           </div>
+          {showPaperTrade && !chartFullscreen && inReplay && <OrderTicket />}
         </div>
         {showPaperTrade && !chartFullscreen && <TradePanel />}
       </main>

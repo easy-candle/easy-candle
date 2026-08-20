@@ -17,7 +17,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * UI keyboard shortcuts (live + replay):
  * - F → toggle chart fullscreen
  * - Alt+I → toggle invert price scale
- * - Escape → cancel pending trend line / return to select tool
+ * - Escape → cancel TP/SL chart pick, pending trend line, or return to select tool
  * - Delete / Backspace → delete the selected drawing
  */
 export function useUiHotkeys(): void {
@@ -41,6 +41,11 @@ export function useUiHotkeys(): void {
 
       if (event.key === 'Escape') {
         const state = useReplayStore.getState()
+        if (state.pricePick) {
+          event.preventDefault()
+          state.setPricePick(null)
+          return
+        }
         if (state.pendingTrend || state.drawTool !== 'select') {
           event.preventDefault()
           setDrawTool('select')

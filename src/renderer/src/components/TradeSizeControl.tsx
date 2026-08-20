@@ -72,40 +72,42 @@ export default function TradeSizeControl({
       <span className="px-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500">
         {label}
       </span>
-      <IconButton
-        tooltip={`Decrease ${noun}`}
-        disabled={disabled || atMin}
-        onClick={() => onChange(clampTradeSize(value - TRADE_SIZE_STEP, kind))}
-        className="!h-6 !w-6"
-      >
-        <Minus className="h-3 w-3" />
-      </IconButton>
-      <input
-        type="text"
-        inputMode="decimal"
-        aria-label={kind === 'lot' ? 'Lot size' : 'Coin amount'}
-        disabled={disabled}
-        value={draft}
-        onFocus={(event) => {
-          focusedRef.current = true
-          event.currentTarget.select()
-        }}
-        onBlur={(event) => {
-          focusedRef.current = false
-          commit(event.currentTarget.value)
-        }}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={onKeyDown}
-        className="h-6 w-14 bg-transparent text-center text-xs font-semibold tabular-nums text-zinc-200 outline-none disabled:opacity-40"
-      />
-      <IconButton
-        tooltip={`Increase ${noun}`}
-        disabled={disabled || atMax}
-        onClick={() => onChange(clampTradeSize(value + TRADE_SIZE_STEP, kind))}
-        className="!h-6 !w-6"
-      >
-        <Plus className="h-3 w-3" />
-      </IconButton>
+      <div className="ml-auto flex items-center gap-1">
+        <IconButton
+          tooltip={`Decrease ${noun}`}
+          disabled={disabled || atMin}
+          onClick={() => onChange(clampTradeSize(value - TRADE_SIZE_STEP, kind))}
+          className="!h-6 !w-6"
+        >
+          <Minus className="h-3 w-3" />
+        </IconButton>
+        <input
+          type="text"
+          inputMode="decimal"
+          aria-label={kind === 'lot' ? 'Lot size' : 'Coin amount'}
+          disabled={disabled}
+          value={draft}
+          onFocus={(event) => {
+            focusedRef.current = true
+            event.currentTarget.select()
+          }}
+          onBlur={(event) => {
+            focusedRef.current = false
+            commit(event.currentTarget.value)
+          }}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onKeyDown}
+          className="h-6 w-14 bg-transparent text-center text-xs font-semibold tabular-nums text-zinc-200 outline-none disabled:opacity-40"
+        />
+        <IconButton
+          tooltip={`Increase ${noun}`}
+          disabled={disabled || atMax}
+          onClick={() => onChange(clampTradeSize(value + TRADE_SIZE_STEP, kind))}
+          className="!h-6 !w-6"
+        >
+          <Plus className="h-3 w-3" />
+        </IconButton>
+      </div>
     </div>
   )
 }
