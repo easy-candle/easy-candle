@@ -172,13 +172,13 @@ export default function MenuBar() {
         },
         {
           type: 'item',
-          label: 'Settings',
-          onSelect: () => setChartSettingsDialogOpen(true)
+          label: 'Symbol Manager',
+          onSelect: () => setSymbolManagerDialogOpen(true)
         },
         {
           type: 'item',
-          label: 'Symbol Manager',
-          onSelect: () => setSymbolManagerDialogOpen(true)
+          label: 'Chart Settings',
+          onSelect: () => setChartSettingsDialogOpen(true)
         }
       ]
     },
