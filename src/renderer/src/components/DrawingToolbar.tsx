@@ -4,7 +4,9 @@ import IconButton from '@/components/IconButton'
 import { useReplayStore } from '@/store/replayStore'
 import fibonacciIcon from '@/assets/drawings/fibonacci.svg?raw'
 import hlineIcon from '@/assets/drawings/hline.svg?raw'
+import longIcon from '@/assets/drawings/long.svg?raw'
 import rectangleIcon from '@/assets/drawings/rectangle.svg?raw'
+import shortIcon from '@/assets/drawings/short.svg?raw'
 import trendlineIcon from '@/assets/drawings/trendline.svg?raw'
 
 export default function DrawingToolbar() {
@@ -73,6 +75,27 @@ export default function DrawingToolbar() {
         onClick={() => setDrawTool('rect')}
       >
         <DrawingToolIcon svg={rectangleIcon} className="w-6 h-6" />
+      </IconButton>
+      <div className="my-1 h-px w-7 bg-zinc-800" aria-hidden />
+      <IconButton
+        variant="ghost"
+        tooltip="Long position"
+        tooltipSide="right"
+        active={drawTool === 'long'}
+        disabled={disabled}
+        onClick={() => setDrawTool('long')}
+      >
+        <DrawingToolIcon svg={longIcon} className="w-6 h-6" />
+      </IconButton>
+      <IconButton
+        variant="ghost"
+        tooltip="Short position"
+        tooltipSide="right"
+        active={drawTool === 'short'}
+        disabled={disabled}
+        onClick={() => setDrawTool('short')}
+      >
+        <DrawingToolIcon svg={shortIcon} className="w-6 h-6" />
       </IconButton>
       <div className="my-1 h-px w-7 bg-zinc-800" aria-hidden />
       <IconButton

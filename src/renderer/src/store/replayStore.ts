@@ -42,7 +42,13 @@ import { isChartType, type ChartType } from '@/lib/chart/chartTypes'
 import {
   cloneDrawing as cloneDrawingGeom,
   isDrawTool,
+  isPositionDrawing,
+  isPositionTool,
   isTwoPointTool,
+  isValidPositionLevel,
+  POSITION_SPAN_DEFAULT,
+  POSITION_SPAN_MAX,
+  POSITION_SPAN_MIN,
   remapDrawingTimes,
   translateDrawing,
   updateRectHandle as updateRectHandleGeom,
@@ -50,6 +56,8 @@ import {
   type Drawing,
   type DrawTool,
   type Endpoint,
+  type PositionDrawing,
+  type PositionLevel,
   type RectHandle,
   type TrendPoint
 } from '@/lib/chart/drawingGeometry'
@@ -67,6 +75,8 @@ export type {
   Endpoint,
   FibDrawing,
   HLineDrawing,
+  PositionDrawing,
+  PositionLevel,
   RectDrawing,
   RectHandle,
   TrendDrawing,
@@ -285,6 +295,11 @@ type ReplayStore = {
   addTwoPoint: (point: TrendPoint) => void
   updateTwoPointEndpoint: (id: string, end: Endpoint, point: TrendPoint) => void
   updateRectHandle: (id: string, handle: RectHandle, point: TrendPoint) => void
+  addPosition: (point: TrendPoint) => void
+  updatePositionLevel: (id: string, level: PositionLevel, price: number) => void
+  clearPositionLevel: (id: string, level: PositionLevel) => void
+  updatePositionEntry: (id: string, price: number) => void
+  updatePositionSpan: (id: string, span: number) => void
   cloneDrawing: (id: string) => string | null
   moveDrawing: (id: string, origin: Drawing, dTime: number, dPrice: number) => void
   selectDrawing: (id: string | null) => void
@@ -1529,6 +1544,72 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       set((s) => ({
         drawings: s.drawings.map((d) =>
           d.type === 'rect' && d.id === id ? updateRectHandleGeom(d, handle, point) : d
+        )
+      }))
+    },
+
+    addPosition(point) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      const tool = get().drawTool
+      if (!isPositionTool(tool)) return
+      if (!point || !Number.isFinite(point.time) || !Number.isFinite(point.price)) return
+      set((s) => ({
+        drawTool: 'select',
+        drawings: [
+          ...s.drawings,
+          {
+            id: nextDrawingId(),
+            type: tool,
+            t: point.time,
+            entry: point.price,
+            target: null,
+            stop: null,
+            span: POSITION_SPAN_DEFAULT
+          } satisfies PositionDrawing
+        ]
+      }))
+    },
+
+    updatePositionLevel(id, level, price) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || !Number.isFinite(price)) return
+      set((s) => ({
+        drawings: s.drawings.map((d) => {
+          if (!isPositionDrawing(d) || d.id !== id) return d
+          if (!isValidPositionLevel(d.type, level, d.entry, price)) return d
+          return level === 'target' ? { ...d, target: price } : { ...d, stop: price }
+        })
+      }))
+    },
+
+    clearPositionLevel(id, level) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id) return
+      set((s) => ({
+        drawings: s.drawings.map((d) => {
+          if (!isPositionDrawing(d) || d.id !== id) return d
+          return level === 'target' ? { ...d, target: null } : { ...d, stop: null }
+        })
+      }))
+    },
+
+    updatePositionEntry(id, price) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || !Number.isFinite(price)) return
+      set((s) => ({
+        drawings: s.drawings.map((d) =>
+          isPositionDrawing(d) && d.id === id ? { ...d, entry: price } : d
+        )
+      }))
+    },
+
+    updatePositionSpan(id, span) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || !Number.isFinite(span)) return
+      const clamped = Math.max(POSITION_SPAN_MIN, Math.min(POSITION_SPAN_MAX, Math.round(span)))
+      set((s) => ({
+        drawings: s.drawings.map((d) =>
+          isPositionDrawing(d) && d.id === id ? { ...d, span: clamped } : d
         )
       }))
     },
