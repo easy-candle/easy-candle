@@ -11,6 +11,7 @@ import {
   type WidgetFieldSet
 } from '@/store/drawingSettingsStore'
 import type { PanelPos } from '@/store/uiLayoutStore'
+import Tooltip from '@/components/Tooltip'
 
 const WIDTH_OPTIONS = [
   { value: 1, label: '1px' },
@@ -30,13 +31,7 @@ const STYLE_OPTIONS = [
 const selectClass =
   'h-6 w-full min-w-0 rounded border border-zinc-700 bg-zinc-900 px-1 text-[11px] text-zinc-200 focus:border-amber-500/70 focus:outline-none'
 
-function Field({
-  label,
-  children
-}: {
-  label: string
-  children: ReactNode
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex min-w-0 flex-1 flex-col gap-0.5">
       <span className="text-[9px] font-medium uppercase tracking-[0.08em] text-zinc-500">
@@ -126,25 +121,24 @@ export default function DrawingStyleWidget({
       headerActions={
         <>
           <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              aria-label="Apply a preset"
-              title="Presets"
-              aria-expanded={presetsOpen}
-              onClick={() => setPresetsOpen((open) => !open)}
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-amber-300"
-            >
-              <Palette className="h-3.5 w-3.5" aria-hidden />
-            </button>
+            <Tooltip text="Presets" side="top">
+              <button
+                type="button"
+                aria-label="Apply a preset"
+                aria-expanded={presetsOpen}
+                onClick={() => setPresetsOpen((open) => !open)}
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-amber-300"
+              >
+                <Palette className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </Tooltip>
             {presetsOpen && (
               <div className="absolute right-0 top-7 z-50 w-44 overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-xl shadow-black/50">
                 <div className="border-b border-zinc-800 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-zinc-500">
                   Presets
                 </div>
                 {presets.length === 0 ? (
-                  <p className="px-2 py-2 text-[11px] text-zinc-600">
-                    No presets saved yet
-                  </p>
+                  <p className="px-2 py-2 text-[11px] text-zinc-600">No presets saved yet</p>
                 ) : (
                   <ul className="max-h-56 overflow-y-auto py-1">
                     {presets.map((preset: DrawingPreset) => (
@@ -173,24 +167,26 @@ export default function DrawingStyleWidget({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            aria-label="Open drawing settings"
-            title="Drawing settings"
-            onClick={onOpenSettings}
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-amber-300"
-          >
-            <Settings2 className="h-3.5 w-3.5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            aria-label="Delete drawing"
-            title="Delete drawing (Del)"
-            onClick={onDelete}
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-red-950/70 hover:text-red-300"
-          >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden />
-          </button>
+          <Tooltip text="Open drawing settings" side="top">
+            <button
+              type="button"
+              aria-label="Drawing settings"
+              onClick={onOpenSettings}
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-amber-300"
+            >
+              <Settings2 className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </Tooltip>
+          <Tooltip text="Delete drawing" side="top">
+            <button
+              type="button"
+              aria-label="Delete drawing (Del)"
+              onClick={onDelete}
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-red-950/70 hover:text-red-300"
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </Tooltip>
         </>
       }
     >

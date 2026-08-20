@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight } from 'lucide-react'
+import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
@@ -11,6 +12,7 @@ type MenuEntry =
       shortcut?: string
       checked?: boolean
       disabled?: boolean
+      title?: string
       onSelect: () => void
     }
   | { type: 'submenu'; label: string; children: MenuEntry[] }
@@ -62,6 +64,7 @@ function MenuEntryView({ entry, onClose }: { entry: MenuEntry; onClose: () => vo
       role={checkable ? 'menuitemcheckbox' : 'menuitem'}
       aria-checked={checkable ? entry.checked : undefined}
       disabled={entry.disabled}
+      title={entry.title}
       onClick={() => {
         entry.onSelect()
         onClose()
@@ -100,6 +103,7 @@ export default function MenuBar() {
   const setShortcutsDialogOpen = useUiLayoutStore((s) => s.setShortcutsDialogOpen)
   const setAboutDialogOpen = useUiLayoutStore((s) => s.setAboutDialogOpen)
   const startTour = useUiLayoutStore((s) => s.startTour)
+  const inReplay = useReplayStore((s) => s.mode === 'replay')
   const setImportDataDialogOpen = useUiLayoutStore((s) => s.setImportDataDialogOpen)
   const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
   const setSymbolManagerDialogOpen = useUiLayoutStore((s) => s.setSymbolManagerDialogOpen)
@@ -173,11 +177,6 @@ export default function MenuBar() {
         },
         {
           type: 'item',
-          label: 'Settings',
-          onSelect: () => setChartSettingsDialogOpen(true)
-        },
-        {
-          type: 'item',
           label: 'Symbol Manager',
           onSelect: () => setSymbolManagerDialogOpen(true)
         },
@@ -185,6 +184,11 @@ export default function MenuBar() {
           type: 'item',
           label: 'Sessions',
           onSelect: () => setSessionManagerDialogOpen(true)
+        },
+        {
+          type: 'item',
+          label: 'Chart Settings',
+          onSelect: () => setChartSettingsDialogOpen(true)
         }
       ]
     },
@@ -194,6 +198,8 @@ export default function MenuBar() {
         {
           type: 'item',
           label: 'Take a tour',
+          disabled: inReplay,
+          title: inReplay ? 'Exit replay to take the tour' : undefined,
           onSelect: startTour
         },
         {
