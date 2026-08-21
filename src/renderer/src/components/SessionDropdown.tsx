@@ -184,7 +184,7 @@ export default function SessionDropdown(): ReactElement {
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-zinc-800/80 hover:text-zinc-100"
           >
             <Settings2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden />
-            <span className="flex-1 font-medium">Manage sessions…</span>
+            <span className="flex-1 font-medium">Manage sessions</span>
           </button>
         </>
       )}

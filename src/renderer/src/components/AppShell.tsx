@@ -17,7 +17,7 @@ import KeyboardShortcutsDialog from '@/components/KeyboardShortcutsDialog'
 import ReplayStartDialog from '@/components/ReplayStartDialog'
 import SessionDropdown from '@/components/SessionDropdown'
 import SessionManagerDialog from '@/components/SessionManagerDialog'
-import SessionReportModal from '@/components/SessionReportModal'
+import SessionReportDialog from '@/components/SessionReportDialog'
 import UpdateModal from '@/components/UpdateModal'
 import StatusBar from '@/components/StatusBar'
 import SymbolManagerDialog from '@/components/SymbolManagerDialog'
@@ -285,7 +285,7 @@ export default function AppShell({
       <DrawingSettingsDialog />
       <SymbolManagerDialog />
       <SessionManagerDialog />
-      <SessionReportModal />
+      <SessionReportDialog />
       <UpdateModal />
     </div>
   )

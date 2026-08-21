@@ -46,7 +46,7 @@ function ReportBlock({ title, report }: { title: string; report: SideReport }) {
   )
 }
 
-export default function SessionReportModal() {
+export default function SessionReportDialog() {
   const sessionReport = useReplayStore((s) => s.sessionReport)
   const dismissSessionReport = useReplayStore((s) => s.dismissSessionReport)
 
