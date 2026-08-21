@@ -50,6 +50,12 @@ export const APP_TOUR_STEPS: AppTourStep[] = [
     description: 'Save or copy a picture of the chart.'
   },
   {
+    id: 'sessions',
+    title: 'Sessions',
+    description: 'Save your drawings and trading setup. You can come back to them later.',
+    side: 'bottom'
+  },
+  {
     id: 'fullscreen',
     title: 'Full screen',
     description: 'Make the chart fill the window. Press F to turn this on or off.'
