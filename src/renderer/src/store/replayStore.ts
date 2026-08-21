@@ -456,6 +456,7 @@ type ReplayStore = {
   ) => Promise<void>
   jumpToTime: (timeSeconds: number) => Promise<void>
   exitReplay: () => void
+  resetReplayState: (opts?: { keepImport?: boolean; keepDrawings?: boolean }) => void
   play: () => void
   pause: () => void
   /** Pause playback after an open position is closed by TP or SL. */
@@ -2890,6 +2891,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       engine.seekToTime(timeSeconds)
       publishReplay('replace', { fitContent: false })
       syncSecondaryToPrimaryCover({ fitContent: false })
-    }
+    },
+
+    resetReplayState
   }
 })
