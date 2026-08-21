@@ -1,8 +1,9 @@
 import { useState, type FormEvent, type ReactElement } from 'react'
-import { Check, FolderOpen, FolderPlus, Save, Settings2, Trash2 } from 'lucide-react'
+import { Check, FolderOpen, FolderPlus, LogOut, Save, Settings2, Trash2 } from 'lucide-react'
 import Dropdown from '@/components/Dropdown'
 import { useSessionStore } from '@/store/sessionStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import Tooltip from '@/components/Tooltip'
 
 export default function SessionDropdown(): ReactElement {
   const sessions = useSessionStore((s) => s.sessions)
@@ -12,6 +13,7 @@ export default function SessionDropdown(): ReactElement {
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const saveActiveSession = useSessionStore((s) => s.saveActiveSession)
   const setSessionAutoSave = useSessionStore((s) => s.setSessionAutoSave)
+  const setActiveSession = useSessionStore((s) => s.setActiveSession)
   const setSessionManagerDialogOpen = useUiLayoutStore((s) => s.setSessionManagerDialogOpen)
   const [name, setName] = useState('')
 
@@ -75,24 +77,37 @@ export default function SessionDropdown(): ReactElement {
                   <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   <span className="truncate">{active.name}</span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => void saveActiveSession()}
-                  title="Save now"
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-zinc-700 text-zinc-300 transition-colors hover:border-amber-500/70 hover:text-amber-300"
-                >
-                  <Save className="h-3.5 w-3.5" aria-hidden />
-                </button>
+                <div className="flex gap-1">
+                  <Tooltip text="Save now" side="top">
+                    <button
+                      type="button"
+                      onClick={() => void saveActiveSession()}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-300 hover:bg-zinc-700/60 transition-colors hover:text-amber-300"
+                    >
+                      <Save className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Exit session" side="top">
+                    <button
+                      type="button"
+                      onClick={() => setActiveSession(null)}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:text-red-400 hover:bg-zinc-700/60"
+                    >
+                      <LogOut className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
               <div className="mt-1.5 flex items-center justify-between gap-2">
-                <span className="truncate text-[11px] text-zinc-500">
-                  {active.symbol || '—'} · {active.timeframe || '—'}
+                <span className="block truncate text-[10px] text-zinc-500">
+                  {active.drawings.length} drawings ·{' '}
+                  {active.closedTrades.length + (active.position ? 1 : 0)} trades
                 </span>
                 <button
                   type="button"
                   aria-pressed={active.autoSave}
                   onClick={() => setSessionAutoSave(active.id, !active.autoSave)}
-                  className={`inline-flex shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors bg-zinc-800 ${
                     active.autoSave
                       ? 'text-amber-300'
                       : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
@@ -116,42 +131,44 @@ export default function SessionDropdown(): ReactElement {
               {sessions.map((session) => {
                 const isActive = session.id === activeSessionId
                 return (
-                  <div
-                    key={session.id}
-                    className="group flex items-center gap-1 rounded px-1.5 py-1 hover:bg-zinc-800/60"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        loadSession(session.id)
-                        close()
-                      }}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded py-0.5 text-left"
+                  !isActive && (
+                    <div
+                      key={session.id}
+                      className="group flex items-center gap-1 rounded px-1.5 py-1 hover:bg-zinc-800/60"
                     >
-                      {isActive ? (
-                        <Check className="h-3.5 w-3.5 shrink-0 text-amber-300" aria-hidden />
-                      ) : (
-                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium text-zinc-200">
-                          {session.name}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          loadSession(session.id)
+                          close()
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded py-0.5 text-left"
+                      >
+                        {isActive ? (
+                          <Check className="h-3.5 w-3.5 shrink-0 text-amber-300" aria-hidden />
+                        ) : (
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium text-zinc-200 mb-1">
+                            {session.name}
+                          </span>
+                          <span className="block truncate text-[10px] text-zinc-500">
+                            {session.drawings.length} drawings ·{' '}
+                            {session.closedTrades.length + (session.position ? 1 : 0)} trades
+                          </span>
                         </span>
-                        <span className="block truncate text-[10px] text-zinc-500">
-                          {session.drawings.length} drawings ·{' '}
-                          {session.closedTrades.length + (session.position ? 1 : 0)} trades
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Delete session ${session.name}`}
-                      onClick={() => deleteSession(session.id)}
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                  </div>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete session ${session.name}`}
+                        onClick={() => deleteSession(session.id)}
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </div>
+                  )
                 )
               })}
             </div>
