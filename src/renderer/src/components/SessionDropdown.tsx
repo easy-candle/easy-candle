@@ -30,20 +30,22 @@ export default function SessionDropdown(): ReactElement {
       align="end"
       menuClassName="w-72"
       trigger={({ open, toggle }) => (
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label="Sessions"
-          aria-expanded={open}
-          data-tour="sessions"
-          className={`inline-flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium transition-colors ${
-            open || active
-              ? 'border-amber-500/70 bg-amber-950/40 text-amber-300'
-              : 'border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100'
-          }`}
-        >
-          <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        </button>
+        <Tooltip text="Sessions" side="bottom">
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label="Sessions"
+            aria-expanded={open}
+            data-tour="sessions"
+            className={`inline-flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium transition-colors ${
+              open || active
+                ? 'border-amber-500/70 bg-amber-950/40 text-amber-300'
+                : 'border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100'
+            }`}
+          >
+            <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          </button>
+        </Tooltip>
       )}
     >
       {({ close }) => (
