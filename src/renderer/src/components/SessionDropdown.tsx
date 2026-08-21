@@ -124,7 +124,7 @@ export default function SessionDropdown(): ReactElement {
             </div>
           )}
 
-          <div className="my-1 h-px bg-zinc-800" />
+          {sessions.length > 1 && active && <div className="my-1 h-px bg-zinc-800" />}
 
           {sessions.length === 0 ? (
             <p className="px-3 py-2 text-[11px] text-zinc-500">No sessions yet.</p>
