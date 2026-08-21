@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { IChartApi } from 'lightweight-charts'
+import type { SessionReport } from '@/store/replayStore'
 
 const STORAGE_KEY = 'easy-candle:ui-layout'
 
@@ -36,6 +37,7 @@ type UiLayoutState = {
   importDataDialogOpen: boolean
   chartSettingsDialogOpen: boolean
   symbolManagerDialogOpen: boolean
+  sessionManagerDialogOpen: boolean
   hasCompletedTour: boolean
   /** Session-only counter; bumping it asks AppTour to (re)start. */
   tourRequestId: number
@@ -45,6 +47,8 @@ type UiLayoutState = {
   tourPaperTradeRestore: boolean | null
   /** Primary chart instance, used by chart snapshot actions. */
   primaryChart: IChartApi | null
+  /** Preview session report for SessionManagerDialog; null when closed. */
+  previewSessionReport: SessionReport | null
   toggleChartFullscreen: () => void
   setChartFullscreen: (value: boolean) => void
   setReplayControlsMinimized: (value: boolean) => void
@@ -61,12 +65,14 @@ type UiLayoutState = {
   setImportDataDialogOpen: (value: boolean) => void
   setChartSettingsDialogOpen: (value: boolean) => void
   setSymbolManagerDialogOpen: (value: boolean) => void
+  setSessionManagerDialogOpen: (value: boolean) => void
   startTour: () => void
   completeTour: () => void
   skipTour: () => void
   beginPaperTradePreview: () => void
   endPaperTradePreview: () => void
   setPrimaryChart: (chart: IChartApi | null) => void
+  setPreviewSessionReport: (report: SessionReport | null) => void
 }
 
 function loadPersisted(): PersistedLayout {
@@ -119,11 +125,13 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   importDataDialogOpen: false,
   chartSettingsDialogOpen: false,
   symbolManagerDialogOpen: false,
+  sessionManagerDialogOpen: false,
   hasCompletedTour: initial.hasCompletedTour === true,
   tourRequestId: 0,
   tourPaperTradePreview: false,
   tourPaperTradeRestore: null,
   primaryChart: null,
+  previewSessionReport: null,
 
   toggleChartFullscreen: () => {
     set({ chartFullscreen: !get().chartFullscreen })
@@ -211,6 +219,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
     set({ symbolManagerDialogOpen: value })
   },
 
+  setSessionManagerDialogOpen: (value) => {
+    set({ sessionManagerDialogOpen: value })
+  },
+
   startTour: () => {
     const showMainToolbar = get().showMainToolbar
     const showDrawingToolbar = get().showDrawingToolbar
@@ -227,6 +239,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
       importDataDialogOpen: false,
       chartSettingsDialogOpen: false,
       symbolManagerDialogOpen: false,
+      sessionManagerDialogOpen: false,
       tourRequestId: get().tourRequestId + 1
     })
   },
@@ -263,6 +276,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
 
   setPrimaryChart: (chart) => {
     set({ primaryChart: chart })
+  },
+
+  setPreviewSessionReport: (report) => {
+    set({ previewSessionReport: report })
   }
 }))
 

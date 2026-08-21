@@ -12,6 +12,7 @@ describe('app tour steps', () => {
       'split',
       'chart-settings',
       'snapshot',
+      'sessions',
       'fullscreen',
       'theme',
       'paper-trade'
