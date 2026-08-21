@@ -15,7 +15,9 @@ import IconButton from '@/components/IconButton'
 import IndicatorsDropdown from '@/components/IndicatorsDropdown'
 import KeyboardShortcutsDialog from '@/components/KeyboardShortcutsDialog'
 import ReplayStartDialog from '@/components/ReplayStartDialog'
-import SessionReportModal from '@/components/SessionReportModal'
+import SessionDropdown from '@/components/SessionDropdown'
+import SessionManagerDialog from '@/components/SessionManagerDialog'
+import SessionReportDialog from '@/components/SessionReportDialog'
 import UpdateModal from '@/components/UpdateModal'
 import StatusBar from '@/components/StatusBar'
 import SymbolManagerDialog from '@/components/SymbolManagerDialog'
@@ -136,6 +138,7 @@ export default function AppShell({
               <Settings2 className="h-4 w-4" />
             </IconButton>
             <ChartSnapshotDropdown />
+            <SessionDropdown />
             <IconButton
               tooltip="Full-screen chart"
               dataTour="fullscreen"
@@ -281,7 +284,8 @@ export default function AppShell({
       <ChartSettingsDialog />
       <DrawingSettingsDialog />
       <SymbolManagerDialog />
-      <SessionReportModal />
+      <SessionManagerDialog />
+      <SessionReportDialog />
       <UpdateModal />
     </div>
   )
