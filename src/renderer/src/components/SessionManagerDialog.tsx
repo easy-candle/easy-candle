@@ -13,7 +13,6 @@ export default function SessionManagerDialog(): ReactElement | null {
   const renameSession = useSessionStore((s) => s.renameSession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const loadSession = useSessionStore((s) => s.loadSession)
-  const setSessionAutoSave = useSessionStore((s) => s.setSessionAutoSave)
   const setPreviewSessionReport = useUiLayoutStore((s) => s.setPreviewSessionReport)
 
   const [name, setName] = useState('')
