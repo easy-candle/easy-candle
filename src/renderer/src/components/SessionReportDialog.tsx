@@ -4,6 +4,7 @@ import { formatExitReason, formatPnl, formatPositionSize, formatWinRate, tradesT
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import { formatAssetPrice, resolvePricePrecision } from '@shared/pricePrecision'
 import { useReplayStore } from '@/store/replayStore'
+import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
 function ReportBlock({ title, report }: { title: string; report: SideReport }) {
   return (
@@ -49,23 +50,35 @@ function ReportBlock({ title, report }: { title: string; report: SideReport }) {
 export default function SessionReportDialog() {
   const sessionReport = useReplayStore((s) => s.sessionReport)
   const dismissSessionReport = useReplayStore((s) => s.dismissSessionReport)
+  const previewSessionReport = useUiLayoutStore((s) => s.previewSessionReport)
+  const setPreviewSessionReport = useUiLayoutStore((s) => s.setPreviewSessionReport)
+
+  const report = sessionReport ?? previewSessionReport
+
+  function dismiss(): void {
+    if (sessionReport) {
+      dismissSessionReport()
+    } else {
+      setPreviewSessionReport(null)
+    }
+  }
 
   useEffect(() => {
-    if (!sessionReport) return undefined
+    if (!report) return undefined
 
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
-        dismissSessionReport()
+        dismiss()
       }
     }
 
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [sessionReport, dismissSessionReport])
+  }, [report, dismiss])
 
-  if (!sessionReport) return null
+  if (!report) return null
 
-  const { symbol, timeframe, trades, summary, closedOpenOnExit } = sessionReport
+  const { symbol, timeframe, trades, summary, closedOpenOnExit } = report
   const pricePrecision = resolvePricePrecision(
     symbol,
     trades.map((trade) => ({
@@ -90,9 +103,9 @@ export default function SessionReportDialog() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 sm:p-6"
       role="presentation"
-      onClick={dismissSessionReport}
+      onClick={dismiss}
     >
       <div
         role="dialog"
@@ -115,7 +128,7 @@ export default function SessionReportDialog() {
           <button
             type="button"
             aria-label="Close report"
-            onClick={dismissSessionReport}
+            onClick={dismiss}
             className="inline-flex h-8 w-8 items-center justify-center rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-100"
           >
             <X className="h-4 w-4" />
@@ -181,7 +194,7 @@ export default function SessionReportDialog() {
           </button>
           <button
             type="button"
-            onClick={dismissSessionReport}
+            onClick={dismiss}
             className="inline-flex h-8 items-center rounded border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-medium text-amber-300 hover:border-amber-400/70 hover:text-amber-200"
           >
             Done

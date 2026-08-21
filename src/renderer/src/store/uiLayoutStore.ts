@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { IChartApi } from 'lightweight-charts'
+import type { SessionReport } from '@/store/replayStore'
 
 const STORAGE_KEY = 'easy-candle:ui-layout'
 
@@ -46,6 +47,8 @@ type UiLayoutState = {
   tourPaperTradeRestore: boolean | null
   /** Primary chart instance, used by chart snapshot actions. */
   primaryChart: IChartApi | null
+  /** Preview session report for SessionManagerDialog; null when closed. */
+  previewSessionReport: SessionReport | null
   toggleChartFullscreen: () => void
   setChartFullscreen: (value: boolean) => void
   setReplayControlsMinimized: (value: boolean) => void
@@ -69,6 +72,7 @@ type UiLayoutState = {
   beginPaperTradePreview: () => void
   endPaperTradePreview: () => void
   setPrimaryChart: (chart: IChartApi | null) => void
+  setPreviewSessionReport: (report: SessionReport | null) => void
 }
 
 function loadPersisted(): PersistedLayout {
@@ -127,6 +131,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   tourPaperTradePreview: false,
   tourPaperTradeRestore: null,
   primaryChart: null,
+  previewSessionReport: null,
 
   toggleChartFullscreen: () => {
     set({ chartFullscreen: !get().chartFullscreen })
@@ -271,6 +276,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
 
   setPrimaryChart: (chart) => {
     set({ primaryChart: chart })
+  },
+
+  setPreviewSessionReport: (report) => {
+    set({ previewSessionReport: report })
   }
 }))
 

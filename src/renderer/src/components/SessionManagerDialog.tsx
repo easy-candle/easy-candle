@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import { Check, FolderOpen, FolderPlus, Pencil, Trash2, X } from 'lucide-react'
+import { BarChart3, Check, FolderOpen, FolderPlus, Pencil, Trash2, X } from 'lucide-react'
 import { useSessionStore } from '@/store/sessionStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { summarizeSession } from '@/lib/paperTrade'
 
 export default function SessionManagerDialog(): ReactElement | null {
   const open = useUiLayoutStore((s) => s.sessionManagerDialogOpen)
@@ -13,6 +14,7 @@ export default function SessionManagerDialog(): ReactElement | null {
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const loadSession = useSessionStore((s) => s.loadSession)
   const setSessionAutoSave = useSessionStore((s) => s.setSessionAutoSave)
+  const setPreviewSessionReport = useUiLayoutStore((s) => s.setPreviewSessionReport)
 
   const [name, setName] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -183,22 +185,6 @@ export default function SessionManagerDialog(): ReactElement | null {
                         </button>
                         <button
                           type="button"
-                          aria-pressed={session.autoSave}
-                          title={session.autoSave ? 'Auto-save on' : 'Auto-save off'}
-                          aria-label={`Toggle auto-save for ${session.name}`}
-                          onClick={() => setSessionAutoSave(session.id, !session.autoSave)}
-                          className={`h-4 w-7 shrink-0 rounded-full transition-colors ${
-                            session.autoSave ? 'bg-amber-500' : 'bg-zinc-700'
-                          }`}
-                        >
-                          <span
-                            className={`block h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                              session.autoSave ? 'translate-x-3.5' : 'translate-x-0.5'
-                            }`}
-                          />
-                        </button>
-                        <button
-                          type="button"
                           aria-label={`Rename ${session.name}`}
                           onClick={() => {
                             setEditingId(session.id)
@@ -207,6 +193,23 @@ export default function SessionManagerDialog(): ReactElement | null {
                           className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 transition-colors hover:text-zinc-100"
                         >
                           <Pencil className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`View report for ${session.name}`}
+                          title="View session report"
+                          onClick={() => {
+                            setPreviewSessionReport({
+                              symbol: session.symbol,
+                              timeframe: session.timeframe,
+                              trades: session.closedTrades,
+                              summary: summarizeSession(session.closedTrades),
+                              closedOpenOnExit: false
+                            })
+                          }}
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 transition-colors hover:text-amber-300"
+                        >
+                          <BarChart3 className="h-3.5 w-3.5" aria-hidden />
                         </button>
                         <button
                           type="button"
