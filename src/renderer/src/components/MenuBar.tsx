@@ -177,7 +177,7 @@ export default function MenuBar() {
         },
         {
           type: 'item',
-          label: 'Symbol Manager',
+          label: 'Symbols',
           onSelect: () => setSymbolManagerDialogOpen(true)
         },
         {
@@ -187,7 +187,7 @@ export default function MenuBar() {
         },
         {
           type: 'item',
-          label: 'Chart Settings',
+          label: 'Settings',
           onSelect: () => setChartSettingsDialogOpen(true)
         }
       ]
