@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { BinanceUpstreamError, fetchBinanceKlines } from '@shared/binanceFetch'
 import { clampKlineLimit } from '@shared/candleUtils'
+import { IPC_CHANNELS } from '@shared/ipc/channels'
 import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
 import { isAllowedSymbol } from '@shared/symbols'
 import { isAllowedInterval } from '@shared/timeframes'
@@ -89,7 +90,7 @@ async function handleKlinesFetch(params: KlinesFetchParams): Promise<KlinesFetch
 }
 
 export function registerKlinesIpc(): void {
-  ipcMain.handle('klines:fetch', async (_event, params: KlinesFetchParams) => {
+  ipcMain.handle(IPC_CHANNELS.KLINES_FETCH, async (_event, params: KlinesFetchParams) => {
     return handleKlinesFetch(params)
   })
 }

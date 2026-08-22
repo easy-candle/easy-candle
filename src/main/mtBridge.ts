@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import WebSocket, { type RawData, WebSocketServer } from 'ws'
+import { IPC_CHANNELS } from '@shared/ipc/channels'
 import {
   MT_BRIDGE_DEFAULT_PORT,
   MT_BRIDGE_HOST,
@@ -37,7 +38,7 @@ function isLoopback(address: string | undefined): boolean {
 function broadcast(payload: MtBridgeIpcEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
-      win.webContents.send('mtbridge:event', payload)
+      win.webContents.send(IPC_CHANNELS.MT_BRIDGE_EVENT, payload)
     }
   }
 }
@@ -272,9 +273,9 @@ export function getMtPreview(): MtPreviewLoadResult {
 }
 
 export function registerMtBridgeIpc(): void {
-  ipcMain.handle('mtbridge:start', () => startMtBridge())
-  ipcMain.handle('mtbridge:stop', () => stopMtBridge())
-  ipcMain.handle('mtbridge:status', () => getMtBridgeStatus())
-  ipcMain.handle('mtbridge:preview', (): MtPreviewLoadResult => getMtPreview())
+  ipcMain.handle(IPC_CHANNELS.MT_BRIDGE_START, () => startMtBridge())
+  ipcMain.handle(IPC_CHANNELS.MT_BRIDGE_STOP, () => stopMtBridge())
+  ipcMain.handle(IPC_CHANNELS.MT_BRIDGE_STATUS, () => getMtBridgeStatus())
+  ipcMain.handle(IPC_CHANNELS.MT_BRIDGE_PREVIEW, (): MtPreviewLoadResult => getMtPreview())
   void startMtBridge()
 }
