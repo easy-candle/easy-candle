@@ -4,12 +4,17 @@
     "src/renderer/src/env.d.ts",
     "src/renderer/src/**/*",
     "src/renderer/src/**/*.tsx",
+    "src/renderer/src/**/*.json",
     "src/preload/*.d.ts",
+    "src/preload/index.ts",
     "src/shared/**/*"
   ],
   "exclude": ["src/**/*.test.ts"],
   "compilerOptions": {
     "composite": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsc/web.tsbuildinfo",
+    // `tsc -b` ignores --noEmit; without an outDir it writes .js/.d.ts into src/.
+    "outDir": "node_modules/.cache/tsc/out-web",
     "jsx": "react-jsx",
     "resolveJsonModule": true,
     "baseUrl": ".",
