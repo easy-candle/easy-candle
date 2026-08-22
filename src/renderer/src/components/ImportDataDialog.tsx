@@ -124,7 +124,8 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     if (!listed.ok) return {}
     const existing = listed.imports.find((entry) => normalizeSymbol(entry.symbol) === symbolHint)
     if (!existing) return {}
-    const loaded = await window.api.loadImport(existing.id, '1m')
+    // Only the newest stored bar matters for the "has newer candles" check.
+    const loaded = await window.api.loadImport(existing.id, '1m', { limit: 1 })
     if (loaded.ok && !hasNewerCandles(loaded.candles, incoming)) {
       return {
         skip: `${existing.symbol} is already imported through ${formatUtcCandleTime(existing.lastTime)}. This has no newer candles — nothing was updated.`

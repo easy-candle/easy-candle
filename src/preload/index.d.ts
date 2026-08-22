@@ -3,6 +3,7 @@ import type {
   ImportDeleteResult,
   ImportDialogResult,
   ImportListResult,
+  ImportLoadRange,
   ImportLoadResult,
   ImportReadResult,
   ImportSaveParams,
@@ -35,7 +36,7 @@ interface EasyCandleApi {
   readImportFile: (path: string) => Promise<ImportReadResult>
   saveImport: (params: ImportSaveParams) => Promise<ImportSaveResult>
   listImports: () => Promise<ImportListResult>
-  loadImport: (id: string, timeframe?: string) => Promise<ImportLoadResult>
+  loadImport: (id: string, timeframe?: string, range?: ImportLoadRange) => Promise<ImportLoadResult>
   deleteImport: (id: string) => Promise<ImportDeleteResult>
   checkForUpdates: () => Promise<{
     ok: boolean
