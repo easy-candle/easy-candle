@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "author": "Easy Candle",
   "license": "MIT",
+  "packageManager": "yarn@1.22.22",
   "homepage": "https://github.com/easy-candle/easy-candle",
   "repository": {
     "type": "git",

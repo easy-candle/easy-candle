@@ -82,6 +82,8 @@ Attach **one chart at a time** (a new connection replaces the previous one). Aft
 
 ## Develop
 
+Yarn is the package manager for this repo (pinned via `packageManager` in `package.json`); CI installs with `yarn install --frozen-lockfile`.
+
 ```bash
 yarn install
 yarn dev

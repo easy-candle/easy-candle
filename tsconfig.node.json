@@ -8,6 +8,7 @@
   ],
   "compilerOptions": {
     "composite": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsc/node.tsbuildinfo",
     "types": ["electron-vite/node"],
     "baseUrl": ".",
     "paths": {

@@ -10,6 +10,7 @@
   "exclude": ["src/**/*.test.ts"],
   "compilerOptions": {
     "composite": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsc/web.tsbuildinfo",
     "jsx": "react-jsx",
     "resolveJsonModule": true,
     "baseUrl": ".",
