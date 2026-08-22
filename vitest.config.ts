@@ -1,5 +1,5 @@
-import { resolve } from 'path'
 import { defineConfig } from 'vitest/config'
+import { rendererAlias } from './config/vite.shared'
 
 export default defineConfig({
   test: {
@@ -7,9 +7,6 @@ export default defineConfig({
     include: ['src/**/*.test.ts']
   },
   resolve: {
-    alias: {
-      '@': resolve('src/renderer/src'),
-      '@shared': resolve('src/shared')
-    }
+    alias: rendererAlias(__dirname)
   }
 })

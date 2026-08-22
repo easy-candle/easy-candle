@@ -1,31 +1,24 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-
-const appVersion = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version as string
+import { appDefine, rendererAlias, sharedAlias } from './config/vite.shared'
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     resolve: {
-      alias: {
-        '@shared': resolve('src/shared')
-      }
+      alias: sharedAlias(__dirname)
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    resolve: {
+      alias: sharedAlias(__dirname)
+    }
   },
   renderer: {
-    define: {
-      __APP_VERSION__: JSON.stringify(appVersion)
-    },
+    define: appDefine(__dirname),
     resolve: {
-      alias: {
-        '@': resolve('src/renderer/src'),
-        '@shared': resolve('src/shared')
-      }
+      alias: rendererAlias(__dirname)
     },
     plugins: [react()]
   }
