@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   IMPORTED_CONTEXT_BARS,
   pickRandomImportedStartIndex,
+  pickRandomImportedStartTime,
   pickRandomLiveStart,
   RANDOM_LOOKBACK_DAYS,
   RANDOM_RANGE_PRESETS,
@@ -143,5 +144,69 @@ describe('pickRandomImportedStartIndex', () => {
     })
     expect(index).toBeGreaterThanOrEqual(0)
     expect(index).toBeLessThan(30)
+  })
+})
+
+describe('pickRandomImportedStartTime', () => {
+  const interval = 900 // 15m
+  const first = 1_600_000_000 - (1_600_000_000 % interval)
+  const last = first + 999 * interval // 1000 bars of coverage
+
+  it('returns null when coverage bounds are invalid', () => {
+    expect(
+      pickRandomImportedStartTime({
+        firstTime: last,
+        lastTime: first,
+        intervalSeconds: interval,
+        lengthCandles: 10
+      })
+    ).toBeNull()
+  })
+
+  it('respects the context offset at the low end', () => {
+    const start = pickRandomImportedStartTime({
+      firstTime: first,
+      lastTime: last,
+      intervalSeconds: interval,
+      lengthCandles: 100,
+      random: () => 0
+    })
+    expect(start).toBe(first + IMPORTED_CONTEXT_BARS * interval)
+  })
+
+  it('leaves room for the requested length at the high end', () => {
+    const start = pickRandomImportedStartTime({
+      firstTime: first,
+      lastTime: last,
+      intervalSeconds: interval,
+      lengthCandles: 100,
+      random: () => 0.999999
+    })
+    expect(start).toBe(last - 100 * interval)
+    expect(start! + 100 * interval).toBeLessThanOrEqual(last)
+  })
+
+  it('stays aligned to the interval grid', () => {
+    const start = pickRandomImportedStartTime({
+      firstTime: first,
+      lastTime: last,
+      intervalSeconds: interval,
+      lengthCandles: 50,
+      random: () => 0.37
+    })
+    expect((start! - first) % interval).toBe(0)
+  })
+
+  it('clamps into coverage when the range is longer than the dataset', () => {
+    const start = pickRandomImportedStartTime({
+      firstTime: first,
+      lastTime: first + 10 * interval,
+      intervalSeconds: interval,
+      lengthCandles: 5000,
+      random: () => 0
+    })
+    expect(start).not.toBeNull()
+    expect(start!).toBeGreaterThanOrEqual(first)
+    expect(start!).toBeLessThanOrEqual(first + 10 * interval)
   })
 })

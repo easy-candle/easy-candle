@@ -87,8 +87,39 @@ export type ImportListResult =
   | { ok: true; imports: ImportedDatasetMeta[] }
   | { ok: false; error: string }
 
+/**
+ * Range request for a stored import series. All fields optional: an empty range
+ * means "newest `limit` bars", and omitting `limit` too means the whole series.
+ * `startTime` / `endTime` are inclusive UTC seconds.
+ */
+export type ImportLoadRange = {
+  startTime?: number
+  endTime?: number
+  limit?: number
+}
+
+/** Coverage of a returned range, so callers know which edges can still page. */
+export type ImportLoadedWindow = {
+  /** Open time of the first returned candle (0 when none). */
+  loadedFrom: number
+  /** Open time of the last returned candle (0 when none). */
+  loadedTo: number
+  /** Stored candles exist before `loadedFrom`. */
+  hasMoreBefore: boolean
+  /** Stored candles exist after `loadedTo`. */
+  hasMoreAfter: boolean
+  /** Total stored candles for the timeframe. */
+  totalCount: number
+}
+
 export type ImportLoadResult =
-  | { ok: true; meta: ImportedDatasetMeta; candles: Candle[] }
+  | {
+      ok: true
+      meta: ImportedDatasetMeta
+      candles: Candle[]
+      /** Absent on older callers that loaded the whole series. */
+      window?: ImportLoadedWindow
+    }
   | { ok: false; error: string }
 
 export type ImportDeleteResult = { ok: true } | { ok: false; error: string }

@@ -102,8 +102,50 @@ export function pickRandomLiveStart(opts: {
 }
 
 /**
+ * Pick a random start time inside an imported dataset's UTC coverage so that
+ * `lengthCandles` bars can still follow the playhead, with optional left
+ * context. Works from metadata bounds instead of a loaded array, because
+ * imported series are paged in windows.
+ *
+ * Gaps (weekends/sessions) mean the realised bar count can be lower than
+ * `lengthCandles`; callers resolve the returned time to the nearest candle.
+ */
+export function pickRandomImportedStartTime(opts: {
+  firstTime: number
+  lastTime: number
+  intervalSeconds: number
+  lengthCandles: number
+  contextBars?: number
+  random?: () => number
+}): number | null {
+  const first = Math.floor(Number(opts.firstTime))
+  const last = Math.floor(Number(opts.lastTime))
+  const interval = Math.max(1, Math.floor(Number(opts.intervalSeconds)) || 1)
+  const length = toPositiveInt(opts.lengthCandles)
+  const context = Math.max(0, Math.floor(opts.contextBars ?? IMPORTED_CONTEXT_BARS))
+  const random = opts.random ?? Math.random
+
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null
+
+  const minStart = first + context * interval
+  const maxStart = last - length * interval
+
+  if (maxStart < minStart) {
+    // Coverage too short for full length + context — start as early as possible.
+    return Math.min(minStart, last)
+  }
+
+  const spanBars = Math.floor((maxStart - minStart) / interval)
+  const offsetBars = Math.floor(random() * (spanBars + 1))
+  return minStart + offsetBars * interval
+}
+
+/**
  * Pick a random start index in an imported series so at least `lengthCandles`
  * bars remain after the playhead, with optional left context.
+ *
+ * Index-based: only usable when the whole series is in memory (MetaTrader
+ * imports). Prefer `pickRandomImportedStartTime` for windowed datasets.
  */
 export function pickRandomImportedStartIndex(opts: {
   candleCount: number

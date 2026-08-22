@@ -8,6 +8,7 @@ import type {
   ImportDeleteResult,
   ImportDialogResult,
   ImportListResult,
+  ImportLoadRange,
   ImportLoadResult,
   ImportReadResult,
   ImportSaveParams,
@@ -15,6 +16,7 @@ import type {
   ImportedDatasetMeta,
   ImportedTimeframeStats
 } from '@shared/importTypes'
+import { sliceCandleRange } from '@shared/importRange'
 import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
 import {
   DEFAULT_MT_BRIDGE_STATUS,
@@ -258,9 +260,13 @@ async function listImportDatasets(): Promise<ImportListResult> {
   }
 }
 
-async function loadImportDataset(id: string, timeframe?: string): Promise<ImportLoadResult> {
+async function loadImportDataset(
+  id: string,
+  timeframe?: string,
+  range?: ImportLoadRange
+): Promise<ImportLoadResult> {
   try {
-    let meta = (await idbGet<ImportedDatasetMeta>('metas', id)) || memoryMetas.get(id)
+    const meta = (await idbGet<ImportedDatasetMeta>('metas', id)) || memoryMetas.get(id)
     if (!meta) return { ok: false, error: 'Saved import not found.' }
 
     const requested = String(timeframe || meta.timeframe || '1m')
@@ -275,11 +281,15 @@ async function loadImportDataset(id: string, timeframe?: string): Promise<Import
 
     const key = `${id}:${tf}`
     const storedCandles = await idbGet<{ key: string; candles: Candle[] }>('candles', key)
-    const candles = storedCandles?.candles || memoryCandles.get(key)
+    const stored = storedCandles?.candles || memoryCandles.get(key)
 
-    if (!candles?.length) {
+    if (!stored?.length) {
       return { ok: false, error: `No candles found for timeframe ${tf}.` }
     }
+
+    // Same range contract as the desktop IPC handler, so the store can page
+    // windows without knowing which backend it talks to.
+    const sliced = sliceCandleRange(stored, range)
 
     const nextMeta: ImportedDatasetMeta = { ...meta, timeframe: tf }
     if (meta.timeframe !== tf) {
@@ -287,7 +297,7 @@ async function loadImportDataset(id: string, timeframe?: string): Promise<Import
       await idbPut('metas', nextMeta)
     }
 
-    return { ok: true, meta: nextMeta, candles }
+    return { ok: true, meta: nextMeta, candles: sliced.candles, window: sliced.window }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load import'
     return { ok: false, error: message }

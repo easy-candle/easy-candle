@@ -16,6 +16,7 @@ import type {
   ImportDeleteResult,
   ImportDialogResult,
   ImportListResult,
+  ImportLoadRange,
   ImportLoadResult,
   ImportReadResult,
   ImportSaveParams,
@@ -25,6 +26,7 @@ import type {
   ImportOrigin
 } from '@shared/importTypes'
 import { isMetatraderImport } from '@shared/importTypes'
+import { sliceCandleRange } from '@shared/importRange'
 import { decodeMtTextBuffer } from '@shared/mtTextDecode'
 
 function importsRoot(): string {
@@ -274,7 +276,11 @@ async function listImports(): Promise<ImportListResult> {
   }
 }
 
-async function loadImport(id: string, timeframe?: string): Promise<ImportLoadResult> {
+async function loadImport(
+  id: string,
+  timeframe?: string,
+  range?: ImportLoadRange
+): Promise<ImportLoadResult> {
   try {
     const meta = await readMeta(id)
     if (!meta) return { ok: false, error: 'Saved import not found.' }
@@ -289,10 +295,14 @@ async function loadImport(id: string, timeframe?: string): Promise<ImportLoadRes
 
     if (!tf) return { ok: false, error: 'Imported dataset has no candle series.' }
 
-    const candles = await readCandles(id, tf)
-    if (!candles?.length) {
+    const stored = await readCandles(id, tf)
+    if (!stored?.length) {
       return { ok: false, error: `No candles found for timeframe ${tf}.` }
     }
+
+    // Range slicing happens here so the renderer never receives the full series
+    // over IPC when it only needs a window.
+    const sliced = sliceCandleRange(stored, range)
 
     const nextMeta: ImportedDatasetMeta = { ...meta, timeframe: tf }
     // Persist last-used TF so symbol re-select restores it.
@@ -300,7 +310,7 @@ async function loadImport(id: string, timeframe?: string): Promise<ImportLoadRes
       await writeMeta({ ...nextMeta, updatedAt: meta.updatedAt })
     }
 
-    return { ok: true, meta: nextMeta, candles }
+    return { ok: true, meta: nextMeta, candles: sliced.candles, window: sliced.window }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load import'
     return { ok: false, error: message }
@@ -462,8 +472,13 @@ export function registerImportIpc(): void {
   ipcMain.handle('import:list', async (): Promise<ImportListResult> => listImports())
   ipcMain.handle(
     'import:load',
-    async (_event, id: string, timeframe?: string): Promise<ImportLoadResult> =>
-      loadImport(String(id || ''), timeframe ? String(timeframe) : undefined)
+    async (
+      _event,
+      id: string,
+      timeframe?: string,
+      range?: ImportLoadRange
+    ): Promise<ImportLoadResult> =>
+      loadImport(String(id || ''), timeframe ? String(timeframe) : undefined, range)
   )
   ipcMain.handle('import:delete', async (_event, id: string): Promise<ImportDeleteResult> =>
     deleteImport(String(id || ''))

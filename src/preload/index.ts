@@ -4,6 +4,7 @@ import type {
   ImportDeleteResult,
   ImportDialogResult,
   ImportListResult,
+  ImportLoadRange,
   ImportLoadResult,
   ImportReadResult,
   ImportSaveParams,
@@ -51,8 +52,11 @@ const api = {
   saveImport: (params: ImportSaveParams): Promise<ImportSaveResult> =>
     ipcRenderer.invoke('import:save', params),
   listImports: (): Promise<ImportListResult> => ipcRenderer.invoke('import:list'),
-  loadImport: (id: string, timeframe?: string): Promise<ImportLoadResult> =>
-    ipcRenderer.invoke('import:load', id, timeframe),
+  loadImport: (
+    id: string,
+    timeframe?: string,
+    range?: ImportLoadRange
+  ): Promise<ImportLoadResult> => ipcRenderer.invoke('import:load', id, timeframe, range),
   deleteImport: (id: string): Promise<ImportDeleteResult> =>
     ipcRenderer.invoke('import:delete', id),
   checkForUpdates: (): Promise<{
