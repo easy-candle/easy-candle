@@ -1,6 +1,7 @@
 import { app, ipcMain, shell, BrowserWindow, Menu } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { IPC_CHANNELS } from '@shared/ipc/channels'
 import icon from '../../resources/icon.png?asset'
 import { registerImportIpc } from './importStore'
 import { registerKlinesIpc } from './klines'
@@ -28,11 +29,11 @@ function createWindow(): void {
   })
 
   mainWindow.on('maximize', () => {
-    mainWindow.webContents.send('window:maximized-changed', true)
+    mainWindow.webContents.send(IPC_CHANNELS.WINDOW_MAXIMIZED_CHANGED, true)
   })
 
   mainWindow.on('unmaximize', () => {
-    mainWindow.webContents.send('window:maximized-changed', false)
+    mainWindow.webContents.send(IPC_CHANNELS.WINDOW_MAXIMIZED_CHANGED, false)
   })
 
   mainWindow.on('page-title-updated', (event) => {
@@ -68,13 +69,13 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  ipcMain.handle('app:getVersion', () => app.getVersion())
+  ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion())
 
-  ipcMain.on('window:minimize', (event) => {
+  ipcMain.on(IPC_CHANNELS.WINDOW_MINIMIZE, (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
   })
 
-  ipcMain.on('window:toggle-maximize', (event) => {
+  ipcMain.on(IPC_CHANNELS.WINDOW_TOGGLE_MAXIMIZE, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     if (win.isMaximized()) {
@@ -84,11 +85,11 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.on('window:close', (event) => {
+  ipcMain.on(IPC_CHANNELS.WINDOW_CLOSE, (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close()
   })
 
-  ipcMain.handle('window:is-maximized', (event) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_IS_MAXIMIZED, (event) => {
     return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
   })
 

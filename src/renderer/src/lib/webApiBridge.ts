@@ -4,6 +4,7 @@ import { IMPORT_STORED_TIMEFRAMES } from '@shared/candleAggregate'
 import { DEFAULT_TIMEFRAME, isAllowedInterval } from '@shared/timeframes'
 import { isAllowedSymbol } from '@shared/symbols'
 import { decodeMtTextBuffer } from '@shared/mtTextDecode'
+import type { EasyCandleApi } from '../../../preload'
 import type {
   ImportDeleteResult,
   ImportDialogResult,
@@ -534,7 +535,7 @@ export const webApi = {
   onUpdateProgress: (_cb: (info: UpdateProgressInfo) => void) => () => {},
   onUpdateDownloaded: (_cb: (info: UpdateDownloadedInfo) => void) => () => {},
   onUpdateError: (_cb: (info: UpdateErrorInfo) => void) => () => {}
-}
+} satisfies EasyCandleApi
 
 export const webElectron = {
   ipcRenderer: {

@@ -2,12 +2,18 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
   "include": [
     "electron.vite.config.*",
+    "vite.config.*",
+    "vitest.config.*",
+    "config/**/*",
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*"
   ],
   "compilerOptions": {
     "composite": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsc/node.tsbuildinfo",
+    // `tsc -b` ignores --noEmit; without an outDir it writes .js/.d.ts into src/.
+    "outDir": "node_modules/.cache/tsc/out-node",
     "types": ["electron-vite/node"],
     "baseUrl": ".",
     "paths": {
