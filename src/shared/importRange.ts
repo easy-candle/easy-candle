@@ -1,5 +1,5 @@
 import { findIndexAtOrBefore, type Candle } from './candleUtils'
-import type { ImportLoadRange, ImportLoadedWindow } from './importTypes'
+import type { DatasetLoadRange, DatasetLoadedWindow } from './datasetTypes'
 
 function normalizeTime(value: unknown): number | null {
   if (value == null) return null
@@ -15,7 +15,7 @@ function normalizeLimit(value: unknown): number | null {
   return n
 }
 
-function emptyWindow(totalCount: number): ImportLoadedWindow {
+function emptyWindow(totalCount: number): DatasetLoadedWindow {
   return {
     loadedFrom: 0,
     loadedTo: 0,
@@ -37,8 +37,8 @@ function emptyWindow(totalCount: number): ImportLoadedWindow {
  */
 export function sliceCandleRange(
   candles: Candle[],
-  range?: ImportLoadRange | null
-): { candles: Candle[]; window: ImportLoadedWindow } {
+  range?: DatasetLoadRange | null
+): { candles: Candle[]; window: DatasetLoadedWindow } {
   const total = Array.isArray(candles) ? candles.length : 0
   if (total === 0) return { candles: [], window: emptyWindow(0) }
 

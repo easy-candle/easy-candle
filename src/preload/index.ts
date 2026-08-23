@@ -3,15 +3,15 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { AppRuntime } from '@shared/ipc/api'
 import { IPC_CHANNELS, type IpcChannel } from '@shared/ipc/channels'
 import type {
-  ImportDeleteResult,
+  DatasetDeleteResult,
   ImportDialogResult,
-  ImportListResult,
-  ImportLoadRange,
-  ImportLoadResult,
+  DatasetListResult,
+  DatasetLoadRange,
+  DatasetLoadResult,
   ImportReadResult,
-  ImportSaveParams,
-  ImportSaveResult
-} from '@shared/importTypes'
+  DatasetSaveParams,
+  DatasetSaveResult
+} from '@shared/datasetTypes'
 import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
 import type {
   MtBridgeIpcEvent,
@@ -61,16 +61,17 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_OPEN_DIALOG),
   readImportFile: (path: string): Promise<ImportReadResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_READ_FILE, path),
-  saveImport: (params: ImportSaveParams): Promise<ImportSaveResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SAVE, params),
-  listImports: (): Promise<ImportListResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LIST),
-  loadImport: (
+  saveDataset: (params: DatasetSaveParams): Promise<DatasetSaveResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DATASET_SAVE, params),
+  listDatasets: (): Promise<DatasetListResult> => ipcRenderer.invoke(IPC_CHANNELS.DATASET_LIST),
+  loadDataset: (
     id: string,
     timeframe?: string,
-    range?: ImportLoadRange
-  ): Promise<ImportLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LOAD, id, timeframe, range),
-  deleteImport: (id: string): Promise<ImportDeleteResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DELETE, id),
+    range?: DatasetLoadRange
+  ): Promise<DatasetLoadResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DATASET_LOAD, id, timeframe, range),
+  deleteDataset: (id: string): Promise<DatasetDeleteResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DATASET_DELETE, id),
   checkForUpdates: (): Promise<{
     ok: boolean
     skipped?: boolean

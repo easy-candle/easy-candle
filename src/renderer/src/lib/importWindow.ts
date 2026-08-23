@@ -1,4 +1,4 @@
-import type { ImportLoadRange, ImportLoadedWindow } from '@shared/importTypes'
+import type { DatasetLoadRange, DatasetLoadedWindow } from '@shared/datasetTypes'
 
 /** Bars kept on the live chart for an imported dataset (newest tail). */
 export const IMPORT_LIVE_WINDOW_BARS = 1500
@@ -21,7 +21,7 @@ function positiveInt(value: unknown, fallback: number): number {
 }
 
 /** Newest `limit` bars — the window a chart shows right after loading. */
-export function tailRange(limit = IMPORT_LIVE_WINDOW_BARS): ImportLoadRange {
+export function tailRange(limit = IMPORT_LIVE_WINDOW_BARS): DatasetLoadRange {
   return { limit: positiveInt(limit, IMPORT_LIVE_WINDOW_BARS) }
 }
 
@@ -32,7 +32,7 @@ export function tailRange(limit = IMPORT_LIVE_WINDOW_BARS): ImportLoadRange {
 export function historyRange(
   oldestLoadedTime: number,
   limit = IMPORT_HISTORY_PAGE_BARS
-): ImportLoadRange {
+): DatasetLoadRange {
   const oldest = Math.floor(Number(oldestLoadedTime))
   return {
     endTime: Number.isFinite(oldest) ? oldest - 1 : 0,
@@ -44,7 +44,7 @@ export function historyRange(
 export function forwardRange(
   newestLoadedTime: number,
   limit = IMPORT_PREFETCH_BATCH_BARS
-): ImportLoadRange {
+): DatasetLoadRange {
   const newest = Math.floor(Number(newestLoadedTime))
   return {
     startTime: Number.isFinite(newest) ? newest + 1 : 0,
@@ -61,7 +61,7 @@ export function replayRange(
   startTimeSeconds: number,
   intervalSeconds: number,
   opts: { lookbackBars?: number; forwardBars?: number } = {}
-): ImportLoadRange {
+): DatasetLoadRange {
   const start = Math.floor(Number(startTimeSeconds))
   const interval = positiveInt(intervalSeconds, 60)
   const lookback = Math.max(0, Math.floor(opts.lookbackBars ?? IMPORT_REPLAY_LOOKBACK_BARS))
@@ -75,9 +75,9 @@ export function replayRange(
 
 /** Coverage after joining a newly loaded page onto an existing window. */
 export function mergeLoadedWindow(
-  prev: ImportLoadedWindow | null,
-  next: ImportLoadedWindow
-): ImportLoadedWindow {
+  prev: DatasetLoadedWindow | null,
+  next: DatasetLoadedWindow
+): DatasetLoadedWindow {
   if (!prev || prev.loadedFrom === 0 || prev.loadedTo === 0) return next
   if (next.loadedFrom === 0 || next.loadedTo === 0) return prev
 

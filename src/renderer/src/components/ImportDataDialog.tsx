@@ -8,7 +8,7 @@ import {
   isMetatraderImport,
   type ImportOrigin,
   type ImportedDatasetMeta
-} from '@shared/importTypes'
+} from '@shared/datasetTypes'
 import { MIN_1M_CANDLES_FOR_IMPORT, minImportCandlesMessage } from '@shared/importConstants'
 import { parseMtCsv } from '@shared/mtCsvImport'
 import { MT_BRIDGE_WS_URL } from '@shared/mtBridgeProtocol'
@@ -120,12 +120,12 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     symbolHint: string,
     incoming: Candle[]
   ): Promise<{ replaceId?: string; existingSymbol?: string; skip?: string }> {
-    const listed = await window.api.listImports()
+    const listed = await window.api.listDatasets()
     if (!listed.ok) return {}
-    const existing = listed.imports.find((entry) => normalizeSymbol(entry.symbol) === symbolHint)
+    const existing = listed.datasets.find((entry) => normalizeSymbol(entry.symbol) === symbolHint)
     if (!existing) return {}
     // Only the newest stored bar matters for the "has newer candles" check.
-    const loaded = await window.api.loadImport(existing.id, '1m', { limit: 1 })
+    const loaded = await window.api.loadDataset(existing.id, '1m', { limit: 1 })
     if (loaded.ok && !hasNewerCandles(loaded.candles, incoming)) {
       return {
         skip: `${existing.symbol} is already imported through ${formatUtcCandleTime(existing.lastTime)}. This has no newer candles — nothing was updated.`
@@ -256,7 +256,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
       }
 
       const candlesByTimeframe = buildImportTimeframes(pending.candles)
-      const savedResult = await window.api.saveImport({
+      const savedResult = await window.api.saveDataset({
         content: pending.content,
         originalFileName: pending.fileName,
         symbol,
@@ -302,7 +302,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     setBusy(true)
     setMessage(null)
     try {
-      const result = await window.api.deleteImport(id)
+      const result = await window.api.deleteDataset(id)
       if (!result.ok) {
         showInline('error', result.error)
         return

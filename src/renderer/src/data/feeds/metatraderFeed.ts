@@ -7,8 +7,8 @@ import type {
   FeedCapabilities,
   FeedPageQuery
 } from '@shared/datasource/types'
-import type { ImportedDatasetMeta, ImportLoadedWindow } from '@shared/importTypes'
-import type { ImportLoadTransport } from './datasetFeed'
+import type { ImportedDatasetMeta, DatasetLoadedWindow } from '@shared/datasetTypes'
+import type { DatasetLoadTransport } from './datasetFeed'
 import { DatasetFeed } from './datasetFeed'
 
 export type MtBridgeEventTransport = (callback: (event: MtBridgeIpcEvent) => void) => () => void
@@ -37,7 +37,7 @@ export class MetatraderFeed implements CandleFeed {
 
   constructor(options: {
     symbol: string
-    transport?: ImportLoadTransport
+    transport?: DatasetLoadTransport
     eventTransport?: MtBridgeEventTransport
   }) {
     this.symbol = options.symbol.trim().toUpperCase()
@@ -50,7 +50,7 @@ export class MetatraderFeed implements CandleFeed {
     return this.dataset.getMeta()
   }
 
-  getWindow(): ImportLoadedWindow | null {
+  getWindow(): DatasetLoadedWindow | null {
     return this.dataset.getWindow()
   }
 

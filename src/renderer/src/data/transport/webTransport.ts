@@ -1,5 +1,5 @@
 import { fetchKlinesResult } from '@shared/klinesService'
-import type { ImportLoadRange } from '@shared/importTypes'
+import type { DatasetLoadRange } from '@shared/datasetTypes'
 import type { MtBridgeIpcEvent } from '@shared/mtBridgeTypes'
 import type { FeedTransports } from './types'
 
@@ -11,7 +11,7 @@ import type { FeedTransports } from './types'
  */
 export const webTransports: FeedTransports = {
   fetchKlines: fetchKlinesResult,
-  loadImport: (id: string, timeframe?: string, range?: ImportLoadRange) =>
-    window.api.loadImport(id, timeframe, range),
+  loadDataset: (id: string, timeframe?: string, range?: DatasetLoadRange) =>
+    window.api.loadDataset(id, timeframe, range),
   onMtBridgeEvent: (_callback: (event: MtBridgeIpcEvent) => void) => () => {}
 }

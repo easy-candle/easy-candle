@@ -7,25 +7,25 @@ import type {
   FeedPageQuery
 } from '@shared/datasource/types'
 import type {
-  ImportLoadRange,
-  ImportLoadResult,
+  DatasetLoadRange,
+  DatasetLoadResult,
   ImportedDatasetMeta,
-  ImportLoadedWindow
-} from '@shared/importTypes'
+  DatasetLoadedWindow
+} from '@shared/datasetTypes'
 
-export type ImportLoadTransport = (
+export type DatasetLoadTransport = (
   id: string,
   timeframe?: string,
-  range?: ImportLoadRange
-) => Promise<ImportLoadResult>
+  range?: DatasetLoadRange
+) => Promise<DatasetLoadResult>
 
 /** Desktop/browser boundary over `window.api` (IPC or IndexedDB backend). */
-export function ipcImportLoadTransport(
+export function ipcDatasetLoadTransport(
   id: string,
   timeframe?: string,
-  range?: ImportLoadRange
-): Promise<ImportLoadResult> {
-  return window.api.loadImport(id, timeframe, range)
+  range?: DatasetLoadRange
+): Promise<DatasetLoadResult> {
+  return window.api.loadDataset(id, timeframe, range)
 }
 
 const capabilities: FeedCapabilities = { live: false, boundedHistory: true, rangeQuery: true }
@@ -43,14 +43,14 @@ export class DatasetFeed implements CandleFeed {
   readonly capabilities = capabilities
 
   private readonly id: string
-  private readonly transport: ImportLoadTransport
+  private readonly transport: DatasetLoadTransport
   private meta: ImportedDatasetMeta | null = null
-  private lastWindow: ImportLoadedWindow | null = null
+  private lastWindow: DatasetLoadedWindow | null = null
 
-  constructor(options: { id: string; transport?: ImportLoadTransport }) {
+  constructor(options: { id: string; transport?: DatasetLoadTransport }) {
     this.id = options.id
     this.ref = { kind: 'dataset', id: options.id }
-    this.transport = options.transport ?? ipcImportLoadTransport
+    this.transport = options.transport ?? ipcDatasetLoadTransport
   }
 
   /** Meta of the most recent successful load; null before the first page. */
@@ -59,17 +59,17 @@ export class DatasetFeed implements CandleFeed {
   }
 
   /** Coverage of the most recent page; null when unknown or empty. */
-  getWindow(): ImportLoadedWindow | null {
+  getWindow(): DatasetLoadedWindow | null {
     return this.lastWindow
   }
 
   async getPage(query: FeedPageQuery): Promise<Candle[]> {
-    const range: ImportLoadRange = {}
+    const range: DatasetLoadRange = {}
     if (query.startTime != null) range.startTime = Math.floor(query.startTime)
     if (query.endTime != null) range.endTime = Math.floor(query.endTime)
     if (query.limit != null) range.limit = query.limit
 
-    let result: ImportLoadResult
+    let result: DatasetLoadResult
     try {
       result = await this.transport(this.id, query.timeframe, range)
     } catch (err) {

@@ -3,7 +3,7 @@ import { BadgeInfo, Circle, LoaderCircle } from 'lucide-react'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import type { ReplayStatus } from '@/lib/replayEngine'
 import { useReplayStore } from '@/store/replayStore'
-import { isMetatraderImport } from '@shared/importTypes'
+import { isMetatraderImport } from '@shared/datasetTypes'
 import Tooltip from '@/components/Tooltip'
 
 const SEPARATOR = ' · '

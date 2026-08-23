@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { aggregateCandles, buildImportTimeframes } from './candleAggregate'
 import type { Candle } from './candleUtils'
-import { hasNewerCandles } from './importTypes'
+import { hasNewerCandles } from './datasetTypes'
 
 function series(count: number, stepSec: number, start = 1_700_000_000): Candle[] {
   const out: Candle[] = []

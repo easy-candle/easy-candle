@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Candle } from '@shared/candleUtils'
 import type { MtBridgeIpcEvent } from '@shared/mtBridgeTypes'
-import type { ImportLoadRange, ImportLoadResult } from '@shared/importTypes'
+import type { DatasetLoadRange, DatasetLoadResult } from '@shared/datasetTypes'
 import { MetatraderFeed, type MtBridgeEventTransport } from './metatraderFeed'
 
 function candle(time: number): Candle {
   return { time, open: 1, high: 2, low: 0.5, close: 1.5 }
 }
 
-function loadOk(): ImportLoadResult {
+function loadOk(): DatasetLoadResult {
   return {
     ok: true,
     meta: {
@@ -56,7 +56,7 @@ describe('MetatraderFeed', () => {
   })
 
   it('pages history through the mt-prefixed dataset id', async () => {
-    const calls: [string, string | undefined, ImportLoadRange | undefined][] = []
+    const calls: [string, string | undefined, DatasetLoadRange | undefined][] = []
     const feed = new MetatraderFeed({
       symbol: 'EURUSD',
       transport: async (id, timeframe, range) => {

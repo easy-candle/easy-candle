@@ -66,10 +66,9 @@ export type ImportDialogResult =
   | { ok: false; canceled?: false; error: string }
 
 export type ImportReadResult =
-  | { ok: true; content: string; fileName: string }
-  | { ok: false; error: string }
+  { ok: true; content: string; fileName: string } | { ok: false; error: string }
 
-export type ImportSaveParams = {
+export type DatasetSaveParams = {
   content: string
   originalFileName: string
   symbol: string
@@ -79,27 +78,25 @@ export type ImportSaveParams = {
   origin?: ImportOrigin
 }
 
-export type ImportSaveResult =
-  | { ok: true; meta: ImportedDatasetMeta; updated: boolean }
-  | { ok: false; error: string }
+export type DatasetSaveResult =
+  { ok: true; meta: ImportedDatasetMeta; updated: boolean } | { ok: false; error: string }
 
-export type ImportListResult =
-  | { ok: true; imports: ImportedDatasetMeta[] }
-  | { ok: false; error: string }
+export type DatasetListResult =
+  { ok: true; datasets: ImportedDatasetMeta[] } | { ok: false; error: string }
 
 /**
  * Range request for a stored import series. All fields optional: an empty range
  * means "newest `limit` bars", and omitting `limit` too means the whole series.
  * `startTime` / `endTime` are inclusive UTC seconds.
  */
-export type ImportLoadRange = {
+export type DatasetLoadRange = {
   startTime?: number
   endTime?: number
   limit?: number
 }
 
 /** Coverage of a returned range, so callers know which edges can still page. */
-export type ImportLoadedWindow = {
+export type DatasetLoadedWindow = {
   /** Open time of the first returned candle (0 when none). */
   loadedFrom: number
   /** Open time of the last returned candle (0 when none). */
@@ -112,17 +109,17 @@ export type ImportLoadedWindow = {
   totalCount: number
 }
 
-export type ImportLoadResult =
+export type DatasetLoadResult =
   | {
       ok: true
       meta: ImportedDatasetMeta
       candles: Candle[]
       /** Absent on older callers that loaded the whole series. */
-      window?: ImportLoadedWindow
+      window?: DatasetLoadedWindow
     }
   | { ok: false; error: string }
 
-export type ImportDeleteResult = { ok: true } | { ok: false; error: string }
+export type DatasetDeleteResult = { ok: true } | { ok: false; error: string }
 
 /** Compare two 1m series: true when `incoming` has bars after `existing` last open. */
 export function hasNewerCandles(existing: Candle[], incoming: Candle[]): boolean {

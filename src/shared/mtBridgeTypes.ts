@@ -1,5 +1,5 @@
 import type { Candle } from './candleUtils'
-import type { ImportedDatasetMeta } from './importTypes'
+import type { ImportedDatasetMeta } from './datasetTypes'
 import { MT_BRIDGE_DEFAULT_PORT } from './mtBridgeProtocol'
 import type { MtPreviewSummary } from './mtPreview'
 

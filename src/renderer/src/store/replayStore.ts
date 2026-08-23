@@ -21,9 +21,9 @@ import {
   isMetatraderImport,
   type DataSource,
   type ImportedDatasetMeta,
-  type ImportLoadRange,
-  type ImportLoadedWindow
-} from '@shared/importTypes'
+  type DatasetLoadRange,
+  type DatasetLoadedWindow
+} from '@shared/datasetTypes'
 import {
   DEFAULT_MT_BRIDGE_STATUS,
   type MtBridgeConnectionStatus,
@@ -285,7 +285,7 @@ function displayedFromSource(source1m: Candle[], timeframe: string): Candle[] {
 /** Status line for a loaded imported window: shows window vs. total coverage. */
 function importedLoadMessage(
   meta: ImportedDatasetMeta,
-  loadedWindow: ImportLoadedWindow | null,
+  loadedWindow: DatasetLoadedWindow | null,
   prefix = 'Imported'
 ): string {
   const total = meta.timeframes?.[meta.timeframe]?.candleCount ?? meta.candleCount
@@ -369,7 +369,7 @@ type ReplayStore = {
   importMeta: ImportedDatasetMeta | null
   importedCandles: Candle[]
   /** Coverage of the imported window currently in memory (null when full/none). */
-  importWindow: ImportLoadedWindow | null
+  importWindow: DatasetLoadedWindow | null
   /** Persisted MT imports shown in the symbol dropdown. */
   importedList: ImportedDatasetMeta[]
   mtBridge: MtBridgeConnectionStatus
@@ -799,13 +799,13 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   async function loadImportedSeries(
     id: string,
     timeframe: string,
-    range?: ImportLoadRange
+    range?: DatasetLoadRange
   ): Promise<{
     meta: ImportedDatasetMeta
     candles: Candle[]
-    window: ImportLoadedWindow | null
+    window: DatasetLoadedWindow | null
   } | null> {
-    const loaded = await window.api.loadImport(id, timeframe, range)
+    const loaded = await window.api.loadDataset(id, timeframe, range)
     if (!loaded.ok) return null
     return {
       meta: loaded.meta,
@@ -1163,7 +1163,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   function publishImportedPreview(
     candles: Candle[],
     meta: ImportedDatasetMeta,
-    loadedWindow: ImportLoadedWindow | null = null
+    loadedWindow: DatasetLoadedWindow | null = null
   ): void {
     stopClock()
     prefetchInFlight = false
@@ -2863,7 +2863,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         if (meta.timeframe === '1m') {
           set({ importedSourceCandles: normalized })
         } else {
-          void window.api.loadImport(meta.id, '1m').then((source) => {
+          void window.api.loadDataset(meta.id, '1m').then((source) => {
             if (source.ok) set({ importedSourceCandles: dedupeCandlesByTime(source.candles) })
           })
         }
@@ -2886,9 +2886,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     async refreshImportedList() {
-      const result = await window.api.listImports()
+      const result = await window.api.listDatasets()
       if (!result.ok) return
-      set({ importedList: result.imports })
+      set({ importedList: result.datasets })
     },
 
     async selectImportedDataset(id, timeframe) {
@@ -2897,7 +2897,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
       set({ status: 'loading', error: null })
       // Newest window only — `loadImportedHistory` pages older bars on demand.
-      const loaded = await window.api.loadImport(id, timeframe, tailRange())
+      const loaded = await window.api.loadDataset(id, timeframe, tailRange())
       if (!loaded.ok) {
         set({ status: 'error', error: loaded.error })
         return
@@ -2921,7 +2921,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             replayMessage: importedLoadMessage(loaded.meta, loadedWindow, 'MetaTrader')
           })
         } else {
-          const source = await window.api.loadImport(id, '1m')
+          const source = await window.api.loadDataset(id, '1m')
           if (source.ok) {
             set({
               importedSourceCandles: dedupeCandlesByTime(source.candles),

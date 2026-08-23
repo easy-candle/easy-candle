@@ -7,7 +7,7 @@ import {
   mtDatasetId,
   parseMtBridgeMessage
 } from '@shared/mtBridgeProtocol'
-import { flushAllMtDatasets, upsertMtCandles, applyIncomingMtPreview, getMtPreviewCandles, getMtPreviewSummary } from './importStore'
+import { flushAllMtDatasets, upsertMtCandles, applyIncomingMtPreview, getMtPreviewCandles, getMtPreviewSummary } from './datasets'
 import type { MtBridgeIpcEvent, MtBridgeStatusResult, MtPreviewLoadResult } from '@shared/mtBridgeTypes'
 
 let server: WebSocketServer | null = null

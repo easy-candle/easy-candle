@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mergeCandlesByTime, type Candle } from './candleUtils'
 import { isMtDatasetId, mtDatasetId } from './mtBridgeProtocol'
-import { isMetatraderImport } from './importTypes'
+import { isMetatraderImport } from './datasetTypes'
 
 function bar(time: number, close = 1): Candle {
   return { time, open: close, high: close, low: close, close }

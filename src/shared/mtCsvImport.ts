@@ -4,7 +4,7 @@ import {
   MIN_1M_CANDLES_FOR_IMPORT,
   minImportCandlesMessage
 } from './importConstants'
-import type { ImportParseResult } from './importTypes'
+import type { ImportParseResult } from './datasetTypes'
 import { TIMEFRAMES, type TimeframeConfig } from './timeframes'
 
 /** MetaTrader period codes → app timeframe ids. */

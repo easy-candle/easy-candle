@@ -31,7 +31,7 @@ import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
-import { isMetatraderImport } from '@shared/importTypes'
+import { isMetatraderImport } from '@shared/datasetTypes'
 import { MT_BRIDGE_WS_URL } from '@shared/mtBridgeProtocol'
 
 export default function AppShell({

@@ -5,17 +5,17 @@ import { decodeMtTextBuffer } from '@shared/mtTextDecode'
 import { fetchKlinesResult } from '@shared/klinesService'
 import type { EasyCandleApi } from '../../../preload'
 import type {
-  ImportDeleteResult,
+  DatasetDeleteResult,
   ImportDialogResult,
-  ImportListResult,
-  ImportLoadRange,
-  ImportLoadResult,
+  DatasetListResult,
+  DatasetLoadRange,
+  DatasetLoadResult,
   ImportReadResult,
-  ImportSaveParams,
-  ImportSaveResult,
+  DatasetSaveParams,
+  DatasetSaveResult,
   ImportedDatasetMeta,
   ImportedTimeframeStats
-} from '@shared/importTypes'
+} from '@shared/datasetTypes'
 import { sliceCandleRange } from '@shared/importRange'
 import {
   DEFAULT_MT_BRIDGE_STATUS,
@@ -191,7 +191,7 @@ async function idbDelete(storeName: string, key: string): Promise<boolean> {
 
 // --- Import Operations ---
 
-async function saveImportDataset(params: ImportSaveParams): Promise<ImportSaveResult> {
+async function saveDataset(params: DatasetSaveParams): Promise<DatasetSaveResult> {
   try {
     const candles1m = params.candlesByTimeframe?.['1m']
     if (!candles1m?.length) {
@@ -245,25 +245,26 @@ async function saveImportDataset(params: ImportSaveParams): Promise<ImportSaveRe
   }
 }
 
-async function listImportDatasets(): Promise<ImportListResult> {
+async function listDatasets(): Promise<DatasetListResult> {
   try {
-    let imports = await idbGetAll<ImportedDatasetMeta>('metas')
-    if (!imports.length && memoryMetas.size > 0) {
-      imports = Array.from(memoryMetas.values())
+    let datasets = await idbGetAll<ImportedDatasetMeta>('metas')
+    if (!datasets.length && memoryMetas.size > 0) {
+      datasets = Array.from(memoryMetas.values())
     }
-    imports.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    return { ok: true, imports }
+    datasets.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+
+    return { ok: true, datasets }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to list imports'
     return { ok: false, error: message }
   }
 }
 
-async function loadImportDataset(
+async function loadDataset(
   id: string,
   timeframe?: string,
-  range?: ImportLoadRange
-): Promise<ImportLoadResult> {
+  range?: DatasetLoadRange
+): Promise<DatasetLoadResult> {
   try {
     const meta = (await idbGet<ImportedDatasetMeta>('metas', id)) || memoryMetas.get(id)
     if (!meta) return { ok: false, error: 'Saved import not found.' }
@@ -303,7 +304,7 @@ async function loadImportDataset(
   }
 }
 
-async function deleteImportDataset(id: string): Promise<ImportDeleteResult> {
+async function deleteDataset(id: string): Promise<DatasetDeleteResult> {
   try {
     memoryMetas.delete(id)
     memorySources.delete(id)
@@ -448,10 +449,10 @@ export const webApi = {
     }
     return { ok: false, error: 'File content not found' }
   },
-  saveImport: saveImportDataset,
-  listImports: listImportDatasets,
-  loadImport: loadImportDataset,
-  deleteImport: deleteImportDataset,
+  saveDataset,
+  listDatasets,
+  loadDataset,
+  deleteDataset,
   checkForUpdates: async () => ({
     ok: true,
     skipped: true,

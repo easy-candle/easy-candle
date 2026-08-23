@@ -18,10 +18,10 @@ export const IPC_CHANNELS = {
 
   IMPORT_OPEN_DIALOG: 'import:openDialog',
   IMPORT_READ_FILE: 'import:readFile',
-  IMPORT_SAVE: 'import:save',
-  IMPORT_LIST: 'import:list',
-  IMPORT_LOAD: 'import:load',
-  IMPORT_DELETE: 'import:delete',
+  DATASET_SAVE: 'datasets:save',
+  DATASET_LIST: 'datasets:list',
+  DATASET_LOAD: 'datasets:load',
+  DATASET_DELETE: 'datasets:delete',
 
   MT_BRIDGE_START: 'mtbridge:start',
   MT_BRIDGE_STOP: 'mtbridge:stop',

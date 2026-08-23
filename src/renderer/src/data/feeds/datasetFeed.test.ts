@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Candle } from '@shared/candleUtils'
 import { DataSourceError } from '@shared/datasource/errors'
-import type { ImportLoadRange, ImportLoadResult } from '@shared/importTypes'
-import { DatasetFeed, type ImportLoadTransport } from './datasetFeed'
+import type { DatasetLoadRange, DatasetLoadResult } from '@shared/datasetTypes'
+import { DatasetFeed, type DatasetLoadTransport } from './datasetFeed'
 
 function candles(startTimes: number[]): Candle[] {
   return startTimes.map((time) => ({ time, open: 1, high: 2, low: 0.5, close: 1.5 }))
@@ -24,7 +24,7 @@ const meta = {
   updatedAt: '2026-01-01T00:00:00.000Z'
 }
 
-function ok(candlesList: Candle[], withWindow = true): ImportLoadResult {
+function ok(candlesList: Candle[], withWindow = true): DatasetLoadResult {
   return {
     ok: true,
     meta,
@@ -44,13 +44,13 @@ function ok(candlesList: Candle[], withWindow = true): ImportLoadResult {
 }
 
 function transportOf(
-  respond: (id: string, timeframe?: string, range?: ImportLoadRange) => ImportLoadResult
+  respond: (id: string, timeframe?: string, range?: DatasetLoadRange) => DatasetLoadResult
 ) {
   return vi.fn(
-    async (id: string, timeframe?: string, range?: ImportLoadRange): Promise<ImportLoadResult> =>
+    async (id: string, timeframe?: string, range?: DatasetLoadRange): Promise<DatasetLoadResult> =>
       respond(id, timeframe, range)
-  ) as unknown as ImportLoadTransport & {
-    mock: { calls: [string, string | undefined, ImportLoadRange | undefined][] }
+  ) as unknown as DatasetLoadTransport & {
+    mock: { calls: [string, string | undefined, DatasetLoadRange | undefined][] }
   }
 }
 
@@ -147,7 +147,7 @@ describe('DatasetFeed.getPage', () => {
   it('wraps transport rejections', async () => {
     const transport = vi.fn(() =>
       Promise.reject(new Error('channel closed'))
-    ) as unknown as ImportLoadTransport
+    ) as unknown as DatasetLoadTransport
     const feed = new DatasetFeed({ id: 'ds-1', transport })
 
     const error = await feed

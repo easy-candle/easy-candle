@@ -12,7 +12,7 @@ function createFeed(ref: DataSourceRef): CandleFeed {
     case 'binance':
       return new BinanceFeed(transports.fetchKlines)
     case 'dataset':
-      return new DatasetFeed({ id: ref.id, transport: transports.loadImport })
+      return new DatasetFeed({ id: ref.id, transport: transports.loadDataset })
     case 'live':
       return new MetatraderFeed({ symbol: ref.symbol, eventTransport: transports.onMtBridgeEvent })
   }
