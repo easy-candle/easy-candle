@@ -4,7 +4,7 @@
   "description": "Easy Candle — Binance candle replay desktop app",
   "main": "./out/main/index.js",
   "author": "Easy Candle",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "packageManager": "yarn@1.22.22",
   "homepage": "https://github.com/easy-candle/easy-candle",
   "repository": {
