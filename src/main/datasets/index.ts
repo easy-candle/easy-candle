@@ -195,7 +195,7 @@ async function deleteDataset(id: string): Promise<DatasetDeleteResult> {
   }
 }
 
-export function registerImportIpc(): void {
+export function registerDatasetIpc(): void {
   ipcMain.handle(IPC_CHANNELS.IMPORT_OPEN_DIALOG, async (): Promise<ImportDialogResult> =>
     openCsvDialog()
   )

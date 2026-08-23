@@ -3,7 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS } from '@shared/ipc/channels'
 import icon from '../../resources/icon.png?asset'
-import { registerImportIpc } from './datasets'
+import { registerDatasetIpc } from './datasets'
 import { registerKlinesIpc } from './klines'
 import { registerMtBridgeIpc, stopMtBridge } from './mtBridge'
 import { setupAutoUpdater } from './updater'
@@ -94,7 +94,7 @@ app.whenReady().then(() => {
   })
 
   registerKlinesIpc()
-  registerImportIpc()
+  registerDatasetIpc()
   registerMtBridgeIpc()
   setupAutoUpdater()
   createWindow()
