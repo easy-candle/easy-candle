@@ -8,7 +8,7 @@ Desktop port of Easy Candle — a Binance-powered charting and trading-practice 
 
 [![Version](https://img.shields.io/github/v/release/easy-candle/easy-candle?label=Version&color=blue)](https://github.com/easy-candle/easy-candle/releases/latest)
 [![Download](https://img.shields.io/github/downloads/easy-candle/easy-candle/total?label=Downloads)](https://github.com/easy-candle/easy-candle/releases/latest)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/easy-candle/easy-candle)
+[![License](https://img.shields.io/badge/License-Apache--2.0%20%2B%20No%20Commercial%20Product-blue.svg)](LICENSE)
 
 ## Stack
 
@@ -82,6 +82,8 @@ Attach **one chart at a time** (a new connection replaces the previous one). Aft
 
 ## Develop
 
+Yarn is the package manager for this repo (pinned via `packageManager` in `package.json`); CI installs with `yarn install --frozen-lockfile`.
+
 ```bash
 yarn install
 yarn dev
@@ -117,3 +119,7 @@ Publishes to [easy-candle/easy-candle](https://github.com/easy-candle/easy-candl
 Requires `contents: write` on the workflow (already set) so `GITHUB_TOKEN` can create the release.
 
 If a previous tag’s release is incomplete, delete that GitHub Release before tagging a new version.
+
+## License
+
+Apache License 2.0 with a No Commercial Product restriction. You may use and modify Easy Candle for personal or internal use. You may not use this code to sell anything — including a paid app, white-label, or embedding it in a commercial product — without a separate license from the copyright holder. See [LICENSE](LICENSE).

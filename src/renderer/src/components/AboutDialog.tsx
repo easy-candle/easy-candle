@@ -85,7 +85,7 @@ export default function AboutDialog() {
 
         <dl className="relative grid grid-cols-[5.5rem_1fr] items-center gap-x-3 gap-y-2.5 border-t border-zinc-800/80 px-6 py-4 text-xs">
           <dt className="text-zinc-500">License</dt>
-          <dd className="font-medium text-zinc-200">MIT</dd>
+          <dd className="font-medium text-zinc-200">Apache-2.0 (no commercial product)</dd>
           <dt className="text-zinc-500">Source</dt>
           <dd>
             <a

@@ -1,13 +1,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { IPC_CHANNELS, type IpcChannel } from '@shared/ipc/channels'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
   UpdateErrorInfo,
   UpdateProgressInfo
-} from '../shared/updaterTypes'
+} from '@shared/updaterTypes'
 
-function broadcast(channel: string, payload?: unknown): void {
+function broadcast(channel: IpcChannel, payload?: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send(channel, payload)
@@ -36,12 +37,12 @@ function notesToString(notes: string | null | undefined | Array<unknown>): strin
 }
 
 function registerNoOpUpdater(reason: string): void {
-  ipcMain.handle('update:check', async () => ({ ok: true, skipped: true, reason }))
-  ipcMain.handle('update:download', async () => ({
+  ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, async () => ({ ok: true, skipped: true, reason }))
+  ipcMain.handle(IPC_CHANNELS.UPDATE_DOWNLOAD, async () => ({
     ok: false,
     error: `Updates disabled (${reason})`
   }))
-  ipcMain.handle('update:install', async () => ({
+  ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, async () => ({
     ok: false,
     error: `Updates disabled (${reason})`
   }))
@@ -68,7 +69,7 @@ export function setupAutoUpdater(): void {
       releaseName: info.releaseName ?? null,
       releaseNotes: notesToString(info.releaseNotes as string | null | undefined | Array<unknown>)
     }
-    broadcast('update:available', payload)
+    broadcast(IPC_CHANNELS.UPDATE_AVAILABLE, payload)
   })
 
   autoUpdater.on('download-progress', (progress) => {
@@ -78,14 +79,14 @@ export function setupAutoUpdater(): void {
       total: progress.total,
       bytesPerSecond: progress.bytesPerSecond
     }
-    broadcast('update:progress', payload)
+    broadcast(IPC_CHANNELS.UPDATE_PROGRESS, payload)
   })
 
   autoUpdater.on('update-downloaded', (info) => {
     const payload: UpdateDownloadedInfo = {
       version: info.version
     }
-    broadcast('update:downloaded', payload)
+    broadcast(IPC_CHANNELS.UPDATE_DOWNLOADED, payload)
   })
 
   autoUpdater.on('error', (error) => {
@@ -93,10 +94,10 @@ export function setupAutoUpdater(): void {
       message: error?.message || String(error)
     }
     console.error('[autoUpdater]', error)
-    broadcast('update:error', payload)
+    broadcast(IPC_CHANNELS.UPDATE_ERROR, payload)
   })
 
-  ipcMain.handle('update:check', async () => {
+  ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, async () => {
     try {
       const result = await autoUpdater.checkForUpdates()
       return { ok: true, version: result?.updateInfo?.version ?? null }
@@ -107,7 +108,7 @@ export function setupAutoUpdater(): void {
     }
   })
 
-  ipcMain.handle('update:download', async () => {
+  ipcMain.handle(IPC_CHANNELS.UPDATE_DOWNLOAD, async () => {
     try {
       await autoUpdater.downloadUpdate()
       return { ok: true }
@@ -118,7 +119,7 @@ export function setupAutoUpdater(): void {
     }
   })
 
-  ipcMain.handle('update:install', () => {
+  ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, () => {
     // Let the renderer close the modal; quitAndInstall exits the process.
     setImmediate(() => {
       autoUpdater.quitAndInstall(false, true)

@@ -4,6 +4,7 @@ import { promises as fs } from 'fs'
 import { basename, join } from 'path'
 import { mergeCandlesByTime, type Candle } from '@shared/candleUtils'
 import { buildImportTimeframes, IMPORT_STORED_TIMEFRAMES } from '@shared/candleAggregate'
+import { IPC_CHANNELS } from '@shared/ipc/channels'
 import { DEFAULT_TIMEFRAME } from '@shared/timeframes'
 import { mtDatasetId } from '@shared/mtBridgeProtocol'
 import {
@@ -462,16 +463,21 @@ export async function flushAllMtDatasets(): Promise<void> {
 }
 
 export function registerImportIpc(): void {
-  ipcMain.handle('import:openDialog', async (): Promise<ImportDialogResult> => openCsvDialog())
-  ipcMain.handle('import:readFile', async (_event, filePath: string): Promise<ImportReadResult> =>
-    readCsvFile(String(filePath || ''))
+  ipcMain.handle(IPC_CHANNELS.IMPORT_OPEN_DIALOG, async (): Promise<ImportDialogResult> =>
+    openCsvDialog()
   )
-  ipcMain.handle('import:save', async (_event, params: ImportSaveParams): Promise<ImportSaveResult> =>
-    saveImport(params)
-  )
-  ipcMain.handle('import:list', async (): Promise<ImportListResult> => listImports())
   ipcMain.handle(
-    'import:load',
+    IPC_CHANNELS.IMPORT_READ_FILE,
+    async (_event, filePath: string): Promise<ImportReadResult> =>
+      readCsvFile(String(filePath || ''))
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_SAVE,
+    async (_event, params: ImportSaveParams): Promise<ImportSaveResult> => saveImport(params)
+  )
+  ipcMain.handle(IPC_CHANNELS.IMPORT_LIST, async (): Promise<ImportListResult> => listImports())
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_LOAD,
     async (
       _event,
       id: string,
@@ -480,8 +486,9 @@ export function registerImportIpc(): void {
     ): Promise<ImportLoadResult> =>
       loadImport(String(id || ''), timeframe ? String(timeframe) : undefined, range)
   )
-  ipcMain.handle('import:delete', async (_event, id: string): Promise<ImportDeleteResult> =>
-    deleteImport(String(id || ''))
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_DELETE,
+    async (_event, id: string): Promise<ImportDeleteResult> => deleteImport(String(id || ''))
   )
   void listImports()
 }

@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { AppRuntime } from '@shared/ipc/api'
+import { IPC_CHANNELS, type IpcChannel } from '@shared/ipc/channels'
 import type {
   ImportDeleteResult,
   ImportDialogResult,
@@ -9,17 +11,21 @@ import type {
   ImportReadResult,
   ImportSaveParams,
   ImportSaveResult
-} from '../shared/importTypes'
-import type { KlinesFetchParams, KlinesFetchResult } from '../shared/klinesTypes'
-import type { MtBridgeIpcEvent, MtBridgeStatusResult, MtPreviewLoadResult } from '../shared/mtBridgeTypes'
+} from '@shared/importTypes'
+import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
+import type {
+  MtBridgeIpcEvent,
+  MtBridgeStatusResult,
+  MtPreviewLoadResult
+} from '@shared/mtBridgeTypes'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
   UpdateErrorInfo,
   UpdateProgressInfo
-} from '../shared/updaterTypes'
+} from '@shared/updaterTypes'
 
-function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
+function subscribe<T>(channel: IpcChannel, callback: (payload: T) => void): () => void {
   const listener = (_event: IpcRendererEvent, payload: T): void => {
     callback(payload)
   }
@@ -30,54 +36,66 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): () => vo
 }
 
 const api = {
-  runtime: 'desktop' as const,
+  // Widened on purpose: the web bridge exposes the same surface with 'web'.
+  runtime: 'desktop' as AppRuntime,
   fetchKlines: (params: KlinesFetchParams): Promise<KlinesFetchResult> =>
-    ipcRenderer.invoke('klines:fetch', params),
-  mtBridgeStart: (): Promise<MtBridgeStatusResult> => ipcRenderer.invoke('mtbridge:start'),
-  mtBridgeStop: (): Promise<MtBridgeStatusResult> => ipcRenderer.invoke('mtbridge:stop'),
-  mtBridgeStatus: (): Promise<MtBridgeStatusResult> => ipcRenderer.invoke('mtbridge:status'),
-  mtBridgePreview: (): Promise<MtPreviewLoadResult> => ipcRenderer.invoke('mtbridge:preview'),
+    ipcRenderer.invoke(IPC_CHANNELS.KLINES_FETCH, params),
+  mtBridgeStart: (): Promise<MtBridgeStatusResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MT_BRIDGE_START),
+  mtBridgeStop: (): Promise<MtBridgeStatusResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MT_BRIDGE_STOP),
+  mtBridgeStatus: (): Promise<MtBridgeStatusResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MT_BRIDGE_STATUS),
+  mtBridgePreview: (): Promise<MtPreviewLoadResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MT_BRIDGE_PREVIEW),
   onMtBridgeEvent: (callback: (payload: MtBridgeIpcEvent) => void): (() => void) =>
-    subscribe('mtbridge:event', callback),
-  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
-  minimizeWindow: (): void => ipcRenderer.send('window:minimize'),
-  toggleMaximizeWindow: (): void => ipcRenderer.send('window:toggle-maximize'),
-  closeWindow: (): void => ipcRenderer.send('window:close'),
-  isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
+    subscribe(IPC_CHANNELS.MT_BRIDGE_EVENT, callback),
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+  minimizeWindow: (): void => ipcRenderer.send(IPC_CHANNELS.WINDOW_MINIMIZE),
+  toggleMaximizeWindow: (): void => ipcRenderer.send(IPC_CHANNELS.WINDOW_TOGGLE_MAXIMIZE),
+  closeWindow: (): void => ipcRenderer.send(IPC_CHANNELS.WINDOW_CLOSE),
+  isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED),
   onWindowMaximizedChange: (callback: (maximized: boolean) => void): (() => void) =>
-    subscribe('window:maximized-changed', callback),
-  openImportDialog: (): Promise<ImportDialogResult> => ipcRenderer.invoke('import:openDialog'),
+    subscribe(IPC_CHANNELS.WINDOW_MAXIMIZED_CHANGED, callback),
+  openImportDialog: (): Promise<ImportDialogResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_OPEN_DIALOG),
   readImportFile: (path: string): Promise<ImportReadResult> =>
-    ipcRenderer.invoke('import:readFile', path),
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_READ_FILE, path),
   saveImport: (params: ImportSaveParams): Promise<ImportSaveResult> =>
-    ipcRenderer.invoke('import:save', params),
-  listImports: (): Promise<ImportListResult> => ipcRenderer.invoke('import:list'),
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SAVE, params),
+  listImports: (): Promise<ImportListResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LIST),
   loadImport: (
     id: string,
     timeframe?: string,
     range?: ImportLoadRange
-  ): Promise<ImportLoadResult> => ipcRenderer.invoke('import:load', id, timeframe, range),
+  ): Promise<ImportLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LOAD, id, timeframe, range),
   deleteImport: (id: string): Promise<ImportDeleteResult> =>
-    ipcRenderer.invoke('import:delete', id),
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DELETE, id),
   checkForUpdates: (): Promise<{
     ok: boolean
     skipped?: boolean
     version?: string | null
     error?: string
-  }> => ipcRenderer.invoke('update:check'),
+  }> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
   downloadUpdate: (): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('update:download'),
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_DOWNLOAD),
   installUpdate: (): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('update:install'),
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
   onUpdateAvailable: (callback: (info: UpdateAvailableInfo) => void): (() => void) =>
-    subscribe('update:available', callback),
+    subscribe(IPC_CHANNELS.UPDATE_AVAILABLE, callback),
   onUpdateProgress: (callback: (info: UpdateProgressInfo) => void): (() => void) =>
-    subscribe('update:progress', callback),
+    subscribe(IPC_CHANNELS.UPDATE_PROGRESS, callback),
   onUpdateDownloaded: (callback: (info: UpdateDownloadedInfo) => void): (() => void) =>
-    subscribe('update:downloaded', callback),
+    subscribe(IPC_CHANNELS.UPDATE_DOWNLOADED, callback),
   onUpdateError: (callback: (info: UpdateErrorInfo) => void): (() => void) =>
-    subscribe('update:error', callback)
+    subscribe(IPC_CHANNELS.UPDATE_ERROR, callback)
 }
+
+/**
+ * The renderer-facing API contract, derived from the implementation above so the
+ * two can never drift. `webApiBridge` checks itself against this same type.
+ */
+export type EasyCandleApi = typeof api
 
 if (process.contextIsolated) {
   try {
@@ -87,8 +105,7 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-expect-error fallback when contextIsolation is disabled
+  // Types come from the global Window augmentation in index.d.ts.
   window.electron = electronAPI
-  // @ts-expect-error fallback when contextIsolation is disabled
   window.api = api
 }
