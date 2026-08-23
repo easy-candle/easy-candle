@@ -1,4 +1,5 @@
 import { dataSourceRefKey, type CandleFeed, type DataSourceRef } from '@shared/datasource/types'
+import { getFeedTransports } from './transport'
 import { BinanceFeed } from './feeds/binanceFeed'
 import { DatasetFeed } from './feeds/datasetFeed'
 import { MetatraderFeed } from './feeds/metatraderFeed'
@@ -6,13 +7,14 @@ import { MetatraderFeed } from './feeds/metatraderFeed'
 const registry = new Map<string, CandleFeed>()
 
 function createFeed(ref: DataSourceRef): CandleFeed {
+  const transports = getFeedTransports()
   switch (ref.kind) {
     case 'binance':
-      return new BinanceFeed()
+      return new BinanceFeed(transports.fetchKlines)
     case 'dataset':
-      return new DatasetFeed({ id: ref.id })
+      return new DatasetFeed({ id: ref.id, transport: transports.loadImport })
     case 'live':
-      return new MetatraderFeed({ symbol: ref.symbol })
+      return new MetatraderFeed({ symbol: ref.symbol, eventTransport: transports.onMtBridgeEvent })
   }
 }
 

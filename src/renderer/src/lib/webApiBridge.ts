@@ -1,9 +1,8 @@
-import { BinanceUpstreamError, fetchBinanceKlines } from '@shared/binanceFetch'
-import { clampKlineLimit, type Candle } from '@shared/candleUtils'
+import type { Candle } from '@shared/candleUtils'
 import { IMPORT_STORED_TIMEFRAMES } from '@shared/candleAggregate'
-import { DEFAULT_TIMEFRAME, isAllowedInterval } from '@shared/timeframes'
-import { isAllowedSymbol } from '@shared/symbols'
+import { DEFAULT_TIMEFRAME } from '@shared/timeframes'
 import { decodeMtTextBuffer } from '@shared/mtTextDecode'
+import { fetchKlinesResult } from '@shared/klinesService'
 import type { EasyCandleApi } from '../../../preload'
 import type {
   ImportDeleteResult,
@@ -18,7 +17,6 @@ import type {
   ImportedTimeframeStats
 } from '@shared/importTypes'
 import { sliceCandleRange } from '@shared/importRange'
-import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
 import {
   DEFAULT_MT_BRIDGE_STATUS,
   type MtBridgeIpcEvent,
@@ -325,89 +323,6 @@ async function deleteImportDataset(id: string): Promise<ImportDeleteResult> {
   }
 }
 
-function parseOptionalMs(value: unknown, name: string): { value?: number; error?: string } {
-  if (value == null || value === '') return {}
-  const n = Number(value)
-  if (!Number.isFinite(n) || n < 0) {
-    return { error: `Invalid ${name}` }
-  }
-  return { value: Math.floor(n) }
-}
-
-async function handleKlinesFetch(params: KlinesFetchParams): Promise<KlinesFetchResult> {
-  const symbol = String(params?.symbol || '').toUpperCase()
-  const interval = String(params?.interval || '')
-
-  if (!symbol || !isAllowedSymbol(symbol)) {
-    return { ok: false, status: 400, error: 'Invalid or unsupported symbol' }
-  }
-
-  if (!interval || !isAllowedInterval(interval)) {
-    return { ok: false, status: 400, error: 'Invalid or unsupported interval' }
-  }
-
-  const startParsed = parseOptionalMs(params.startTime, 'startTime')
-  if (startParsed.error) {
-    return { ok: false, status: 400, error: startParsed.error }
-  }
-
-  const endParsed = parseOptionalMs(params.endTime, 'endTime')
-  if (endParsed.error) {
-    return { ok: false, status: 400, error: endParsed.error }
-  }
-
-  const startTime = startParsed.value
-  const endTime = endParsed.value
-
-  if (startTime != null && endTime != null && startTime >= endTime) {
-    return { ok: false, status: 400, error: 'startTime must be less than endTime' }
-  }
-
-  const limit = clampKlineLimit(params.limit, 500)
-
-  try {
-    const { candles } = await fetchBinanceKlines({
-      symbol,
-      interval,
-      startTime,
-      endTime,
-      limit
-    })
-
-    return { ok: true, candles }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Upstream request failed'
-    const upstreamStatus =
-      err instanceof BinanceUpstreamError
-        ? err.status
-        : err && typeof err === 'object' && 'status' in err
-          ? Number((err as { status?: number }).status)
-          : undefined
-
-    let clientMessage = 'Failed to fetch klines from Binance'
-    let status = 502
-
-    if (upstreamStatus === 429) {
-      clientMessage = 'Binance rate limit reached — try again shortly'
-      status = 429
-    } else if (upstreamStatus === 418) {
-      clientMessage = 'Binance temporarily blocked this IP — try again later'
-      status = 503
-    } else if (upstreamStatus != null && upstreamStatus >= 400 && upstreamStatus < 500) {
-      clientMessage = 'Binance rejected the klines request'
-      status = 502
-    }
-
-    return {
-      ok: false,
-      status,
-      error: clientMessage,
-      detail: message,
-      ...(Number.isFinite(upstreamStatus) ? { upstreamStatus } : {})
-    }
-  }
-}
-
 function promptCsvFileInput(): Promise<ImportDialogResult> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
@@ -446,9 +361,10 @@ function promptCsvFileInput(): Promise<ImportDialogResult> {
 
       try {
         const buffer = await file.arrayBuffer()
-        const content = typeof Buffer !== 'undefined'
-          ? decodeMtTextBuffer(Buffer.from(buffer))
-          : new TextDecoder('utf-8').decode(buffer)
+        const content =
+          typeof Buffer !== 'undefined'
+            ? decodeMtTextBuffer(Buffer.from(buffer))
+            : new TextDecoder('utf-8').decode(buffer)
         const tempId = 'file-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7)
         pendingFileCache.set(tempId, { content, fileName: file.name })
         resolve({ ok: true, path: tempId, fileName: file.name })
@@ -482,7 +398,7 @@ if (typeof document !== 'undefined') {
 
 export const webApi = {
   runtime: 'web' as const,
-  fetchKlines: handleKlinesFetch,
+  fetchKlines: fetchKlinesResult,
   mtBridgeStart: async (): Promise<MtBridgeStatusResult> => ({
     ...webMtStatus(false),
     error: MT_WEB_DISABLED
@@ -493,7 +409,9 @@ export const webApi = {
     ok: false,
     error: MT_WEB_DISABLED
   }),
-  onMtBridgeEvent: (_callback: (payload: MtBridgeIpcEvent) => void): (() => void) => () => {},
+  onMtBridgeEvent:
+    (_callback: (payload: MtBridgeIpcEvent) => void): (() => void) =>
+    () => {},
   getAppVersion: async (): Promise<string> => __APP_VERSION__,
   minimizeWindow: (): void => {
     // Web fallback: no-op
