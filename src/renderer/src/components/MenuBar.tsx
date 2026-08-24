@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight } from 'lucide-react'
+import { openFeedbackWidget } from '@/components/GiveFeedback'
 import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
@@ -206,6 +207,11 @@ export default function MenuBar() {
           type: 'item',
           label: 'Keyboard Shortcuts',
           onSelect: () => setShortcutsDialogOpen(true)
+        },
+        {
+          type: 'item',
+          label: 'Send Feedback',
+          onSelect: openFeedbackWidget
         },
         {
           type: 'item',
