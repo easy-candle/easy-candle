@@ -1,6 +1,6 @@
 {
   "name": "easy-candle-electron",
-  "version": "2.9.0",
+  "version": "2.9.1",
   "description": "Easy Candle — Binance candle replay desktop app",
   "main": "./out/main/index.js",
   "author": "Easy Candle",
