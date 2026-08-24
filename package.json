@@ -41,6 +41,7 @@
     "@electron-toolkit/utils": "^4.0.0",
     "driver.js": "^1.8.0",
     "electron-updater": "^6.6.2",
+    "feedbackland-react": "^2.12.1",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.25.0",
     "react": "^19.2.1",

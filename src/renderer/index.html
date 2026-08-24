@@ -3,9 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <title>Easy Candle</title>
+    <!--
+      Feedbackland's drawer widget loads the board in an iframe on *.feedbackland.com.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.feedbackland.com https://feedbackland.com; frame-src https://*.feedbackland.com"
     />
   </head>
   <body>

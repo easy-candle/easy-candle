@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
+import GiveFeedback from '@/components/GiveFeedback'
 import MenuBar from '@/components/MenuBar'
 import iconUrl from '@/assets/easycandle-icon.svg'
 import { APP_NAME } from '@shared/appName'
@@ -35,6 +36,7 @@ export default function TitleBar() {
 
       <div className="flex items-stretch" style={NO_DRAG_REGION}>
         <MenuBar />
+        <GiveFeedback />
       </div>
 
       <div className="ml-auto flex items-stretch" style={NO_DRAG_REGION}>
