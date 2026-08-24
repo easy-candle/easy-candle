@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type { Drawing, FibLevelConfig } from '@/lib/chart/drawingGeometry'
 import type { ClosedTrade, PendingOrder, Position } from '@/lib/paperTrade'
-import { findIndexAtOrBefore } from '@shared/candleUtils'
 import { useReplayStore, type TradeMarker, type ViewMode } from '@/store/replayStore'
 
 const STORAGE_KEY = 'easy-candle:sessions'
@@ -477,9 +476,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
           if (replay.importMeta?.id !== session.importId || replay.timeframe !== session.timeframe) {
             await useReplayStore.getState().selectImportedDataset(session.importId ?? '', session.timeframe)
           }
-          const candles = useReplayStore.getState().importedCandles
-          const idx = findIndexAtOrBefore(candles, replayTime)
-          useReplayStore.getState().startImportedReplayAt(Math.max(0, idx))
+          // Imported series load in windows, so resume by time instead of index.
+          await useReplayStore.getState().startImportedReplayAtTime(replayTime)
         } else {
           if (replay.symbol !== session.symbol || replay.timeframe !== session.timeframe) {
             useReplayStore.setState({

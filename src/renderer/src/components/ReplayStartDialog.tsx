@@ -4,7 +4,7 @@ import IconButton from '@/components/IconButton'
 import { REPLAY_FORWARD_BARS } from '@/lib/binance'
 import {
   DEFAULT_RANGE,
-  pickRandomImportedStartIndex,
+  pickRandomImportedStartTime,
   pickRandomLiveStart,
   RANDOM_LOOKBACK_DAYS,
   RANDOM_RANGE_PRESETS,
@@ -23,7 +23,6 @@ import {
   parseUtcParts,
   toUtcParts
 } from '@/lib/utcDateTime'
-import { findIndexAtOrBefore } from '@shared/candleUtils'
 import { TIMEFRAMES } from '@shared/timeframes'
 import { useReplayStore } from '@/store/replayStore'
 
@@ -50,11 +49,11 @@ export default function ReplayStartDialog() {
   const mode = useReplayStore((s) => s.mode)
   const dataSource = useReplayStore((s) => s.dataSource)
   const candles = useReplayStore((s) => s.candles)
-  const importedCandles = useReplayStore((s) => s.importedCandles)
+  const importMeta = useReplayStore((s) => s.importMeta)
   const timeframe = useReplayStore((s) => s.timeframe)
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const startReplayAt = useReplayStore((s) => s.startReplayAt)
-  const startImportedReplayAt = useReplayStore((s) => s.startImportedReplayAt)
+  const startImportedReplayAtTime = useReplayStore((s) => s.startImportedReplayAtTime)
 
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<ReplayRangeMode>(() => loadTab())
@@ -67,9 +66,16 @@ export default function ReplayStartDialog() {
   const disabled = status === 'loading' || replayLoading || mode === 'replay'
   const imported = dataSource === 'imported'
   const localFeed = imported
-  const localCandles = imported ? importedCandles : []
-  const canStart = status === 'ready' && candles.length > 0
   const intervalSeconds = TIMEFRAMES[timeframe]?.seconds ?? 900
+  /**
+   * Imported coverage comes from the dataset metadata, not the loaded window —
+   * the chart only holds a slice of the series now.
+   */
+  const importStats = imported ? importMeta?.timeframes?.[timeframe] : undefined
+  const localCandleCount = importStats?.candleCount ?? 0
+  const localFirstTime = importStats?.firstTime ?? 0
+  const localLastTime = importStats?.lastTime ?? 0
+  const canStart = imported ? status === 'ready' && localCandleCount > 0 : candles.length > 0
 
   useEffect(() => {
     if (!open) return undefined
@@ -105,28 +111,27 @@ export default function ReplayStartDialog() {
     }
 
     if (localFeed) {
-      if (lengthCandles > localCandles.length) {
+      if (lengthCandles > localCandleCount) {
         setLocalError(
-          `Range (${lengthCandles.toLocaleString()} candles) exceeds the loaded data (${localCandles.length.toLocaleString()} candles).`
+          `Range (${lengthCandles.toLocaleString()} candles) exceeds the imported data (${localCandleCount.toLocaleString()} candles).`
         )
         return false
       }
-      const startIndex = pickRandomImportedStartIndex({
-        candleCount: localCandles.length,
+      const startTime = pickRandomImportedStartTime({
+        firstTime: localFirstTime,
+        lastTime: localLastTime,
+        intervalSeconds,
         lengthCandles
       })
-      if (startIndex == null) {
+      if (startTime == null) {
         setLocalError('Not enough candles for a random range.')
         return false
       }
-      const candle = localCandles[startIndex]
-      const when = candle ? formatUtcCandleTime(candle.time) : `candle ${startIndex + 1}`
-      const message = `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${when}`
-      if (imported) {
-        startImportedReplayAt(startIndex, { message })
-      } else if (candle) {
-        void startReplayAt(candle.time, { message })
-      }
+      const message = `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${formatUtcCandleTime(startTime)}`
+      await startImportedReplayAtTime(startTime, {
+        message,
+        forwardBars: Math.max(REPLAY_FORWARD_BARS, lengthCandles)
+      })
       return true
     }
 
@@ -169,18 +174,16 @@ export default function ReplayStartDialog() {
     }
 
     if (localFeed) {
-      const idx = findIndexAtOrBefore(localCandles, seconds)
-      if (idx < 0) {
-        setLocalError('Selected time is before the start of the loaded data.')
+      if (seconds < localFirstTime) {
+        setLocalError('Selected time is before the start of the imported data.')
         return
       }
-      const candle = localCandles[idx]
-      const message = `Manual replay · start ${formatUtcCandleTime(candle.time)}`
-      if (imported) {
-        startImportedReplayAt(idx, { message })
-      } else {
-        void startReplayAt(candle.time, { message })
+      if (seconds > localLastTime) {
+        setLocalError('Selected time is after the end of the imported data.')
+        return
       }
+      const message = `Manual replay · start ${formatUtcCandleTime(seconds)}`
+      await startImportedReplayAtTime(seconds, { message })
       setOpen(false)
       return
     }
@@ -194,10 +197,11 @@ export default function ReplayStartDialog() {
 
     if (tab === 'manual') {
       if (localFeed) {
-        if (localCandles.length === 0) return
-        const firstTime = localCandles[0].time
-        const lastTime = localCandles[localCandles.length - 1].time
-        const seconds = Math.max(firstTime, lastTime - rangeToSeconds(preset.value, preset.unit))
+        if (localCandleCount === 0) return
+        const seconds = Math.max(
+          localFirstTime,
+          localLastTime - rangeToSeconds(preset.value, preset.unit)
+        )
         const parts = toUtcParts(seconds)
         setDate(parts.date)
         setTime(parts.time)

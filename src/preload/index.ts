@@ -6,6 +6,7 @@ import type {
   ImportDeleteResult,
   ImportDialogResult,
   ImportListResult,
+  ImportLoadRange,
   ImportLoadResult,
   ImportReadResult,
   ImportSaveParams,
@@ -63,8 +64,11 @@ const api = {
   saveImport: (params: ImportSaveParams): Promise<ImportSaveResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SAVE, params),
   listImports: (): Promise<ImportListResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LIST),
-  loadImport: (id: string, timeframe?: string): Promise<ImportLoadResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LOAD, id, timeframe),
+  loadImport: (
+    id: string,
+    timeframe?: string,
+    range?: ImportLoadRange
+  ): Promise<ImportLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LOAD, id, timeframe, range),
   deleteImport: (id: string): Promise<ImportDeleteResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DELETE, id),
   checkForUpdates: (): Promise<{

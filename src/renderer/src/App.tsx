@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import AppShell from '@/components/AppShell'
 import CandleChart from '@/components/CandleChart'
 import PaneChrome from '@/components/PaneChrome'
@@ -30,10 +30,23 @@ export default function App() {
   const secondaryError = useReplayStore((s) => s.secondaryError)
   const dataSource = useReplayStore((s) => s.dataSource)
   const replayLoading = useReplayStore((s) => s.replayLoading)
+  const loadImportedHistory = useReplayStore((s) => s.loadImportedHistory)
   const setSecondaryTimeframe = useReplayStore((s) => s.setSecondaryTimeframe)
   const setDriverPane = useReplayStore((s) => s.setDriverPane)
   const [primaryPriceScaleWidth, setPrimaryPriceScaleWidth] = useState(0)
   const [secondaryPriceScaleWidth, setSecondaryPriceScaleWidth] = useState(0)
+
+  /**
+   * Range-based loading hook. Fires once per loaded series when the viewport
+   * reaches the oldest candle on the chart. Imported datasets page an older
+   * window in from disk/IndexedDB here instead of holding the whole series;
+   * Binance history still comes from the replay window loader.
+   */
+  const handleReachHistoryEdge = useCallback(() => {
+    if (dataSource === 'imported') {
+      void loadImportedHistory()
+    }
+  }, [dataSource, loadImportedHistory])
 
   useEffect(() => {
     void loadCandles()
@@ -84,6 +97,7 @@ export default function App() {
     overlays,
     tradeMarkers,
     onPriceScaleWidthChange: setPrimaryPriceScaleWidth,
+    onReachHistoryEdge: handleReachHistoryEdge,
     isPrimary: true
   }
 

@@ -11,6 +11,7 @@ import {
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type ITextWatermarkPluginApi,
+  type LogicalRange,
   type SeriesMarker,
   type SeriesType,
   type Time
@@ -25,8 +26,15 @@ import {
   toHeikinAshi,
   type ChartType
 } from '@/lib/chart/chartTypes'
+import {
+  DEFAULT_EDGE_THRESHOLD,
+  describeVisibleRange,
+  historyEdgeKey,
+  type VisibleRangeInfo
+} from '@/lib/chart/visibleRange'
 import type { Candle } from '@shared/candleUtils'
 import { resolvePricePrecision, toChartPriceFormat } from '@shared/pricePrecision'
+import { TIMEFRAMES } from '@shared/timeframes'
 import { type ChartPalette } from '@/lib/theme'
 import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useThemeStore } from '@/store/themeStore'
@@ -120,6 +128,13 @@ type CandleChartProps = {
   overlays?: ChartOverlay[] | null
   tradeMarkers?: TradeMarker[] | null
   onPriceScaleWidthChange?: (width: number) => void
+  /**
+   * Fires once per loaded series when the viewport reaches the oldest loaded
+   * candle — the hook range-based loaders use to page older data in.
+   */
+  onReachHistoryEdge?: (info: VisibleRangeInfo) => void
+  /** Bars from either end that still count as "at the edge". */
+  edgeThreshold?: number
   /** Whether this is the primary (left) chart; it gets registered for snapshots. */
   isPrimary?: boolean
 }
@@ -136,6 +151,8 @@ export default function CandleChart({
   overlays = null,
   tradeMarkers = null,
   onPriceScaleWidthChange,
+  onReachHistoryEdge,
+  edgeThreshold = DEFAULT_EDGE_THRESHOLD,
   isPrimary = false
 }: CandleChartProps) {
   const theme = useThemeStore((s) => s.theme)
@@ -150,6 +167,13 @@ export default function CandleChart({
   const watermarkRef = useRef<ITextWatermarkPluginApi<Time> | null>(null)
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map())
   const onPriceScaleWidthChangeRef = useRef(onPriceScaleWidthChange)
+  const onReachHistoryEdgeRef = useRef(onReachHistoryEdge)
+  const edgeThresholdRef = useRef(edgeThreshold)
+  /** Series the range handler reads; kept in a ref so we can subscribe once. */
+  const rangeCandlesRef = useRef<Candle[]>([])
+  const rangeIntervalRef = useRef(60)
+  /** Last history edge we reported, so panning left only fires once per series. */
+  const reportedEdgeKeyRef = useRef<string | null>(null)
   const priceScaleObserverRef = useRef<ResizeObserver | null>(null)
   const priceScaleCellRef = useRef<HTMLElement | null>(null)
   const priceScaleWidthRef = useRef(0)
@@ -173,6 +197,11 @@ export default function CandleChart({
   }, [onPriceScaleWidthChange])
 
   useEffect(() => {
+    onReachHistoryEdgeRef.current = onReachHistoryEdge
+    edgeThresholdRef.current = edgeThreshold
+  }, [onReachHistoryEdge, edgeThreshold])
+
+  useEffect(() => {
     chartTypeRef.current = chartType
   }, [chartType])
 
@@ -194,6 +223,9 @@ export default function CandleChart({
     }
 
     series.setData(buildSeriesData(type, data) as never)
+    // A new series means a new history edge: allow one more edge callback.
+    rangeCandlesRef.current = data
+    reportedEdgeKeyRef.current = null
 
     if (opts.fitContent !== false && data.length) {
       requestAnimationFrame(() => {
@@ -367,6 +399,31 @@ export default function CandleChart({
 
     attachPriceScaleObserver()
 
+    // Range-based loading hook: LWC reports the visible logical range on every
+    // pan, zoom, resize, and data swap. We translate it into UTC bounds plus
+    // edge flags so callers can page data in instead of holding a whole series.
+    const handleVisibleLogicalRangeChange = (range: LogicalRange | null): void => {
+      const candles = rangeCandlesRef.current
+      const info = describeVisibleRange(
+        range,
+        candles,
+        rangeIntervalRef.current,
+        edgeThresholdRef.current
+      )
+
+      const edgeKey = historyEdgeKey(info, candles)
+      if (!edgeKey) {
+        // Scrolled away from the oldest candle — re-arm the edge callback.
+        if (info && !info.atStart) reportedEdgeKeyRef.current = null
+        return
+      }
+      if (edgeKey === reportedEdgeKeyRef.current) return
+      reportedEdgeKeyRef.current = edgeKey
+      if (info) onReachHistoryEdgeRef.current?.(info)
+    }
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange)
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (!entry) return
@@ -381,6 +438,7 @@ export default function CandleChart({
 
     return () => {
       observer.disconnect()
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange)
       priceScaleObserverRef.current?.disconnect()
       priceScaleObserverRef.current = null
       priceScaleCellRef.current = null
@@ -423,6 +481,8 @@ export default function CandleChart({
     }
 
     series.setData(buildSeriesData(chartType, data) as never)
+    rangeCandlesRef.current = data
+    reportedEdgeKeyRef.current = null
 
     markersRef.current = createSeriesMarkers(series, [])
     applyTradeMarkers()
@@ -546,6 +606,15 @@ export default function CandleChart({
   useEffect(() => {
     syncOverlays(overlays)
   }, [overlays])
+
+  // Keep the visible-range handler reading the series currently on the chart.
+  useEffect(() => {
+    rangeCandlesRef.current = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
+  }, [mode, candles, visibleCandles])
+
+  useEffect(() => {
+    rangeIntervalRef.current = TIMEFRAMES[timeframe]?.seconds ?? 60
+  }, [timeframe])
 
   function applyTradeMarkers(): void {
     const markersApi = markersRef.current
