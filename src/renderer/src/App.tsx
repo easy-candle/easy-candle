@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import AppShell from '@/components/AppShell'
 import CandleChart from '@/components/CandleChart'
 import PaneChrome from '@/components/PaneChrome'
-import VisibleRangeReadout from '@/components/VisibleRangeReadout'
 import { buildOverlays } from '@/lib/indicators'
-import type { VisibleRangeInfo } from '@/lib/chart/visibleRange'
 import { alignTimeToInterval, TIMEFRAMES } from '@shared/timeframes'
 import { isDesktopRuntime } from '@/lib/runtime'
 import { useReplayStore } from '@/store/replayStore'
@@ -32,21 +30,11 @@ export default function App() {
   const secondaryError = useReplayStore((s) => s.secondaryError)
   const dataSource = useReplayStore((s) => s.dataSource)
   const replayLoading = useReplayStore((s) => s.replayLoading)
-  const importWindow = useReplayStore((s) => s.importWindow)
-  const isPrefetching = useReplayStore((s) => s.isPrefetching)
   const loadImportedHistory = useReplayStore((s) => s.loadImportedHistory)
   const setSecondaryTimeframe = useReplayStore((s) => s.setSecondaryTimeframe)
   const setDriverPane = useReplayStore((s) => s.setDriverPane)
   const [primaryPriceScaleWidth, setPrimaryPriceScaleWidth] = useState(0)
   const [secondaryPriceScaleWidth, setSecondaryPriceScaleWidth] = useState(0)
-  const [primaryVisibleRange, setPrimaryVisibleRange] = useState<VisibleRangeInfo | null>(null)
-  const [historyRequest, setHistoryRequest] = useState<{
-    /** Series identity, so a stale readout is dropped on symbol/TF/source change. */
-    key: string
-    count: number
-    untilTime: number
-  } | null>(null)
-  const seriesKey = `${dataSource}:${symbol}:${timeframe}`
 
   /**
    * Range-based loading hook. Fires once per loaded series when the viewport
@@ -54,19 +42,11 @@ export default function App() {
    * window in from disk/IndexedDB here instead of holding the whole series;
    * Binance history still comes from the replay window loader.
    */
-  const handleReachHistoryEdge = useCallback(
-    (info: VisibleRangeInfo) => {
-      setHistoryRequest((prev) => ({
-        key: seriesKey,
-        count: prev?.key === seriesKey ? prev.count + 1 : 1,
-        untilTime: info.fromTime ?? 0
-      }))
-      if (dataSource === 'imported') {
-        void loadImportedHistory()
-      }
-    },
-    [dataSource, loadImportedHistory, seriesKey]
-  )
+  const handleReachHistoryEdge = useCallback(() => {
+    if (dataSource === 'imported') {
+      void loadImportedHistory()
+    }
+  }, [dataSource, loadImportedHistory])
 
   useEffect(() => {
     void loadCandles()
@@ -117,7 +97,6 @@ export default function App() {
     overlays,
     tradeMarkers,
     onPriceScaleWidthChange: setPrimaryPriceScaleWidth,
-    onVisibleRangeChange: setPrimaryVisibleRange,
     onReachHistoryEdge: handleReachHistoryEdge,
     isPrimary: true
   }
@@ -159,13 +138,6 @@ export default function App() {
           )}
           <div className={chartSplit ? 'absolute inset-0 top-9' : 'absolute inset-0'}>
             <CandleChart {...primaryProps} />
-            <VisibleRangeReadout
-              info={primaryVisibleRange}
-              loadedCount={overlaySource.length}
-              historyRequest={historyRequest?.key === seriesKey ? historyRequest : null}
-              historyPaging={dataSource === 'imported' && importWindow?.hasMoreBefore === true}
-              historyLoading={dataSource === 'imported' && isPrefetching}
-            />
           </div>
         </div>
         {chartSplit && (
