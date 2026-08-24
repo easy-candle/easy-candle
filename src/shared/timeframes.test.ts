@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   alignTimeToInterval,
+  coarserTouchedCover,
   defaultSecondaryTimeframe,
+  followerPlayheadCover,
   playheadCoverEnd,
   TIMEFRAMES
 } from './timeframes'
@@ -20,6 +22,55 @@ describe('playheadCoverEnd', () => {
     const oneOpen = fiveOpen + 60 * 2
     const cover = playheadCoverEnd(oneOpen, TIMEFRAMES['1m'].seconds)
     expect(alignTimeToInterval(cover, TIMEFRAMES['5m'].seconds)).toBe(fiveOpen)
+  })
+})
+
+describe('followerPlayheadCover', () => {
+  it('reveals every finer follower bar covered by a coarser driver', () => {
+    const fiveOpen = alignTimeToInterval(1_700_000_000, TIMEFRAMES['5m'].seconds)
+    expect(
+      followerPlayheadCover(fiveOpen, TIMEFRAMES['5m'].seconds, TIMEFRAMES['1m'].seconds)
+    ).toBe(playheadCoverEnd(fiveOpen, TIMEFRAMES['5m'].seconds))
+  })
+
+  it('reveals a coarser follower as soon as any finer bar of that period plays', () => {
+    const hourOpen = alignTimeToInterval(1_700_000_000, TIMEFRAMES['1h'].seconds)
+    const firstFive = hourOpen
+    const midFive = hourOpen + TIMEFRAMES['5m'].seconds * 6
+    const lastFive = hourOpen + TIMEFRAMES['5m'].seconds * 11
+    const hourEnd = playheadCoverEnd(hourOpen, TIMEFRAMES['1h'].seconds)
+
+    expect(
+      followerPlayheadCover(firstFive, TIMEFRAMES['5m'].seconds, TIMEFRAMES['1h'].seconds)
+    ).toBe(hourEnd)
+    expect(
+      followerPlayheadCover(midFive, TIMEFRAMES['5m'].seconds, TIMEFRAMES['1h'].seconds)
+    ).toBe(hourEnd)
+    expect(
+      followerPlayheadCover(lastFive, TIMEFRAMES['5m'].seconds, TIMEFRAMES['1h'].seconds)
+    ).toBe(hourEnd)
+  })
+
+  it('reveals the coarser bar that contains a mid-period touch', () => {
+    const hourOpen = alignTimeToInterval(1_700_000_000, TIMEFRAMES['1h'].seconds)
+    const midFive = hourOpen + TIMEFRAMES['5m'].seconds * 4
+    expect(coarserTouchedCover(midFive, TIMEFRAMES['1h'].seconds)).toBe(
+      playheadCoverEnd(hourOpen, TIMEFRAMES['1h'].seconds)
+    )
+  })
+
+  it('reveals a 15m follower on the first 5m bar of that period', () => {
+    const fifteenOpen = alignTimeToInterval(1_700_000_000, TIMEFRAMES['15m'].seconds)
+    const firstFive = fifteenOpen
+    const lastFive = fifteenOpen + TIMEFRAMES['5m'].seconds * 2
+    const fifteenEnd = playheadCoverEnd(fifteenOpen, TIMEFRAMES['15m'].seconds)
+
+    expect(
+      followerPlayheadCover(firstFive, TIMEFRAMES['5m'].seconds, TIMEFRAMES['15m'].seconds)
+    ).toBe(fifteenEnd)
+    expect(
+      followerPlayheadCover(lastFive, TIMEFRAMES['5m'].seconds, TIMEFRAMES['15m'].seconds)
+    ).toBe(fifteenEnd)
   })
 })
 

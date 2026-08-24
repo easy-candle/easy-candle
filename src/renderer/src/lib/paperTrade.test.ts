@@ -466,6 +466,18 @@ describe('rewindTradesAfterStepBack', () => {
     expect(result.discardedEntryTimes).toEqual([])
   })
 
+  it('reopens a trade closed on a finer bar inside the left coarser candle', () => {
+    const result = rewindTradesAfterStepBack({
+      position: null,
+      closedTrades: [closedAt20],
+      leftCandleTime: 0,
+      leftCoverEnd: 59,
+      currentCandleTime: 15
+    })
+    expect(result.closedTrades).toHaveLength(0)
+    expect(result.position?.id).toBe('t1')
+  })
+
   it('forgets a closed trade when rewind lands before its entry', () => {
     const sameBar = flatClosed({
       id: 't2',

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateCandles, buildImportTimeframes } from './candleAggregate'
+import {
+  aggregateCandles,
+  buildImportTimeframes,
+  formingHigherTfCandle,
+  overlayFormingHigherTf
+} from './candleAggregate'
 import type { Candle } from './candleUtils'
 import { hasNewerCandles } from './importTypes'
 
@@ -66,5 +71,57 @@ describe('hasNewerCandles', () => {
     expect(hasNewerCandles(existing, incoming)).toBe(true)
     expect(hasNewerCandles(incoming, existing)).toBe(false)
     expect(hasNewerCandles(existing, existing)).toBe(false)
+  })
+})
+
+describe('formingHigherTfCandle', () => {
+  it('builds a live 1h candle from 5m bars played so far', () => {
+    const hour = 1_699_999_200
+    expect(hour % 3600).toBe(0)
+    const fives = series(12, 300, hour)
+    const mid = fives.slice(0, 3)
+    const forming = formingHigherTfCandle(mid, 3600)
+    expect(forming).toMatchObject({
+      time: hour,
+      open: 100,
+      high: 103,
+      low: 99,
+      close: 102.5,
+      volume: 6
+    })
+    expect(formingHigherTfCandle(fives, 3600)).toMatchObject({
+      time: hour,
+      open: 100,
+      high: 112,
+      low: 99,
+      close: 111.5,
+      volume: 24
+    })
+  })
+
+  it('does not include finer bars from the next higher-TF period', () => {
+    const hour = 1_699_999_200
+    const fives = series(13, 300, hour)
+    const forming = formingHigherTfCandle(fives.slice(0, 13), 3600)
+    expect(forming?.time).toBe(hour + 3600)
+    expect(forming?.open).toBe(112)
+  })
+})
+
+describe('overlayFormingHigherTf', () => {
+  it('replaces the current coarser bar without leaking completed OHLC', () => {
+    const hour = 1_699_999_200
+    const fives = series(12, 300, hour)
+    const completed = aggregateCandles(fives, 3600)
+    const forming = overlayFormingHigherTf(completed, fives.slice(0, 2), 3600)
+    expect(forming).toHaveLength(1)
+    expect(forming[0]).toMatchObject({
+      time: hour,
+      open: 100,
+      high: 102,
+      low: 99,
+      close: 101.5
+    })
+    expect(completed[0].close).toBe(111.5)
   })
 })

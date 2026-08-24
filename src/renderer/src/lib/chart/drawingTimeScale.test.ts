@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle } from '@shared/candleUtils'
-import { logicalToUnixTime, unixTimeToLogical } from './drawingTimeScale'
+import { logicalToUnixTime, unixTimeToLogical, isTimeInSeriesRange } from './drawingTimeScale'
 
 function candle(time: number): Candle {
   return { time, open: 1, high: 1, low: 1, close: 1, volume: 0 }
@@ -42,5 +42,17 @@ describe('drawingTimeScale', () => {
   it('maps in-range times to their bar index', () => {
     expect(unixTimeToLogical(1060, BARS, INTERVAL)).toBe(1)
     expect(logicalToUnixTime(1, BARS, INTERVAL)).toBe(1060)
+  })
+})
+
+describe('isTimeInSeriesRange', () => {
+  it('treats the last bar as covering its full interval', () => {
+    expect(isTimeInSeriesRange(1120, BARS, INTERVAL)).toBe(true)
+    expect(isTimeInSeriesRange(1179, BARS, INTERVAL)).toBe(true)
+    expect(isTimeInSeriesRange(1180, BARS, INTERVAL)).toBe(false)
+  })
+
+  it('does not snap times before the first bar', () => {
+    expect(isTimeInSeriesRange(999, BARS, INTERVAL)).toBe(false)
   })
 })

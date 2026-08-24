@@ -73,12 +73,16 @@ export default function OhlcLegend({
     if (!last) return
 
     const pinned = pinnedTimeRef.current
-    if (pinned != null) {
-      if (candles.some((c) => c.time === pinned)) return
+    if (pinned != null && pinned !== last.time) {
+      const pinnedCandle = candles.find((c) => c.time === pinned)
+      if (pinnedCandle) {
+        setBar(toBar(pinnedCandle))
+        return
+      }
       pinnedTimeRef.current = null
     }
 
-    setBar((prev) => (prev && prev.time === last.time ? prev : toBar(last)))
+    setBar(toBar(last))
   }, [candles])
 
   if (!bar) return null

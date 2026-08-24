@@ -84,9 +84,16 @@ export function xToUnixTime(
   return logicalToUnixTime(logical, candles, intervalSeconds)
 }
 
-export function isTimeInSeriesRange(time: number, candles: Candle[]): boolean {
+export function isTimeInSeriesRange(
+  time: number,
+  candles: Candle[],
+  intervalSeconds = 0
+): boolean {
   if (!candles.length || !Number.isFinite(time)) return false
   const first = candles[0].time
   const last = candles[candles.length - 1].time
-  return time >= first && time <= last
+  if (time < first) return false
+  const step = Math.max(0, Math.floor(Number(intervalSeconds)) || 0)
+  if (step > 0) return time < last + step
+  return time <= last
 }

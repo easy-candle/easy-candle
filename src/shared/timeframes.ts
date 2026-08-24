@@ -49,6 +49,43 @@ export function playheadCoverEnd(openTimeSeconds: number, intervalSeconds: numbe
   return open + step - 1
 }
 
+/**
+ * UTC second the follower pane should seek to so its visible bars stay in
+ * lockstep with the driver's current candle.
+ *
+ * Finer or equal follower: reveal every follower bar covered by the driver
+ * candle (one 5m step shows five 1m bars).
+ * Coarser follower: reveal the HTF bar as soon as any driver bar in that
+ * period plays. Published OHLC for that bar is formed from driver bars so
+ * far (live-style), not the completed bucket.
+ */
+export function followerPlayheadCover(
+  driverOpenSeconds: number,
+  driverIntervalSeconds: number,
+  followerIntervalSeconds: number
+): number {
+  const driverCover = playheadCoverEnd(driverOpenSeconds, driverIntervalSeconds)
+  const driverStep = Math.max(1, Math.floor(Number(driverIntervalSeconds)) || 1)
+  const followerStep = Math.max(1, Math.floor(Number(followerIntervalSeconds)) || 1)
+
+  if (followerStep <= driverStep) return driverCover
+
+  const htfOpen = alignTimeToInterval(driverOpenSeconds, followerStep)
+  return playheadCoverEnd(htfOpen, followerStep)
+}
+
+/**
+ * UTC second to seek a coarser pane to after a waiting price is touched on a
+ * finer bar. Reveals the HTF candle whose period contains the touch.
+ */
+export function coarserTouchedCover(
+  touchOpenSeconds: number,
+  coarserIntervalSeconds: number
+): number {
+  const htfOpen = alignTimeToInterval(touchOpenSeconds, coarserIntervalSeconds)
+  return playheadCoverEnd(htfOpen, coarserIntervalSeconds)
+}
+
 /** Prefer a different TF so split view is useful out of the box. */
 export function defaultSecondaryTimeframe(primaryTimeframe: string): string {
   if (primaryTimeframe === '1m') return '5m'

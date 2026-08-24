@@ -63,6 +63,70 @@ export function aggregateCandles(candles: Candle[], intervalSeconds: number): Ca
   return out
 }
 
+/**
+ * Live-style HTF candle for the bucket that contains the last finer bar:
+ * open from the first included finer bar, running high/low, close from the
+ * latest finer bar. Does not use later finer bars (no lookahead).
+ */
+export function formingHigherTfCandle(
+  finerCandles: Candle[],
+  coarserIntervalSeconds: number
+): Candle | null {
+  if (!Array.isArray(finerCandles) || finerCandles.length === 0) return null
+  const step = Math.max(1, Math.floor(Number(coarserIntervalSeconds)) || 1)
+  const last = finerCandles[finerCandles.length - 1]
+  const lastTime = Math.floor(Number(last?.time))
+  if (!Number.isFinite(lastTime)) return null
+  const bucketOpen = Math.floor(lastTime / step) * step
+
+  const bucket: Candle[] = []
+  for (let i = finerCandles.length - 1; i >= 0; i -= 1) {
+    const candle = finerCandles[i]
+    const t = Math.floor(Number(candle.time))
+    if (!Number.isFinite(t) || t < bucketOpen) break
+    bucket.push(candle)
+  }
+  bucket.reverse()
+  return aggregateCandles(bucket, step)[0] ?? null
+}
+
+function sameOhlc(a: Candle, b: Candle): boolean {
+  return (
+    a.time === b.time &&
+    a.open === b.open &&
+    a.high === b.high &&
+    a.low === b.low &&
+    a.close === b.close &&
+    a.volume === b.volume
+  )
+}
+
+/**
+ * Replace the current coarser bar with a forming candle built from finer
+ * bars played so far. Earlier coarser bars stay completed.
+ */
+export function overlayFormingHigherTf(
+  coarserCandles: Candle[],
+  finerCandles: Candle[],
+  coarserIntervalSeconds: number
+): Candle[] {
+  const series = Array.isArray(coarserCandles) ? coarserCandles : []
+  const forming = formingHigherTfCandle(finerCandles, coarserIntervalSeconds)
+  if (!forming) return series
+
+  if (series.length === 0) return [forming]
+
+  const last = series[series.length - 1]
+  if (last.time === forming.time) {
+    return sameOhlc(last, forming) ? series : [...series.slice(0, -1), forming]
+  }
+  if (last.time < forming.time) return [...series, forming]
+
+  const idx = series.findIndex((candle) => candle.time === forming.time)
+  if (idx < 0) return series
+  return [...series.slice(0, idx), forming]
+}
+
 /** Build 1m + derived TF maps from a validated 1-minute series. */
 export function buildImportTimeframes(candles1m: Candle[]): Record<string, Candle[]> {
   const result: Record<string, Candle[]> = {

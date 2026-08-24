@@ -648,9 +648,12 @@ export function rewindTradesAfterStepBack(args: {
   pendingOrder?: PendingOrder | null
   closedTrades: ClosedTrade[]
   leftCandleTime: number
+  /** Inclusive end of the left candle. Defaults to `leftCandleTime` (exact match). */
+  leftCoverEnd?: number
   currentCandleTime: number
 }): TradeRewindResult {
   const { leftCandleTime, currentCandleTime } = args
+  const leftCoverEnd = args.leftCoverEnd ?? leftCandleTime
   let position = args.position
   let pendingOrder = args.pendingOrder ?? null
   let closedTrades = Array.isArray(args.closedTrades) ? [...args.closedTrades] : []
@@ -665,7 +668,8 @@ export function rewindTradesAfterStepBack(args: {
   if (!position) {
     let idx = -1
     for (let i = closedTrades.length - 1; i >= 0; i -= 1) {
-      if (closedTrades[i].exitTime === leftCandleTime) {
+      const exitTime = closedTrades[i].exitTime
+      if (exitTime >= leftCandleTime && exitTime <= leftCoverEnd) {
         idx = i
         break
       }

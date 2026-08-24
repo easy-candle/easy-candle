@@ -14,7 +14,7 @@ import {
   replayRange,
   tailRange
 } from '@/lib/importWindow'
-import { aggregateCandles } from '@shared/candleAggregate'
+import { aggregateCandles, overlayFormingHigherTf } from '@shared/candleAggregate'
 import { dedupeCandlesByTime, findIndexAtOrBefore, type Candle } from '@shared/candleUtils'
 import {
   isBinanceDataSource,
@@ -60,7 +60,8 @@ import {
   type PnlScale,
   type SessionSummary,
   type TicketOrderType,
-  type TicketDraftLevels
+  type TicketDraftLevels,
+  type TradeRewindResult
 } from '@/lib/paperTrade'
 
 export type LevelSetOptions = {
@@ -119,6 +120,8 @@ import {
   alignTimeToInterval,
   DEFAULT_TIMEFRAME,
   defaultSecondaryTimeframe,
+  followerPlayheadCover,
+  coarserTouchedCover,
   playheadCoverEnd,
   TIMEFRAMES
 } from '@shared/timeframes'
@@ -276,10 +279,46 @@ function intervalSecondsFor(timeframe: string): number {
   return TIMEFRAMES[timeframe]?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
 }
 
+/** Mark candle for P&L / waiting-price follow: the finer pane in split replay. */
+export function selectPriceFollowCandle(s: {
+  chartSplit: boolean
+  timeframe: string
+  secondaryTimeframe: string
+  currentCandle: Candle | null
+  secondaryCurrentCandle: Candle | null
+}): Candle | null {
+  if (!s.chartSplit) return s.currentCandle
+  if (intervalSecondsFor(s.secondaryTimeframe) < intervalSecondsFor(s.timeframe)) {
+    return s.secondaryCurrentCandle
+  }
+  return s.currentCandle
+}
+
 function displayedFromSource(source1m: Candle[], timeframe: string): Candle[] {
   if (!source1m.length) return []
   if (timeframe === '1m') return source1m
   return aggregateCandles(source1m, intervalSecondsFor(timeframe))
+}
+
+/** Patch a coarser pane's current bar from the finer pane's playhead (live-style). */
+function overlayCoarserIfSplit(
+  which: 'primary' | 'secondary',
+  visible: Candle[],
+  current: Candle | null
+): { visible: Candle[]; current: Candle | null } {
+  const s = useReplayStore.getState()
+  if (!s.chartSplit) return { visible, current }
+
+  const primarySec = intervalSecondsFor(s.timeframe)
+  const secondarySec = intervalSecondsFor(s.secondaryTimeframe)
+  const thisSec = which === 'primary' ? primarySec : secondarySec
+  const otherSec = which === 'primary' ? secondarySec : primarySec
+  if (thisSec <= otherSec) return { visible, current }
+
+  const finerVisible =
+    which === 'primary' ? secondaryEngine.getVisibleCandles() : engine.getVisibleCandles()
+  const next = overlayFormingHigherTf(visible, finerVisible, thisSec)
+  return { visible: next, current: next[next.length - 1] ?? current }
 }
 
 /** Status line for a loaded imported window: shows window vs. total coverage. */
@@ -330,13 +369,18 @@ function engineSnapshot(): {
   bufferLength: number
 } {
   const state = engine.getState()
+  const overlay = overlayCoarserIfSplit(
+    'primary',
+    engine.getVisibleCandles(),
+    engine.getCurrentCandle()
+  )
   return {
     replayStatus: state.status,
     isPlaying: state.isPlaying,
     speed: state.speed,
     replayIndex: state.index,
-    visibleCandles: engine.getVisibleCandles(),
-    currentCandle: engine.getCurrentCandle(),
+    visibleCandles: overlay.visible,
+    currentCandle: overlay.current,
     bufferLength: state.candles.length
   }
 }
@@ -349,10 +393,15 @@ function secondarySnapshot(): {
   secondaryBufferLength: number
 } {
   const state = secondaryEngine.getState()
+  const overlay = overlayCoarserIfSplit(
+    'secondary',
+    secondaryEngine.getVisibleCandles(),
+    secondaryEngine.getCurrentCandle()
+  )
   return {
     secondaryCandles: state.candles,
-    secondaryVisibleCandles: secondaryEngine.getVisibleCandles(),
-    secondaryCurrentCandle: secondaryEngine.getCurrentCandle(),
+    secondaryVisibleCandles: overlay.visible,
+    secondaryCurrentCandle: overlay.current,
     secondaryReplayIndex: state.index,
     secondaryBufferLength: state.candles.length
   }
@@ -551,6 +600,10 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }))
   }
 
+  function coverSeekOpts(): { pause: boolean } {
+    return { pause: !get().isPlaying }
+  }
+
   function syncSecondaryToPrimaryCover(opts: { fitContent?: boolean } = {}): void {
     if (!get().chartSplit) return
     if (get().mode !== 'replay') return
@@ -558,10 +611,20 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (!candle) return
     if (secondaryEngine.getState().candles.length === 0) return
 
-    const coverUntil = playheadCoverEnd(candle.time, intervalSecondsFor(get().timeframe))
+    const driverSec = intervalSecondsFor(get().timeframe)
+    const followerSec = intervalSecondsFor(get().secondaryTimeframe)
+    const coverUntil = followerPlayheadCover(candle.time, driverSec, followerSec)
     const before = secondaryEngine.getState().index
-    secondaryEngine.seekToTime(coverUntil)
+    secondaryEngine.seekToTime(coverUntil, coverSeekOpts())
     const after = secondaryEngine.getState().index
+
+    if (after === before) {
+      if (followerSec > driverSec) {
+        publishSecondary('append', { fitContent: opts.fitContent ?? false })
+      }
+      return
+    }
+
     publishSecondary(after === before + 1 ? 'append' : 'replace', {
       fitContent: opts.fitContent ?? false
     })
@@ -574,29 +637,71 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (!candle) return
     if (engine.getState().candles.length === 0) return
 
-    const coverUntil = playheadCoverEnd(candle.time, intervalSecondsFor(get().secondaryTimeframe))
+    const driverSec = intervalSecondsFor(get().secondaryTimeframe)
+    const followerSec = intervalSecondsFor(get().timeframe)
+    const coverUntil = followerPlayheadCover(candle.time, driverSec, followerSec)
     const target = findIndexAtOrBefore(engine.getState().candles, coverUntil)
     if (target < 0) return
 
     const before = engine.getState().index
-    if (target === before) return
+    if (target === before) {
+      if (followerSec > driverSec) {
+        publishReplay('append', { fitContent: opts.fitContent ?? false })
+      }
+      return
+    }
 
     if (target > before) {
-      while (engine.getState().index < target) {
-        engine.stepForward()
-        maybeAutoCloseOnLevels()
-      }
+      engine.seekToIndex(target, coverSeekOpts())
       publishReplay(target - before === 1 ? 'append' : 'replace', {
         fitContent: opts.fitContent ?? false
       })
       return
     }
 
-    engine.seekToIndex(target)
+    engine.seekToIndex(target, coverSeekOpts())
     publishReplay('replace', { fitContent: opts.fitContent ?? false })
   }
 
-  function rewindPrimaryToIndex(target: number): void {
+  function applyRewindResult(rewound: TradeRewindResult): void {
+    const discardSet = new Set(rewound.discardedEntryTimes)
+    const tradeMarkers =
+      discardSet.size === 0
+        ? get().tradeMarkers
+        : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
+    set({
+      position: rewound.position,
+      pendingOrder: rewound.pendingOrder,
+      closedTrades: rewound.closedTrades,
+      tradeMarkers,
+      replayMessage: null
+    })
+  }
+
+  function rewindTradesLeavingCandle(
+    leftCandle: Candle,
+    currentCandleTime: number,
+    intervalSec: number
+  ): void {
+    applyRewindResult(
+      rewindTradesAfterStepBack({
+        position: get().position,
+        pendingOrder: get().pendingOrder,
+        closedTrades: get().closedTrades,
+        leftCandleTime: leftCandle.time,
+        leftCoverEnd: playheadCoverEnd(leftCandle.time, intervalSec),
+        currentCandleTime
+      })
+    )
+  }
+
+  function rewindPrimaryToIndex(target: number, opts: { rewindTrades?: boolean } = {}): void {
+    const rewindTrades = opts.rewindTrades !== false
+    if (!rewindTrades) {
+      if (engine.getState().index !== target) engine.seekToIndex(target)
+      return
+    }
+
     while (engine.getState().index > target) {
       const leftCandle = engine.getCurrentCandle() || get().currentCandle
       const before = engine.getState().index
@@ -604,29 +709,94 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const after = engine.getState().index
       if (!(after < before && leftCandle)) continue
 
-      const rewound = rewindTradesAfterStepBack({
-        position: get().position,
-        pendingOrder: get().pendingOrder,
-        closedTrades: get().closedTrades,
-        leftCandleTime: leftCandle.time,
-        currentCandleTime:
-          (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time
-      })
-
-      const discardSet = new Set(rewound.discardedEntryTimes)
-      const tradeMarkers =
-        discardSet.size === 0
-          ? get().tradeMarkers
-          : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
-
-      set({
-        position: rewound.position,
-        pendingOrder: rewound.pendingOrder,
-        closedTrades: rewound.closedTrades,
-        tradeMarkers,
-        replayMessage: null
-      })
+      rewindTradesLeavingCandle(
+        leftCandle,
+        (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time,
+        intervalSecondsFor(get().timeframe)
+      )
     }
+  }
+
+  function priceFollowPane(): DriverPane {
+    if (!get().chartSplit) return 'primary'
+    const primarySec = intervalSecondsFor(get().timeframe)
+    const secondarySec = intervalSecondsFor(get().secondaryTimeframe)
+    if (secondarySec < primarySec) return 'secondary'
+    return 'primary'
+  }
+
+  function priceFollowCandle(): Candle | null {
+    if (priceFollowPane() === 'secondary') {
+      return secondaryEngine.getCurrentCandle() || get().secondaryCurrentCandle
+    }
+    return engine.getCurrentCandle() || get().currentCandle
+  }
+
+  type WaitingPriceEvent = 'fill' | 'tp' | 'sl'
+
+  function revealCoarserTouchedAt(touchOpen: number): void {
+    if (!get().chartSplit) return
+    const primarySec = intervalSecondsFor(get().timeframe)
+    const secondarySec = intervalSecondsFor(get().secondaryTimeframe)
+    if (secondarySec === primarySec) return
+
+    const coarseIsSecondary = secondarySec > primarySec
+    const coarseSec = Math.max(primarySec, secondarySec)
+    const coverUntil = coarserTouchedCover(touchOpen, coarseSec)
+    const coarseEngine = coarseIsSecondary ? secondaryEngine : engine
+    const target = findIndexAtOrBefore(coarseEngine.getState().candles, coverUntil)
+    if (target < 0) return
+
+    const before = coarseEngine.getState().index
+    if (target !== before) {
+      coarseEngine.seekToIndex(target, coverSeekOpts())
+    }
+
+    // Always publish: the HTF bar is often already visible as a forming candle,
+    // and it still needs the touch bar's OHLC. Skipping that left the 1h wick
+    // and the closed-trade drawing short of the TP/SL candle.
+    const after = coarseEngine.getState().index
+    const kind = after === before || after === before + 1 ? 'append' : 'replace'
+    if (coarseIsSecondary) {
+      publishSecondary(kind, { fitContent: false })
+    } else {
+      publishReplay(kind, { fitContent: false })
+    }
+  }
+
+  function scanFinerHits(
+    which: DriverPane,
+    fromIndex: number,
+    toIndex: number
+  ): WaitingPriceEvent | null {
+    const followEngine = which === 'secondary' ? secondaryEngine : engine
+    const candles = followEngine.getState().candles
+    const start = Math.max(0, fromIndex)
+    const end = Math.min(toIndex, candles.length - 1)
+    if (start > end) return null
+
+    let fillIndex = -1
+    for (let i = start; i <= end; i += 1) {
+      const candle = candles[i]
+      if (!candle) continue
+      const event = applyWaitingPricesOnCandle(candle)
+      if (event === 'tp' || event === 'sl') {
+        if (followEngine.getState().index !== i) {
+          followEngine.seekToIndex(i, coverSeekOpts())
+          if (which === 'secondary') publishSecondary('replace', { fitContent: false })
+          else publishReplay('replace', { fitContent: false })
+        }
+        revealCoarserTouchedAt(candle.time)
+        return event
+      }
+      if (event === 'fill') fillIndex = i
+    }
+
+    if (fillIndex >= 0) {
+      revealCoarserTouchedAt(candles[fillIndex].time)
+      return 'fill'
+    }
+    return null
   }
 
   function currentPnlScale(): PnlScale {
@@ -642,14 +812,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     publishStatus()
   }
 
-  /** Fill a pending limit, then close an open position if TP/SL is hit. */
-  function maybeAutoCloseOnLevels(): 'tp' | 'sl' | null {
-    if (get().mode !== 'replay') return null
-    if (get().replayLoading) return null
-
-    const candle = engine.getCurrentCandle() || get().currentCandle
-    if (!candle) return null
-
+  function applyWaitingPricesOnCandle(candle: Candle): WaitingPriceEvent | null {
     const pending = get().pendingOrder
     if (pending && !get().position && evaluatePendingFill(pending, candle)) {
       const filled = pendingToPosition(pending, candle.time)
@@ -667,7 +830,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         replayMessage: null
       }))
       // Skip TP/SL on the fill bar — levels arm on later candles.
-      return null
+      return 'fill'
     }
 
     const open = get().position
@@ -692,6 +855,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     if (pauseOnHit) pausePlayback()
     return hit.hit
+  }
+
+  /** Fill a pending limit, then close an open position if TP/SL is hit. */
+  function maybeAutoCloseOnLevels(): WaitingPriceEvent | null {
+    if (get().mode !== 'replay') return null
+    if (get().replayLoading) return null
+
+    const candle = priceFollowCandle()
+    if (!candle) return null
+    return applyWaitingPricesOnCandle(candle)
   }
 
   function publishStatus(): void {
@@ -933,6 +1106,29 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
   }
 
+  function seekSecondaryToAnchor(startSec: number): void {
+    const candles = secondaryEngine.getState().candles
+    if (!candles.length) return
+
+    if (startSec < candles[0].time) {
+      secondaryEngine.seekToIndex(0)
+      return
+    }
+
+    if (get().driverPane === 'secondary') {
+      secondaryEngine.seekToTime(startSec)
+      return
+    }
+
+    secondaryEngine.seekToTime(
+      followerPlayheadCover(
+        startSec,
+        intervalSecondsFor(get().timeframe),
+        intervalSecondsFor(get().secondaryTimeframe)
+      )
+    )
+  }
+
   async function loadSecondaryReplayWindow(anchorTimeSeconds: number): Promise<boolean> {
     if (!get().chartSplit) return false
 
@@ -977,7 +1173,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const keptSpeed = secondaryEngine.getState().speed
       secondaryEngine.load(series)
       secondaryEngine.setSpeed(keptSpeed)
-      secondaryEngine.seekToTime(startSec)
+      seekSecondaryToAnchor(startSec)
       publishSecondary('replace', { fitContent: true })
       set({
         secondaryCandles: series,
@@ -1029,13 +1225,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       secondaryEngine.load(candles)
       secondaryEngine.setSpeed(keptSpeed)
 
-      if (startSec < candles[0].time) {
-        secondaryEngine.seekToIndex(0)
-      } else if (get().driverPane === 'secondary') {
-        secondaryEngine.seekToTime(startSec)
-      } else {
-        secondaryEngine.seekToTime(playheadCoverEnd(startSec, intervalSecondsFor(get().timeframe)))
-      }
+      seekSecondaryToAnchor(startSec)
 
       set({ secondaryLoading: false, secondaryStatus: 'ready', secondaryError: null })
       publishSecondary('replace', { fitContent: true })
@@ -1078,8 +1268,18 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
       if (after > before) {
         publishReplay('append')
-        maybeAutoCloseOnLevels()
-        if (split) syncSecondaryToPrimaryCover()
+        if (!split) {
+          maybeAutoCloseOnLevels()
+        } else if (priceFollowPane() === 'primary') {
+          const event = maybeAutoCloseOnLevels()
+          const candle = engine.getCurrentCandle()
+          if (event && candle) revealCoarserTouchedAt(candle.time)
+          else syncSecondaryToPrimaryCover()
+        } else {
+          const from = secondaryEngine.getState().index + 1
+          syncSecondaryToPrimaryCover()
+          scanFinerHits('secondary', from, secondaryEngine.getState().index)
+        }
         void maybePrefetch()
         void maybePrefetchSecondary()
         return true
@@ -1096,7 +1296,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     if (after > before) {
       publishSecondary('append')
-      syncPrimaryToSecondaryCover()
+      if (priceFollowPane() === 'secondary') {
+        const event = maybeAutoCloseOnLevels()
+        const candle = secondaryEngine.getCurrentCandle()
+        if (event && candle) revealCoarserTouchedAt(candle.time)
+        else syncPrimaryToSecondaryCover()
+      } else {
+        const from = engine.getState().index + 1
+        syncPrimaryToSecondaryCover()
+        scanFinerHits('primary', from, engine.getState().index)
+      }
       void maybePrefetch()
       void maybePrefetchSecondary()
       return true
@@ -1120,43 +1329,41 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (split) syncSecondaryToPrimaryCover()
 
       if (after < before && leftCandle) {
-        const rewound = rewindTradesAfterStepBack({
-          position: get().position,
-          pendingOrder: get().pendingOrder,
-          closedTrades: get().closedTrades,
-          leftCandleTime: leftCandle.time,
-          currentCandleTime:
-            (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time
-        })
-
-        const discardSet = new Set(rewound.discardedEntryTimes)
-        const tradeMarkers =
-          discardSet.size === 0
-            ? get().tradeMarkers
-            : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
-
-        set({
-          position: rewound.position,
-          pendingOrder: rewound.pendingOrder,
-          closedTrades: rewound.closedTrades,
-          tradeMarkers,
-          replayMessage: null
-        })
+        rewindTradesLeavingCandle(
+          leftCandle,
+          (engine.getCurrentCandle() || get().currentCandle)?.time ?? leftCandle.time,
+          intervalSecondsFor(get().timeframe)
+        )
       }
       return
     }
 
+    const leftCandle = secondaryEngine.getCurrentCandle()
+    const before = secondaryEngine.getState().index
     secondaryEngine.stepBackward()
+    const after = secondaryEngine.getState().index
     publishSecondary('replace', { fitContent: false })
+
+    if (after < before && leftCandle) {
+      rewindTradesLeavingCandle(
+        leftCandle,
+        secondaryEngine.getCurrentCandle()?.time ?? leftCandle.time,
+        intervalSecondsFor(get().secondaryTimeframe)
+      )
+    }
 
     const candle = secondaryEngine.getCurrentCandle()
     if (!candle || engine.getState().candles.length === 0) return
 
-    const coverUntil = playheadCoverEnd(candle.time, intervalSecondsFor(get().secondaryTimeframe))
+    const coverUntil = followerPlayheadCover(
+      candle.time,
+      intervalSecondsFor(get().secondaryTimeframe),
+      intervalSecondsFor(get().timeframe)
+    )
     const target = findIndexAtOrBefore(engine.getState().candles, coverUntil)
     if (target < 0) return
 
-    rewindPrimaryToIndex(target)
+    rewindPrimaryToIndex(target, { rewindTrades: false })
     publishReplay('replace', { fitContent: false })
   }
 
@@ -1450,7 +1657,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (get().replayLoading) return
     if (get().replayStatus === 'ended') return
 
-    const candle = engine.getCurrentCandle() || get().currentCandle
+    const candle = priceFollowCandle()
     if (!candle) return
 
     if (get().pendingOrder) {
@@ -1494,7 +1701,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const open = get().position
     if (!open) return
 
-    const candle = engine.getCurrentCandle() || get().currentCandle
+    const candle = priceFollowCandle()
     if (!candle) return
 
     const closed = closePosition(open, candle.close, candle.time, 'manual', currentPnlScale())
@@ -1512,7 +1719,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (get().replayLoading) return
     if (get().replayStatus === 'ended') return
 
-    const candle = engine.getCurrentCandle() || get().currentCandle
+    const candle = priceFollowCandle()
     if (!candle) return
 
     if (!Number.isFinite(price)) {
@@ -1549,7 +1756,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (get().replayStatus === 'ended') return
     const pending = get().pendingOrder
     if (!pending) return
-    const candle = engine.getCurrentCandle() || get().currentCandle
+    const candle = priceFollowCandle()
     const mark = candle?.close
     if (mark == null) return
     const result = withPendingPrice(pending, price, mark)
@@ -1600,7 +1807,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     if (opts?.linkRr && price != null && open.stopLoss == null) {
       const linkedSl = stopLossFromTakeProfit(open.side, open.entryPrice, price, get().riskReward)
       if (linkedSl != null) {
-        const candle = engine.getCurrentCandle() || get().currentCandle
+        const candle = priceFollowCandle()
         const withSl = withStopLoss(result.position, linkedSl, candle?.close)
         if (withSl.ok) result = withSl
       }
@@ -1641,7 +1848,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     if (!open) return
 
-    const candle = engine.getCurrentCandle() || get().currentCandle
+    const candle = priceFollowCandle()
     const markPrice = candle?.close
     let result = withStopLoss(open, price, markPrice)
     if (!result.ok) {
@@ -1667,7 +1874,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const s = get()
     return {
       orderType: s.ticketOrderType,
-      markPrice: s.currentCandle?.close,
+      markPrice: priceFollowCandle()?.close ?? s.currentCandle?.close,
       limitPrice: s.ticketLimitPrice,
       takeProfit: s.ticketTakeProfit,
       stopLoss: s.ticketStopLoss
@@ -1718,7 +1925,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     } = { ticketLimitPrice: price }
     const entry = ticketEntryPrice({
       orderType: s.ticketOrderType,
-      markPrice: s.currentCandle?.close,
+      markPrice: priceFollowCandle()?.close ?? s.currentCandle?.close,
       limitPrice: price,
       takeProfit: s.ticketTakeProfit,
       stopLoss: s.ticketStopLoss

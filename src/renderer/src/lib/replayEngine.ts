@@ -12,6 +12,11 @@ export type ReplayState = {
 
 export const REPLAY_SPEEDS = Object.freeze([0.5, 1, 2, 4] as const)
 
+export type ReplaySeekOptions = {
+  /** When false, move the playhead without stopping playback. Default true. */
+  pause?: boolean
+}
+
 const DEFAULT_SPEED = 1
 const DEFAULT_PREFETCH_THRESHOLD = 50
 
@@ -124,23 +129,28 @@ export function createReplayEngine(options: { prefetchThreshold?: number; speed?
     return getState()
   }
 
-  function seekToIndex(nextIndex: number): ReplayState {
+  function seekToIndex(nextIndex: number, opts?: ReplaySeekOptions): ReplayState {
     if (!hasCandles()) return getState()
 
     const n = Number(nextIndex)
     if (!Number.isFinite(n)) return getState()
 
     index = Math.min(lastIndex(), Math.max(0, Math.floor(n)))
+    if (opts?.pause === false) {
+      if (isPlaying) status = 'playing'
+      return getState()
+    }
+
     isPlaying = false
     status = 'paused'
     return getState()
   }
 
-  function seekToTime(timeSeconds: number): ReplayState {
+  function seekToTime(timeSeconds: number, opts?: ReplaySeekOptions): ReplayState {
     if (!hasCandles()) return getState()
 
     const found = findIndexAtOrBefore(candles, timeSeconds)
-    return seekToIndex(found < 0 ? 0 : found)
+    return seekToIndex(found < 0 ? 0 : found, opts)
   }
 
   function getVisibleCandles(): Candle[] {

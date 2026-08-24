@@ -148,6 +148,17 @@ describe("createReplayEngine", () => {
     expect(engine.seekToTime(0).index).toBe(0);
   });
 
+  it("seekToIndex can keep playback running", () => {
+    const engine = createReplayEngine();
+    engine.load(series(5));
+    engine.play();
+
+    const state = engine.seekToIndex(3, { pause: false });
+    expect(state.index).toBe(3);
+    expect(state.isPlaying).toBe(true);
+    expect(state.status).toBe("playing");
+  });
+
   it("setSpeed only accepts known speeds", () => {
     const engine = createReplayEngine();
     for (const speed of REPLAY_SPEEDS) {

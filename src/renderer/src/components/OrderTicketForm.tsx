@@ -8,7 +8,7 @@ import TradeSizeControl from '@/components/TradeSizeControl'
 import { formatPnl, formatPositionSize, pnlScaleForSymbol, unrealizedPnl, canPlaceTicketSide, type TicketOrderType } from '@/lib/paperTrade'
 import { formatAssetPrice } from '@shared/pricePrecision'
 import { usePricePrecision } from '@/hooks/usePricePrecision'
-import { useReplayStore } from '@/store/replayStore'
+import { useReplayStore, selectPriceFollowCandle } from '@/store/replayStore'
 
 export type { TicketOrderType }
 
@@ -25,7 +25,7 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const position = useReplayStore((s) => s.position)
   const pendingOrder = useReplayStore((s) => s.pendingOrder)
-  const currentCandle = useReplayStore((s) => s.currentCandle)
+  const currentCandle = useReplayStore(selectPriceFollowCandle)
   const paperBuy = useReplayStore((s) => s.paperBuy)
   const paperSell = useReplayStore((s) => s.paperSell)
   const paperClose = useReplayStore((s) => s.paperClose)

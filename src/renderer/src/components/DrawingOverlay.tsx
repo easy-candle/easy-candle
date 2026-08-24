@@ -79,7 +79,7 @@ import type { Candle } from '@shared/candleUtils'
 import { DEFAULT_PRICE_PRECISION } from '@shared/pricePrecision'
 import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useDrawingSettingsStore } from '@/store/drawingSettingsStore'
-import { useReplayStore } from '@/store/replayStore'
+import { selectPriceFollowCandle, useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { useThemeStore } from '@/store/themeStore'
 
@@ -283,7 +283,7 @@ export default function DrawingOverlay({
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const position = useReplayStore((s) => s.position)
   const pendingOrder = useReplayStore((s) => s.pendingOrder)
-  const markCandle = useReplayStore((s) => s.currentCandle)
+  const markCandle = useReplayStore(selectPriceFollowCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
   const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
@@ -357,9 +357,10 @@ export default function DrawingOverlay({
     if (!chart) return null
     const exact = chart.timeScale().timeToCoordinate(time as Time)
     if (exact != null) return exact
-    // Align only for in-range times (split-pane TF mapping). Aligning a
-    // future time floors it back onto the last bar and snaps the endpoint.
-    if (isTimeInSeriesRange(time, paneCandles)) {
+    // Align only for times inside a visible bar (split-pane TF mapping).
+    // The last bar covers `[open, open+interval)`; a 5m exit inside the
+    // current 1h candle must snap onto that bar, not into empty space after it.
+    if (isTimeInSeriesRange(time, paneCandles, intervalSeconds)) {
       const aligned = mapTimeToPane(time)
       if (aligned !== time) {
         const alignedX = chart.timeScale().timeToCoordinate(aligned as Time)

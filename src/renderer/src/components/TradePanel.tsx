@@ -13,7 +13,7 @@ import {
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 import { formatAssetPrice } from '@shared/pricePrecision'
 import { usePricePrecision } from '@/hooks/usePricePrecision'
-import { useReplayStore } from '@/store/replayStore'
+import { useReplayStore, selectPriceFollowCandle } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import Tooltip from '@/components/Tooltip'
 
@@ -24,7 +24,7 @@ export default function TradePanel() {
   const position = useReplayStore((s) => s.position)
   const pendingOrder = useReplayStore((s) => s.pendingOrder)
   const closedTrades = useReplayStore((s) => s.closedTrades)
-  const currentCandle = useReplayStore((s) => s.currentCandle)
+  const currentCandle = useReplayStore(selectPriceFollowCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
   const tradeSize = useReplayStore((s) => s.tradeSize)
   const pricePrecision = usePricePrecision()
