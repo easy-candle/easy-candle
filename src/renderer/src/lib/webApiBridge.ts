@@ -31,6 +31,12 @@ import type {
   UpdateErrorInfo,
   UpdateProgressInfo
 } from '@shared/updaterTypes'
+import {
+  webAuthGoogleStart,
+  webAuthLogout,
+  webAuthRefresh,
+  webAuthSession
+} from './webAuth'
 
 const MT_WEB_DISABLED = 'MetaTrader EA import is only available in the desktop app.'
 
@@ -544,7 +550,11 @@ export const webApi = {
   onUpdateAvailable: (_cb: (info: UpdateAvailableInfo) => void) => () => {},
   onUpdateProgress: (_cb: (info: UpdateProgressInfo) => void) => () => {},
   onUpdateDownloaded: (_cb: (info: UpdateDownloadedInfo) => void) => () => {},
-  onUpdateError: (_cb: (info: UpdateErrorInfo) => void) => () => {}
+  onUpdateError: (_cb: (info: UpdateErrorInfo) => void) => () => {},
+  authSession: webAuthSession,
+  authGoogleStart: webAuthGoogleStart,
+  authLogout: webAuthLogout,
+  authRefresh: webAuthRefresh
 } satisfies EasyCandleApi
 
 export const webElectron = {

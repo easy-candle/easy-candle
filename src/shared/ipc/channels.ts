@@ -35,7 +35,12 @@ export const IPC_CHANNELS = {
   UPDATE_AVAILABLE: 'update:available',
   UPDATE_PROGRESS: 'update:progress',
   UPDATE_DOWNLOADED: 'update:downloaded',
-  UPDATE_ERROR: 'update:error'
+  UPDATE_ERROR: 'update:error',
+
+  AUTH_SESSION: 'auth:session',
+  AUTH_GOOGLE_START: 'auth:google-start',
+  AUTH_LOGOUT: 'auth:logout',
+  AUTH_REFRESH: 'auth:refresh'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

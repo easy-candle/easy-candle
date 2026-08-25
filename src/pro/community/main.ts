@@ -1,0 +1,1 @@
+export { registerMain } from '../stubMain'
