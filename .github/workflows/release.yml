@@ -27,6 +27,8 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      EASY_CANDLE_API_URL: ${{ vars.EASY_CANDLE_API_URL }}
 
     steps:
       - name: Checkout
@@ -45,6 +47,15 @@ jobs:
         run: yarn fetch-contributors
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Require production API URL
+        shell: bash
+        run: |
+          if [ -z "$EASY_CANDLE_API_URL" ]; then
+            echo "::error::Set repository variable EASY_CANDLE_API_URL (e.g. https://api.easycandle.app)"
+            exit 1
+          fi
+          echo "API origin: $EASY_CANDLE_API_URL"
 
       - name: Build (no publish)
         run: yarn build && yarn electron-builder ${{ matrix.builder_args }} --publish never
