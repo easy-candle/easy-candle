@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Maximize2, Minimize2, Moon, Settings2, SquareSplitVertical, Sun, X } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
+import AccountDialog from '@/components/AccountDialog'
 import AppTour from '@/components/AppTour'
 import ChartSettingsDialog from '@/components/ChartSettingsDialog'
 import ChartTypeSelect from '@/components/ChartTypeSelect'
@@ -29,6 +30,7 @@ import TradePanel from '@/components/TradePanel'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
 import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
+import { useAccountStore } from '@/store/accountStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { isMetatraderImport } from '@shared/importTypes'
@@ -67,6 +69,7 @@ export default function AppShell({
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
   const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
   const feedbackTimer = useRef<number | null>(null)
+  const hydrateAccount = useAccountStore((s) => s.hydrate)
 
   const inReplay = mode === 'replay'
   const showOrderTicket = showPaperTrade && !chartFullscreen && (inReplay || tourPaperTradePreview)
@@ -94,6 +97,10 @@ export default function AppShell({
 
   useReplayHotkeys()
   useUiHotkeys()
+
+  useEffect(() => {
+    void hydrateAccount()
+  }, [hydrateAccount])
 
   useEffect(() => {
     function onVisibility(): void {
@@ -281,6 +288,7 @@ export default function AppShell({
       <AppTour />
       <KeyboardShortcutsDialog />
       <AboutDialog />
+      <AccountDialog />
       <ChartSettingsDialog />
       <DrawingSettingsDialog />
       <SymbolManagerDialog />

@@ -3,6 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS } from '@shared/ipc/channels'
 import icon from '../../resources/icon.png?asset'
+import { registerMain as registerProMain } from '@easy-candle/pro/main'
+import { registerAuthIpc } from './auth'
 import { registerImportIpc } from './importStore'
 import { registerKlinesIpc } from './klines'
 import { registerMtBridgeIpc, stopMtBridge } from './mtBridge'
@@ -96,6 +98,8 @@ app.whenReady().then(() => {
   registerKlinesIpc()
   registerImportIpc()
   registerMtBridgeIpc()
+  registerAuthIpc()
+  registerProMain()
   setupAutoUpdater()
   createWindow()
 

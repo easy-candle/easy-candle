@@ -13,6 +13,9 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,yarn.lock}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,vitest.config.ts}'
   - '!**/*.{test,spec}.{js,ts,jsx,tsx}'
+  # Nested CI checkout of the private module — Vite bundles it; do not pack source.
+  - '!easy-candle-pro'
+  - '!easy-candle-pro/**'
 asarUnpack:
   - resources/**
 win:

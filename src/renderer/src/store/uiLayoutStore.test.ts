@@ -30,6 +30,8 @@ function freshStore() {
     aboutDialogOpen: false,
     importDataDialogOpen: false,
     chartSettingsDialogOpen: false,
+    sessionManagerDialogOpen: false,
+    accountDialogOpen: false,
     hasCompletedTour: false,
     tourRequestId: 0,
     tourPaperTradePreview: false,

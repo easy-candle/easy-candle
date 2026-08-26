@@ -38,6 +38,7 @@ type UiLayoutState = {
   chartSettingsDialogOpen: boolean
   symbolManagerDialogOpen: boolean
   sessionManagerDialogOpen: boolean
+  accountDialogOpen: boolean
   hasCompletedTour: boolean
   /** Session-only counter; bumping it asks AppTour to (re)start. */
   tourRequestId: number
@@ -66,6 +67,7 @@ type UiLayoutState = {
   setChartSettingsDialogOpen: (value: boolean) => void
   setSymbolManagerDialogOpen: (value: boolean) => void
   setSessionManagerDialogOpen: (value: boolean) => void
+  setAccountDialogOpen: (value: boolean) => void
   startTour: () => void
   completeTour: () => void
   skipTour: () => void
@@ -126,6 +128,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
   chartSettingsDialogOpen: false,
   symbolManagerDialogOpen: false,
   sessionManagerDialogOpen: false,
+  accountDialogOpen: false,
   hasCompletedTour: initial.hasCompletedTour === true,
   tourRequestId: 0,
   tourPaperTradePreview: false,
@@ -223,6 +226,10 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
     set({ sessionManagerDialogOpen: value })
   },
 
+  setAccountDialogOpen: (value) => {
+    set({ accountDialogOpen: value })
+  },
+
   startTour: () => {
     const showMainToolbar = get().showMainToolbar
     const showDrawingToolbar = get().showDrawingToolbar
@@ -240,6 +247,7 @@ export const useUiLayoutStore = create<UiLayoutState>((set, get) => ({
       chartSettingsDialogOpen: false,
       symbolManagerDialogOpen: false,
       sessionManagerDialogOpen: false,
+      accountDialogOpen: false,
       tourRequestId: get().tourRequestId + 1
     })
   },

@@ -18,6 +18,7 @@ import type {
   MtBridgeStatusResult,
   MtPreviewLoadResult
 } from '@shared/mtBridgeTypes'
+import type { AccountSession, AuthResult } from '@shared/accountTypes'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
@@ -68,7 +69,8 @@ const api = {
     id: string,
     timeframe?: string,
     range?: ImportLoadRange
-  ): Promise<ImportLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LOAD, id, timeframe, range),
+  ): Promise<ImportLoadResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LOAD, id, timeframe, range),
   deleteImport: (id: string): Promise<ImportDeleteResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DELETE, id),
   checkForUpdates: (): Promise<{
@@ -88,7 +90,11 @@ const api = {
   onUpdateDownloaded: (callback: (info: UpdateDownloadedInfo) => void): (() => void) =>
     subscribe(IPC_CHANNELS.UPDATE_DOWNLOADED, callback),
   onUpdateError: (callback: (info: UpdateErrorInfo) => void): (() => void) =>
-    subscribe(IPC_CHANNELS.UPDATE_ERROR, callback)
+    subscribe(IPC_CHANNELS.UPDATE_ERROR, callback),
+  authSession: (): Promise<AccountSession> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_SESSION),
+  authGoogleStart: (): Promise<AuthResult> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GOOGLE_START),
+  authLogout: (): Promise<AuthResult> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT),
+  authRefresh: (): Promise<AuthResult> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_REFRESH)
 }
 
 /**

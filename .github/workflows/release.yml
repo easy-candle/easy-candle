@@ -27,10 +27,31 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      EASY_CANDLE_API_URL: ${{ vars.EASY_CANDLE_API_URL }}
+      # Fail the release if the private module is missing instead of shipping the stub.
+      EASY_CANDLE_PRO: '1'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout private Pro module
+        uses: actions/checkout@v4
+        with:
+          repository: easy-candle/easy-candle-pro
+          token: ${{ secrets.PRO_REPO_TOKEN }}
+          path: easy-candle-pro
+          persist-credentials: false
+          ref: main
+
+      - name: Require private Pro module
+        shell: bash
+        run: |
+          if [ ! -f easy-candle-pro/src/index.ts ]; then
+            echo "::error::easy-candle-pro was not checked out. Add repository secret PRO_REPO_TOKEN "
+            exit 1
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -45,6 +66,15 @@ jobs:
         run: yarn fetch-contributors
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Require production API URL
+        shell: bash
+        run: |
+          if [ -z "$EASY_CANDLE_API_URL" ]; then
+            echo "::error::Set repository variable EASY_CANDLE_API_URL"
+            exit 1
+          fi
+          echo "API origin: $EASY_CANDLE_API_URL"
 
       - name: Build (no publish)
         run: yarn build && yarn electron-builder ${{ matrix.builder_args }} --publish never
@@ -133,4 +163,4 @@ jobs:
       - name: Commit README update
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "docs: update README download links to ${{ github.ref_name }}"
+          commit_message: 'docs: update README download links to ${{ github.ref_name }}'

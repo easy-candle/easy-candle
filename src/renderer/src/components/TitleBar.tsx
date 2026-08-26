@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
+import AccountMenu from '@/components/AccountMenu'
 import GiveFeedback from '@/components/GiveFeedback'
 import MenuBar from '@/components/MenuBar'
 import iconUrl from '@/assets/easycandle-icon.svg'
@@ -40,6 +41,7 @@ export default function TitleBar() {
       </div>
 
       <div className="ml-auto flex items-stretch" style={NO_DRAG_REGION}>
+        <AccountMenu />
         <button
           type="button"
           aria-label="Minimize"
