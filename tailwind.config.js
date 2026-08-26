@@ -17,7 +17,11 @@ function scale(name) {
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ['./src/renderer/index.html', './src/renderer/src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './src/renderer/index.html',
+    './src/renderer/src/**/*.{js,ts,jsx,tsx}',
+    '../easy-candle-pro/src/**/*.{js,ts,jsx,tsx}'
+  ],
   darkMode: ['selector', '[data-theme="dark"]'],
   theme: {
     extend: {

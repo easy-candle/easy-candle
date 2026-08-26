@@ -26,7 +26,11 @@ export default defineConfig({
     plugins: [react()],
     server: {
       fs: {
-        allow: [__dirname, resolve(__dirname, '../easy-candle-pro')]
+        allow: [
+          __dirname,
+          resolve(__dirname, '../easy-candle-pro'),
+          resolve(__dirname, 'easy-candle-pro')
+        ]
       }
     }
   }

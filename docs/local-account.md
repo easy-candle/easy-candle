@@ -1,6 +1,6 @@
 # Local Google Sign in
 
-Work on branch `feat/account-entitlements` (Electron) and `feat/google-auth` (API / Pro). Do not change CI or GitHub Releases for this pass.
+Work on branch `feat/account-entitlements` (Electron) and `feat/google-auth` (API / Pro).
 
 ## Run
 

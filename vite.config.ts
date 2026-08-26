@@ -14,7 +14,11 @@ export default defineConfig({
     port: 3000,
     host: '0.0.0.0',
     fs: {
-      allow: [__dirname, resolve(__dirname, '../easy-candle-pro')]
+      allow: [
+        __dirname,
+        resolve(__dirname, '../easy-candle-pro'),
+        resolve(__dirname, 'easy-candle-pro')
+      ]
     }
   }
 })
