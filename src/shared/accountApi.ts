@@ -83,7 +83,7 @@ async function request(
     const body = await readJson(response)
     return { response, body }
   } catch {
-    return { error: 'Cannot reach the account server. Is the local API running on port 8787?' }
+    return { error: "Can't reach the account service. Check your connection and try again." }
   }
 }
 
