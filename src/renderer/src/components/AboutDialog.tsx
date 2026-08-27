@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import iconUrl from '@/assets/easycandle-icon.svg'
-import { contributors } from '@/data/contributors'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { APP_NAME } from '@shared/appName'
+import { getReleaseCodename, parseSemverMajor } from '@shared/releaseCodenames'
 
-const REPO_URL = 'https://github.com/easy-candle/easy-candle'
+/** Same mascot set the splash uses, keyed by codename slug. */
+const mascotUrls = import.meta.glob('../../assets/splash/codenames/*.png', {
+  eager: true,
+  import: 'default'
+}) as Record<string, string>
 
 export default function AboutDialog() {
   const open = useUiLayoutStore((s) => s.aboutDialogOpen)
   const setOpen = useUiLayoutStore((s) => s.setAboutDialogOpen)
   const [version, setVersion] = useState('')
+  const generation = version ? parseSemverMajor(version) : undefined
+  const codename = version ? getReleaseCodename(version) : undefined
+  const mascotUrl = codename
+    ? mascotUrls[`../../assets/splash/codenames/${codename}.png`]
+    : undefined
 
   useEffect(() => {
     if (!open) return
@@ -83,52 +92,36 @@ export default function AboutDialog() {
           </p>
         </div>
 
-        <dl className="relative grid grid-cols-[5.5rem_1fr] items-center gap-x-3 gap-y-2.5 border-t border-zinc-800/80 px-6 py-4 text-xs">
-          <dt className="text-zinc-500">License</dt>
-          <dd className="font-medium text-zinc-200">Apache-2.0 (no commercial product)</dd>
-          <dt className="text-zinc-500">Source</dt>
-          <dd>
-            <a
-              href={REPO_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-zinc-200 hover:text-amber-300"
-            >
-              GitHub
-              <ExternalLink className="h-3 w-3 text-zinc-500" aria-hidden />
-            </a>
-          </dd>
-        </dl>
-
-        {contributors.length > 0 && (
-          <div className="relative border-t border-zinc-800/80 px-6 py-4">
-            <h3 className="text-[11px] font-medium text-zinc-500">Contributors</h3>
-            <ul className="mt-3 flex flex-col gap-1">
-              {contributors.map((contributor) => (
-                <li key={contributor.login}>
-                  <a
-                    href={contributor.htmlUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2.5 rounded-lg px-1.5 py-1.5 -mx-1.5 hover:bg-zinc-900"
-                  >
-                    <img
-                      src={contributor.avatarSrc}
-                      alt=""
-                      width={28}
-                      height={28}
-                      className="h-7 w-7 rounded-full border border-zinc-700"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-200">
-                      {contributor.login}
-                    </span>
-                    <ExternalLink className="h-3 w-3 shrink-0 text-zinc-600" aria-hidden />
-                  </a>
-                </li>
-              ))}
-            </ul>
+        {codename && generation != null ? (
+          <div className="relative flex items-end justify-between gap-4 border-t border-zinc-800/80 pl-6 pr-4 pt-4">
+            <div
+              className="pointer-events-none absolute bottom-0 right-0 h-24 w-48 bg-gradient-to-t from-amber-500/[0.07] to-transparent"
+              aria-hidden
+            />
+            <p className="relative flex items-center gap-3 pb-5">
+              <span className="text-[34px] font-bold leading-none tracking-tighter tabular-nums text-zinc-100">
+                {generation}
+              </span>
+              <span className="flex flex-col gap-1.5 border-l border-zinc-800 pl-3">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.3em] text-zinc-500">
+                  Generation
+                </span>
+                <span className="text-[13px] font-bold uppercase leading-none tracking-[0.18em] text-amber-500">
+                  {codename}
+                </span>
+              </span>
+            </p>
+            {mascotUrl ? (
+              <img
+                src={mascotUrl}
+                alt={`${codename} mascot`}
+                width={1024}
+                height={1024}
+                className="relative h-[104px] w-[104px] shrink-0 object-contain object-bottom"
+              />
+            ) : null}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )
