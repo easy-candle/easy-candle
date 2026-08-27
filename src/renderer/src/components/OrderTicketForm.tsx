@@ -5,7 +5,16 @@ import LevelPriceControl, { parseLevelPrice } from '@/components/LevelPriceContr
 import RiskRewardControl from '@/components/RiskRewardControl'
 import Tooltip from '@/components/Tooltip'
 import TradeSizeControl from '@/components/TradeSizeControl'
-import { formatPnl, formatPositionSize, pnlScaleForSymbol, unrealizedPnl, canPlaceTicketSide, type TicketOrderType } from '@/lib/paperTrade'
+import {
+  canPlaceTicketSide,
+  formatOrderSideLabel,
+  formatPnl,
+  formatPositionSize,
+  isPendingTicketType,
+  pnlScaleForSymbol,
+  unrealizedPnl,
+  type TicketOrderType
+} from '@/lib/paperTrade'
 import { formatAssetPrice } from '@shared/pricePrecision'
 import { usePricePrecision } from '@/hooks/usePricePrecision'
 import { useReplayStore, selectPriceFollowCandle } from '@/store/replayStore'
@@ -109,9 +118,9 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
     if (pricePick) setPricePick(null)
     const tp = readLevel(tpInputRef.current, tpValue)
     const sl = readLevel(slInputRef.current, slValue)
-    if (orderType === 'limit') {
+    if (isPendingTicketType(orderType)) {
       const price = readLevel(limitInputRef.current, limitPrice)
-      placeLimit(side, price ?? Number.NaN)
+      placeLimit(side, price ?? Number.NaN, orderType)
     } else if (side === 'long') {
       paperBuy()
     } else {
@@ -135,7 +144,7 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
   }
 
   const tabClass = (active: boolean) =>
-    `flex-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition-colors ${
+    `flex-1 rounded px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] whitespace-nowrap transition-colors ${
       active
         ? 'bg-zinc-800 text-zinc-100'
         : 'text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300'
@@ -160,6 +169,14 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
         >
           Limit
         </button>
+        <button
+          type="button"
+          aria-pressed={orderType === 'stopLimit'}
+          className={tabClass(orderType === 'stopLimit')}
+          onClick={() => setTicketOrderType('stopLimit')}
+        >
+          Stop Limit
+        </button>
       </div>
 
       <TradeSizeControl
@@ -169,11 +186,15 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
         onChange={setTradeSize}
       />
 
-      {orderType === 'limit' && (
+      {isPendingTicketType(orderType) && (
         <LevelPriceControl
           label="Price"
-          ariaLabel="Limit price"
-          title="Limit price. Type or pick from the chart. Buy Limit must be below market; Sell Limit must be above market."
+          ariaLabel={orderType === 'stopLimit' ? 'Stop limit price' : 'Limit price'}
+          title={
+            orderType === 'stopLimit'
+              ? 'Stop-limit price. Type or pick from the chart. Buy Stop Limit must be above market; Sell Stop Limit must be below market.'
+              : 'Limit price. Type or pick from the chart. Buy Limit must be below market; Sell Limit must be above market.'
+          }
           value={limitPrice}
           precision={pricePrecision}
           disabled={busy || Boolean(position)}
@@ -215,15 +236,19 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
         <Tooltip
           className="min-w-0 w-full"
           text={
-            !canBuy && orderType === 'limit' && limitPrice == null
-              ? 'Pick or type a limit price'
-              : !canBuy && orderType === 'limit'
-                ? 'Buy Limit needs a price below market, with TP above and SL below entry'
-                : !canBuy
-                  ? 'TP/SL levels do not allow a long'
-                  : orderType === 'limit'
-                    ? 'Buy Limit — wait for price to trade down to the limit'
-                    : 'Buy — open long at the current close'
+            !canBuy && isPendingTicketType(orderType) && limitPrice == null
+              ? 'Pick or type a price'
+              : !canBuy && orderType === 'stopLimit'
+                ? 'Buy Stop Limit needs a price above market, with TP above and SL below entry'
+                : !canBuy && orderType === 'limit'
+                  ? 'Buy Limit needs a price below market, with TP above and SL below entry'
+                  : !canBuy
+                    ? 'TP/SL levels do not allow a long'
+                    : orderType === 'stopLimit'
+                      ? 'Buy Stop Limit — wait for price to trade up to the stop'
+                      : orderType === 'limit'
+                        ? 'Buy Limit — wait for price to trade down to the limit'
+                        : 'Buy — open long at the current close'
           }
         >
           <button
@@ -239,15 +264,19 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
         <Tooltip
           className="min-w-0 w-full"
           text={
-            !canSell && orderType === 'limit' && limitPrice == null
-              ? 'Pick or type a limit price'
-              : !canSell && orderType === 'limit'
-                ? 'Sell Limit needs a price above market, with TP below and SL above entry'
-                : !canSell
-                  ? 'TP/SL levels do not allow a short'
-                  : orderType === 'limit'
-                    ? 'Sell Limit — wait for price to trade up to the limit'
-                    : 'Sell — open short at the current close'
+            !canSell && isPendingTicketType(orderType) && limitPrice == null
+              ? 'Pick or type a price'
+              : !canSell && orderType === 'stopLimit'
+                ? 'Sell Stop Limit needs a price below market, with TP below and SL above entry'
+                : !canSell && orderType === 'limit'
+                  ? 'Sell Limit needs a price above market, with TP below and SL above entry'
+                  : !canSell
+                    ? 'TP/SL levels do not allow a short'
+                    : orderType === 'stopLimit'
+                      ? 'Sell Stop Limit — wait for price to trade down to the stop'
+                      : orderType === 'limit'
+                        ? 'Sell Limit — wait for price to trade up to the limit'
+                        : 'Sell — open short at the current close'
           }
         >
           <button
@@ -276,7 +305,7 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
 
       {canCancel && (
         <IconButton
-          tooltip="Cancel unfilled limit order"
+          tooltip="Cancel unfilled pending order"
           onClick={cancelPending}
           tone="accent"
           className="!h-8 !w-full gap-1 px-2.5"
@@ -298,7 +327,7 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
                 : 'font-semibold text-red-400'
             }
           >
-            {pendingOrder.side === 'long' ? 'BUY LIMIT' : 'SELL LIMIT'}
+            {formatOrderSideLabel(pendingOrder.side, pendingOrder.kind)}
           </span>
           <span className="text-zinc-500">{formatPositionSize(pendingOrder.lots, symbol)}</span>
           <span className="text-zinc-500">

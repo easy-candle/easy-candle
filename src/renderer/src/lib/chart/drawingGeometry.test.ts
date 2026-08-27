@@ -15,6 +15,7 @@ import {
   mirrorPositionLevel,
   positionLimitPlacementBlock,
   positionLimitPlacementHint,
+  positionPendingChipLabel,
   remapDrawingTimes,
   resolvedPositionLevels,
   remapDrawingTimes,
@@ -269,7 +270,25 @@ describe('position drawings', () => {
     expect(
       positionLimitPlacementBlock({ type: 'long', entry: 100, target: 110, stop: 90 }, ready)
     ).toBe(null)
+    expect(
+      positionLimitPlacementBlock(
+        { type: 'long', entry: 100, target: 110, stop: 90 },
+        { ...ready, markPrice: 100 }
+      )
+    ).toBe('at-mark')
+    expect(
+      positionLimitPlacementBlock(
+        { type: 'long', entry: 105, target: 115, stop: 95 },
+        { ...ready, markPrice: 100 }
+      )
+    ).toBe(null)
     expect(positionLimitPlacementHint(null, 'long')).toMatch(/buy limit/i)
+    expect(positionLimitPlacementHint(null, 'long', 'stopLimit')).toMatch(/buy stop limit/i)
+    expect(positionLimitPlacementHint(null, 'short', 'stopLimit')).toMatch(/sell stop limit/i)
+    expect(positionLimitPlacementHint('at-mark', 'long')).toMatch(/at the current price/i)
+    expect(positionPendingChipLabel('long', 'limit')).toBe('Place Buy Limit')
+    expect(positionPendingChipLabel('long', 'stopLimit')).toBe('Place Buy Stop Limit')
+    expect(positionPendingChipLabel('short', 'stopLimit')).toBe('Place Sell Stop Limit')
   })
 
   it('uses the painted 1:3 guide when TP/SL are still null on a fresh drawing', () => {

@@ -39,7 +39,11 @@ import {
   DEFAULT_RISK_REWARD,
   evaluatePendingFill,
   evaluateStopTakeProfit,
+  historicOrderFromMarketFill,
+  historicOrderFromPending,
+  isPendingTicketType,
   openPosition,
+  pendingKindForEntry,
   pendingToPosition,
   placePendingLimit,
   pnlScaleForSymbol,
@@ -55,10 +59,12 @@ import {
   withStopLoss,
   withTakeProfit,
   type ClosedTrade,
+  type HistoricOrder,
   type PendingOrder,
   type Position,
   type PnlScale,
   type SessionSummary,
+  type PendingOrderKind,
   type TicketOrderType,
   type TicketDraftLevels,
   type TradeRewindResult
@@ -249,6 +255,17 @@ function remapPositionTimes(open: Position | null, intervalSec: number): Positio
         ? alignTimeToInterval(open.pendingPlacedTime, intervalSec)
         : open.pendingPlacedTime
   }
+}
+
+function remapOrderHistoryToInterval(
+  orders: HistoricOrder[],
+  intervalSec: number
+): HistoricOrder[] {
+  return orders.map((order) => ({
+    ...order,
+    placedTime: alignTimeToInterval(order.placedTime, intervalSec),
+    updateTime: alignTimeToInterval(order.updateTime, intervalSec)
+  }))
 }
 
 const engine = createReplayEngine()
@@ -449,6 +466,8 @@ type ReplayStore = {
   position: Position | null
   pendingOrder: PendingOrder | null
   closedTrades: ClosedTrade[]
+  /** Filled market/limit orders and canceled pending limits. */
+  orderHistory: HistoricOrder[]
   tradeMarkers: TradeMarker[]
   sessionReport: SessionReport | null
   /** Reward multiple of risk for linked SL/TP (default 2 → 1:2). */
@@ -498,7 +517,7 @@ type ReplayStore = {
   paperBuy: () => void
   paperSell: () => void
   paperClose: () => void
-  placeLimit: (side: 'long' | 'short', price: number) => void
+  placeLimit: (side: 'long' | 'short', price: number, kind?: PendingOrderKind) => void
   cancelPending: () => void
   setPendingPrice: (price: number) => void
   setRiskReward: (value: number) => void
@@ -673,6 +692,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: rewound.position,
       pendingOrder: rewound.pendingOrder,
       closedTrades: rewound.closedTrades,
+      orderHistory: rewound.orderHistory,
       tradeMarkers,
       replayMessage: null
     })
@@ -688,6 +708,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         position: get().position,
         pendingOrder: get().pendingOrder,
         closedTrades: get().closedTrades,
+        orderHistory: get().orderHistory,
         leftCandleTime: leftCandle.time,
         leftCoverEnd: playheadCoverEnd(leftCandle.time, intervalSec),
         currentCandleTime
@@ -827,6 +848,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         pendingOrder: null,
         position: filled,
         tradeMarkers: [...s.tradeMarkers, marker],
+        orderHistory: [...s.orderHistory, historicOrderFromPending(pending, 'filled', candle.time)],
         replayMessage: null
       }))
       // Skip TP/SL on the fill bar — levels arm on later candles.
@@ -1407,6 +1429,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: null,
       pendingOrder: null,
       closedTrades: [],
+      orderHistory: [],
       tradeMarkers: [],
       chartSync: {
         kind: 'replace',
@@ -1623,6 +1646,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: null,
       pendingOrder: null,
       closedTrades: [],
+      orderHistory: [],
       tradeMarkers: [],
       driverPane: 'primary',
       ...(opts.keepImport
@@ -1689,6 +1713,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     set((s) => ({
       position: result.position,
       tradeMarkers: [...s.tradeMarkers, marker],
+      orderHistory: [...s.orderHistory, historicOrderFromMarketFill(result.position)],
       replayMessage: null
     }))
   }
@@ -1714,7 +1739,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }))
   }
 
-  function tryPlaceLimit(side: 'long' | 'short', price: number): void {
+  function tryPlaceLimit(side: 'long' | 'short', price: number, kind?: PendingOrderKind): void {
     if (get().mode !== 'replay') return
     if (get().replayLoading) return
     if (get().replayStatus === 'ended') return
@@ -1727,6 +1752,13 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       return
     }
 
+    const ticketKind = get().ticketOrderType
+    const resolvedKind =
+      kind ??
+      (isPendingTicketType(ticketKind)
+        ? ticketKind
+        : (pendingKindForEntry(side, candle.close, price) ?? 'limit'))
+
     const result = placePendingLimit({
       current: get().position,
       pending: get().pendingOrder,
@@ -1735,7 +1767,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       markPrice: candle.close,
       time: candle.time,
       id: nextTradeId(),
-      lots: clampTradeSizeForSymbol(get().tradeSize, get().symbol)
+      lots: clampTradeSizeForSymbol(get().tradeSize, get().symbol),
+      kind: resolvedKind
     })
     if (!result.ok) {
       set({ replayMessage: result.reason })
@@ -1747,8 +1780,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   function tryCancelPending(): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
-    if (!get().pendingOrder) return
-    set({ pendingOrder: null, replayMessage: null, ...EMPTY_TICKET_LEVELS })
+    const pending = get().pendingOrder
+    if (!pending) return
+    const candle = priceFollowCandle()
+    const updateTime = candle?.time ?? pending.placedTime
+    set((s) => ({
+      pendingOrder: null,
+      orderHistory: [...s.orderHistory, historicOrderFromPending(pending, 'canceled', updateTime)],
+      replayMessage: null,
+      ...EMPTY_TICKET_LEVELS
+    }))
   }
 
   function trySetPendingPrice(price: number): void {
@@ -2208,6 +2249,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             ? alignTimeToInterval(trade.pendingPlacedTime, nextIntervalSec)
             : trade.pendingPlacedTime
       }))
+      const remappedOrderHistory = remapOrderHistoryToInterval(get().orderHistory, nextIntervalSec)
 
       const keptSpeed = engine.getState().speed
       engine.load(loaded.candles)
@@ -2225,6 +2267,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         pendingOrder: remappedPendingOrder,
         position: remappedPosition,
         closedTrades: remappedClosed,
+        orderHistory: remappedOrderHistory,
         replayLoading: false,
         replayMessage: `Switched imported replay to ${nextTimeframe}.`,
         status: 'ready',
@@ -2257,6 +2300,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           ? alignTimeToInterval(trade.pendingPlacedTime, nextIntervalSec)
           : trade.pendingPlacedTime
     }))
+    const remappedOrderHistory = remapOrderHistoryToInterval(get().orderHistory, nextIntervalSec)
 
     set({
       timeframe: nextTimeframe,
@@ -2265,7 +2309,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       pendingOrder: remappedPendingOrder,
       tradeMarkers: remappedMarkers,
       position: remappedPosition,
-      closedTrades: remappedClosed
+      closedTrades: remappedClosed,
+      orderHistory: remappedOrderHistory
     })
 
     const ok = await loadReplayWindow(seekTime, {
@@ -2314,6 +2359,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     position: null,
     pendingOrder: null,
     closedTrades: [],
+    orderHistory: [],
     tradeMarkers: [],
     sessionReport: null,
     riskReward: DEFAULT_RISK_REWARD,
@@ -2588,8 +2634,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       tryClose()
     },
 
-    placeLimit(side, price) {
-      tryPlaceLimit(side, price)
+    placeLimit(side, price, kind) {
+      tryPlaceLimit(side, price, kind)
     },
 
     cancelPending() {
@@ -2632,7 +2678,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     setTicketOrderType(type) {
-      if (type !== 'market' && type !== 'limit') return
+      if (type !== 'market' && type !== 'limit' && type !== 'stopLimit') return
       set({ ticketOrderType: type })
       if (type === 'market' && get().pricePick === 'limit') {
         set({ pricePick: null })

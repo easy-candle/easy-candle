@@ -32,6 +32,7 @@ function seedReplayIn(
     position: null,
     pendingOrder: null,
     closedTrades: closedTrades ?? [],
+    orderHistory: [],
     tradeMarkers: []
   })
 }
@@ -80,8 +81,34 @@ describe('createSession', () => {
     expect(session?.timeframe).toBe('15m')
     expect(session?.drawings).toEqual([{ id: 'd-1', type: 'hline', price: 100 }])
     expect(session?.closedTrades).toHaveLength(1)
+    expect(session?.orderHistory).toEqual([])
     expect(session?.autoSave).toBe(true)
     expect(session?.position).toBeNull()
+  })
+
+  it('captures canceled orders in order history', () => {
+    freshStore()
+    seedReplay()
+    useReplayStore.setState({
+      orderHistory: [
+        {
+          id: 'o-1',
+          side: 'long',
+          type: 'limit',
+          status: 'canceled',
+          price: 95,
+          lots: 1,
+          placedTime: 10,
+          updateTime: 20,
+          takeProfit: 110,
+          stopLoss: 90
+        }
+      ]
+    })
+    const id = useSessionStore.getState().createSession('Canceled Limit')
+    const session = useSessionStore.getState().sessions.find((item) => item.id === id)
+    expect(session?.orderHistory).toHaveLength(1)
+    expect(session?.orderHistory[0]).toMatchObject({ status: 'canceled', type: 'limit', price: 95 })
   })
 
   it('rejects blank names', () => {
@@ -195,6 +222,22 @@ describe('loadSession', () => {
         }
       ]
     )
+    useReplayStore.setState({
+      orderHistory: [
+        {
+          id: 'o-9',
+          side: 'short',
+          type: 'limit',
+          status: 'canceled',
+          price: 52,
+          lots: 2,
+          placedTime: 3,
+          updateTime: 4,
+          takeProfit: 45,
+          stopLoss: 55
+        }
+      ]
+    })
     const id = useSessionStore.getState().createSession('Load Me')!
     // Wipe the chart, then restore from the session.
     seedReplay()
@@ -205,6 +248,8 @@ describe('loadSession', () => {
     ])
     expect(chart.drawTool).toBe('select')
     expect(chart.closedTrades).toHaveLength(1)
+    expect(chart.orderHistory).toHaveLength(1)
+    expect(chart.orderHistory[0].status).toBe('canceled')
     expect(useSessionStore.getState().activeSessionId).toBe(id)
   })
 
@@ -264,6 +309,7 @@ describe('persisted load', () => {
             position: null,
             pendingOrder: null,
             closedTrades: [],
+            orderHistory: [],
             tradeMarkers: []
           },
           { id: 's-2', name: '', drawings: [] },

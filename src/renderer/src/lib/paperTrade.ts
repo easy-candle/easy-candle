@@ -19,14 +19,20 @@ export type Position = {
   lots: number
   takeProfit: number | null
   stopLoss: number | null
-  /** When this position filled from a limit, restore that pending on rewind. */
+  /** When this position filled from a pending, restore that pending on rewind. */
   pendingPlacedTime?: number | null
+  /** Limit vs stop-limit of the pending that filled this position. */
+  pendingKind?: PendingOrderKind | null
 }
 
-/** Unfilled Buy Limit (long) or Sell Limit (short). */
+/** Unfilled Buy/Sell Limit or Buy/Sell Stop Limit. */
+export type PendingOrderKind = 'limit' | 'stopLimit'
+
 export type PendingOrder = {
   id: string
   side: PositionSide
+  /** Limit waits for a better price; stop-limit waits for a breakout through price. */
+  kind: PendingOrderKind
   price: number
   placedTime: number
   lots: number
@@ -47,6 +53,25 @@ export type ClosedTrade = {
   takeProfit: number | null
   stopLoss: number | null
   pendingPlacedTime?: number | null
+  pendingKind?: PendingOrderKind | null
+}
+
+export type HistoricOrderType = 'market' | PendingOrderKind
+export type HistoricOrderStatus = 'filled' | 'canceled'
+
+/** Filled market/limit/stop-limit orders and canceled pendings (Order History). */
+export type HistoricOrder = {
+  id: string
+  side: PositionSide
+  type: HistoricOrderType
+  status: HistoricOrderStatus
+  price: number
+  lots: number
+  placedTime: number
+  /** Fill time or cancel time. */
+  updateTime: number
+  takeProfit: number | null
+  stopLoss: number | null
 }
 
 export type SideReport = {
@@ -248,6 +273,62 @@ export function isValidLimitPrice(side: PositionSide, markPrice: number, price: 
   return price > markPrice
 }
 
+/** Buy Stop Limit must sit above mark; Sell Stop Limit must sit below mark. */
+export function isValidStopLimitPrice(
+  side: PositionSide,
+  markPrice: number,
+  price: number
+): boolean {
+  if (!Number.isFinite(price) || !Number.isFinite(markPrice)) return false
+  if (side === 'long') return price > markPrice
+  return price < markPrice
+}
+
+export function isValidPendingPrice(
+  kind: PendingOrderKind,
+  side: PositionSide,
+  markPrice: number,
+  price: number
+): boolean {
+  return kind === 'stopLimit'
+    ? isValidStopLimitPrice(side, markPrice, price)
+    : isValidLimitPrice(side, markPrice, price)
+}
+
+/** Infer limit vs stop-limit from which side of mark the entry sits. */
+export function pendingKindForEntry(
+  side: PositionSide,
+  markPrice: number,
+  price: number
+): PendingOrderKind | null {
+  if (isValidLimitPrice(side, markPrice, price)) return 'limit'
+  if (isValidStopLimitPrice(side, markPrice, price)) return 'stopLimit'
+  return null
+}
+
+export function resolvedPendingKind(kind: PendingOrderKind | null | undefined): PendingOrderKind {
+  return kind === 'stopLimit' ? 'stopLimit' : 'limit'
+}
+
+export function isPendingTicketType(type: TicketOrderType): type is PendingOrderKind {
+  return type === 'limit' || type === 'stopLimit'
+}
+
+function pendingPriceReason(kind: PendingOrderKind, side: PositionSide): string {
+  if (kind === 'stopLimit') {
+    return side === 'long'
+      ? 'Buy Stop Limit must be above current price'
+      : 'Sell Stop Limit must be below current price'
+  }
+  return side === 'long'
+    ? 'Buy Limit must be below current price'
+    : 'Sell Limit must be above current price'
+}
+
+function pendingEntryNoun(kind: PendingOrderKind): string {
+  return kind === 'stopLimit' ? 'stop limit' : 'limit'
+}
+
 /** Pending SL is classic risk vs the limit price (no lock-profit trail yet). */
 export function isValidPendingStopLoss(
   side: PositionSide,
@@ -259,7 +340,7 @@ export function isValidPendingStopLoss(
   return price > entryPrice
 }
 
-export type TicketOrderType = 'market' | 'limit'
+export type TicketOrderType = 'market' | PendingOrderKind
 
 export type TicketDraftLevels = {
   orderType: TicketOrderType
@@ -269,10 +350,12 @@ export type TicketDraftLevels = {
   stopLoss: number | null | undefined
 }
 
-/** Entry used to validate TP/SL: limit price, or mark for a market ticket. */
+/** Entry used to validate TP/SL: pending price, or mark for a market ticket. */
 export function ticketEntryPrice(levels: TicketDraftLevels): number | null {
-  if (levels.orderType === 'limit') {
-    return levels.limitPrice != null && Number.isFinite(levels.limitPrice) ? levels.limitPrice : null
+  if (isPendingTicketType(levels.orderType)) {
+    return levels.limitPrice != null && Number.isFinite(levels.limitPrice)
+      ? levels.limitPrice
+      : null
   }
   return levels.markPrice != null && Number.isFinite(levels.markPrice) ? levels.markPrice : null
 }
@@ -316,10 +399,10 @@ export function canPlaceTicketSide(side: PositionSide, levels: TicketDraftLevels
   const mark = levels.markPrice
   if (mark == null || !Number.isFinite(mark)) return false
 
-  if (levels.orderType === 'limit') {
+  if (isPendingTicketType(levels.orderType)) {
     const limit = levels.limitPrice
     if (limit == null || !Number.isFinite(limit)) return false
-    if (!isValidLimitPrice(side, mark, limit)) return false
+    if (!isValidPendingPrice(levels.orderType, side, mark, limit)) return false
     if (levels.takeProfit != null && !isValidTakeProfit(side, limit, levels.takeProfit)) {
       return false
     }
@@ -401,8 +484,10 @@ export function placePendingLimit(args: {
   time: number
   id: string
   lots?: number
+  kind?: PendingOrderKind
 }): { ok: true; pending: PendingOrder } | { ok: false; reason: string } {
   const { current, pending, side, price, markPrice, time, id } = args
+  const kind = resolvedPendingKind(args.kind)
   if (side !== 'long' && side !== 'short') {
     return { ok: false, reason: 'Invalid side' }
   }
@@ -415,13 +500,10 @@ export function placePendingLimit(args: {
   if (!Number.isFinite(price) || !Number.isFinite(time) || !Number.isFinite(markPrice)) {
     return { ok: false, reason: 'Invalid limit' }
   }
-  if (!isValidLimitPrice(side, markPrice, price)) {
+  if (!isValidPendingPrice(kind, side, markPrice, price)) {
     return {
       ok: false,
-      reason:
-        side === 'long'
-          ? 'Buy Limit must be below current price'
-          : 'Sell Limit must be above current price'
+      reason: pendingPriceReason(kind, side)
     }
   }
   return {
@@ -429,6 +511,7 @@ export function placePendingLimit(args: {
     pending: {
       id,
       side,
+      kind,
       price,
       placedTime: time,
       lots: resolvedLots(args.lots),
@@ -446,13 +529,11 @@ export function withPendingPrice(
   if (!Number.isFinite(price) || !Number.isFinite(markPrice)) {
     return { ok: false, reason: 'Invalid limit' }
   }
-  if (!isValidLimitPrice(pending.side, markPrice, price)) {
+  const kind = resolvedPendingKind(pending.kind)
+  if (!isValidPendingPrice(kind, pending.side, markPrice, price)) {
     return {
       ok: false,
-      reason:
-        pending.side === 'long'
-          ? 'Buy Limit must be below current price'
-          : 'Sell Limit must be above current price'
+      reason: pendingPriceReason(kind, pending.side)
     }
   }
   let next: PendingOrder = { ...pending, price }
@@ -473,12 +554,13 @@ export function withPendingTakeProfit(
     return { ok: true, pending: { ...pending, takeProfit: null } }
   }
   if (!isValidTakeProfit(pending.side, pending.price, price)) {
+    const noun = pendingEntryNoun(resolvedPendingKind(pending.kind))
     return {
       ok: false,
       reason:
         pending.side === 'long'
-          ? 'Take profit must be above limit'
-          : 'Take profit must be below limit'
+          ? `Take profit must be above ${noun}`
+          : `Take profit must be below ${noun}`
     }
   }
   return { ok: true, pending: { ...pending, takeProfit: price } }
@@ -492,16 +574,19 @@ export function withPendingStopLoss(
     return { ok: true, pending: { ...pending, stopLoss: null } }
   }
   if (!isValidPendingStopLoss(pending.side, pending.price, price)) {
+    const noun = pendingEntryNoun(resolvedPendingKind(pending.kind))
     return {
       ok: false,
       reason:
-        pending.side === 'long' ? 'Stop loss must be below limit' : 'Stop loss must be above limit'
+        pending.side === 'long'
+          ? `Stop loss must be below ${noun}`
+          : `Stop loss must be above ${noun}`
     }
   }
   return { ok: true, pending: { ...pending, stopLoss: price } }
 }
 
-/** True when this Replay candle trades through the pending limit. */
+/** True when this Replay candle trades through the pending entry. */
 export function evaluatePendingFill(
   pending: PendingOrder,
   candle: Pick<Candle, 'high' | 'low' | 'close'>
@@ -511,10 +596,11 @@ export function evaluatePendingFill(
   if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
     return false
   }
+  const stop = resolvedPendingKind(pending.kind) === 'stopLimit'
   if (side === 'long') {
-    return low <= price || close <= price
+    return stop ? high >= price || close >= price : low <= price || close <= price
   }
-  return high >= price || close >= price
+  return stop ? low <= price || close <= price : high >= price || close >= price
 }
 
 export function pendingToPosition(pending: PendingOrder, fillTime: number): Position {
@@ -526,7 +612,55 @@ export function pendingToPosition(pending: PendingOrder, fillTime: number): Posi
     lots: resolvedLots(pending.lots),
     takeProfit: pending.takeProfit,
     stopLoss: pending.stopLoss,
-    pendingPlacedTime: pending.placedTime
+    pendingPlacedTime: pending.placedTime,
+    pendingKind: resolvedPendingKind(pending.kind)
+  }
+}
+
+export function historicOrderFromPending(
+  pending: PendingOrder,
+  status: HistoricOrderStatus,
+  updateTime: number
+): HistoricOrder {
+  return {
+    id: pending.id,
+    side: pending.side,
+    type: resolvedPendingKind(pending.kind),
+    status,
+    price: pending.price,
+    lots: resolvedLots(pending.lots),
+    placedTime: pending.placedTime,
+    updateTime,
+    takeProfit: pending.takeProfit,
+    stopLoss: pending.stopLoss
+  }
+}
+
+export function historicOrderFromMarketFill(position: Position): HistoricOrder {
+  return {
+    id: position.id,
+    side: position.side,
+    type: 'market',
+    status: 'filled',
+    price: position.entryPrice,
+    lots: resolvedLots(position.lots),
+    placedTime: position.entryTime,
+    updateTime: position.entryTime,
+    takeProfit: position.takeProfit,
+    stopLoss: position.stopLoss
+  }
+}
+
+export function pendingFromHistoricOrder(order: HistoricOrder): PendingOrder {
+  return {
+    id: order.id,
+    side: order.side,
+    kind: resolvedPendingKind(order.type === 'stopLimit' ? 'stopLimit' : 'limit'),
+    price: order.price,
+    placedTime: order.placedTime,
+    lots: resolvedLots(order.lots),
+    takeProfit: order.takeProfit,
+    stopLoss: order.stopLoss
   }
 }
 
@@ -539,6 +673,7 @@ function pendingFromFilledPosition(
   return {
     id: position.id,
     side: position.side,
+    kind: resolvedPendingKind(position.pendingKind),
     price: position.entryPrice,
     placedTime: placed,
     lots: resolvedLots(position.lots),
@@ -609,7 +744,10 @@ export function closePosition(
     exitReason,
     takeProfit: position.takeProfit,
     stopLoss: position.stopLoss,
-    pendingPlacedTime: position.pendingPlacedTime ?? null
+    pendingPlacedTime: position.pendingPlacedTime ?? null,
+    ...(position.pendingKind === 'limit' || position.pendingKind === 'stopLimit'
+      ? { pendingKind: position.pendingKind }
+      : {})
   }
 }
 
@@ -623,7 +761,10 @@ export function positionFromClosedTrade(trade: ClosedTrade): Position {
     lots: resolvedLots(trade.lots),
     takeProfit: trade.takeProfit,
     stopLoss: trade.stopLoss,
-    pendingPlacedTime: trade.pendingPlacedTime ?? null
+    pendingPlacedTime: trade.pendingPlacedTime ?? null,
+    ...(trade.pendingKind === 'limit' || trade.pendingKind === 'stopLimit'
+      ? { pendingKind: trade.pendingKind }
+      : {})
   }
 }
 
@@ -631,22 +772,30 @@ export type TradeRewindResult = {
   position: Position | null
   pendingOrder: PendingOrder | null
   closedTrades: ClosedTrade[]
+  orderHistory: HistoricOrder[]
   /** Entry times whose open markers should be removed (forgotten / reset). */
   discardedEntryTimes: number[]
+}
+
+function eventOnLeftCandle(time: number, leftCandleTime: number, leftCoverEnd: number): boolean {
+  return time >= leftCandleTime && time <= leftCoverEnd
 }
 
 /**
  * After stepping one candle backward from `leftCandleTime` to `currentCandleTime`:
  * - Reopen a trade closed on the left candle (if still at/after its entry).
  * - Restore a limit pending if rewind lands before fill but after place.
+ * - Restore a canceled limit if rewind lands before cancel but after place.
  * - Forget a trade entirely if rewind lands before its entry (reset decision).
  * - Drop an open position if current is before its entry.
  * - Drop a pending if current is before its place time.
+ * - Drop order-history rows whose fill/cancel is on the left candle.
  */
 export function rewindTradesAfterStepBack(args: {
   position: Position | null
   pendingOrder?: PendingOrder | null
   closedTrades: ClosedTrade[]
+  orderHistory?: HistoricOrder[]
   leftCandleTime: number
   /** Inclusive end of the left candle. Defaults to `leftCandleTime` (exact match). */
   leftCoverEnd?: number
@@ -657,6 +806,7 @@ export function rewindTradesAfterStepBack(args: {
   let position = args.position
   let pendingOrder = args.pendingOrder ?? null
   let closedTrades = Array.isArray(args.closedTrades) ? [...args.closedTrades] : []
+  let orderHistory = Array.isArray(args.orderHistory) ? [...args.orderHistory] : []
   const discardedEntryTimes: number[] = []
 
   if (position && currentCandleTime < position.entryTime) {
@@ -669,7 +819,7 @@ export function rewindTradesAfterStepBack(args: {
     let idx = -1
     for (let i = closedTrades.length - 1; i >= 0; i -= 1) {
       const exitTime = closedTrades[i].exitTime
-      if (exitTime >= leftCandleTime && exitTime <= leftCoverEnd) {
+      if (eventOnLeftCandle(exitTime, leftCandleTime, leftCoverEnd)) {
         idx = i
         break
       }
@@ -693,11 +843,32 @@ export function rewindTradesAfterStepBack(args: {
     }
   }
 
+  const restoredCanceled: HistoricOrder[] = []
+  const keptHistory: HistoricOrder[] = []
+  for (const order of orderHistory) {
+    if (!eventOnLeftCandle(order.updateTime, leftCandleTime, leftCoverEnd)) {
+      keptHistory.push(order)
+      continue
+    }
+    if (order.status === 'canceled') restoredCanceled.push(order)
+  }
+  orderHistory = keptHistory
+
+  if (!position && !pendingOrder) {
+    for (let i = restoredCanceled.length - 1; i >= 0; i -= 1) {
+      const order = restoredCanceled[i]
+      if (isPendingTicketType(order.type) && order.placedTime <= currentCandleTime) {
+        pendingOrder = pendingFromHistoricOrder(order)
+        break
+      }
+    }
+  }
+
   if (pendingOrder && currentCandleTime < pendingOrder.placedTime) {
     pendingOrder = null
   }
 
-  return { position, pendingOrder, closedTrades, discardedEntryTimes }
+  return { position, pendingOrder, closedTrades, orderHistory, discardedEntryTimes }
 }
 
 /**
@@ -851,6 +1022,16 @@ export function formatExitReason(reason: ExitReason | undefined): string {
     default:
       return 'Manual'
   }
+}
+
+export function formatOrderSideLabel(side: PositionSide, type: HistoricOrderType): string {
+  if (type === 'stopLimit') return side === 'long' ? 'BUY STOP LIMIT' : 'SELL STOP LIMIT'
+  if (type === 'limit') return side === 'long' ? 'BUY LIMIT' : 'SELL LIMIT'
+  return side === 'long' ? 'BUY' : 'SELL'
+}
+
+export function formatOrderStatus(status: HistoricOrderStatus): string {
+  return status === 'canceled' ? 'Canceled' : 'Filled'
 }
 
 export function tradesToCsv(closedTrades: ClosedTrade[]): string {

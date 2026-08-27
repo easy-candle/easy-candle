@@ -187,10 +187,11 @@ export function isValidPositionLevel(
   return side === 'long' ? price < entry : price > entry
 }
 
-/** Why the place-limit chip cannot submit from a position drawing. */
+/** Why the place-pending chip cannot submit from a position drawing. */
 export type PositionLimitPlacementBlock =
   | 'working-trade'
   | 'no-mark'
+  | 'at-mark'
   | 'missing-tp'
   | 'missing-sl'
   | 'missing-levels'
@@ -200,18 +201,23 @@ export type PositionLimitPlacementBlock =
 /**
  * A fresh long/short drawing may still have null `target`/`stop` while the
  * overlay paints the 1:3 guide. Resolve those guide prices before blocking so
- * Place Limit uses the box the user already sees.
+ * Place Limit / Stop Limit uses the box the user already sees.
  */
 export function positionLimitPlacementBlock(
   drawing: Pick<PositionDrawing, 'type' | 'entry' | 'target' | 'stop'>,
   opts: {
     hasWorkingTrade: boolean
     hasMark: boolean
+    markPrice?: number | null
     visibleRange?: VisiblePriceRange | null
   }
 ): PositionLimitPlacementBlock | null {
   if (opts.hasWorkingTrade) return 'working-trade'
   if (!opts.hasMark) return 'no-mark'
+  const mark = opts.markPrice
+  if (mark != null && Number.isFinite(mark) && !(drawing.entry < mark) && !(drawing.entry > mark)) {
+    return 'at-mark'
+  }
   const levels = resolvedPositionLevels(drawing, opts.visibleRange)
   if (levels.target == null && levels.stop == null) return 'missing-levels'
   if (levels.target == null) return 'missing-tp'
@@ -225,15 +231,28 @@ export function positionLimitPlacementBlock(
   return null
 }
 
+export function positionPendingChipLabel(
+  side: 'long' | 'short',
+  kind: 'limit' | 'stopLimit' | null | undefined
+): string {
+  if (side === 'long') {
+    return kind === 'stopLimit' ? 'Place Buy Stop Limit' : 'Place Buy Limit'
+  }
+  return kind === 'stopLimit' ? 'Place Sell Stop Limit' : 'Place Sell Limit'
+}
+
 export function positionLimitPlacementHint(
   block: PositionLimitPlacementBlock | null,
-  side: 'long' | 'short'
+  side: 'long' | 'short',
+  kind?: 'limit' | 'stopLimit' | null
 ): string {
   switch (block) {
     case 'working-trade':
-      return 'Cannot place a limit — an open position or pending order already exists'
+      return 'Cannot place a pending order — an open position or pending order already exists'
     case 'no-mark':
-      return 'Cannot place a limit — no current price'
+      return 'Cannot place a pending order — no current price'
+    case 'at-mark':
+      return 'Cannot place a pending order — entry is at the current price. Move the box above or below market'
     case 'missing-levels':
       return 'Take profit and stop loss are not set — drag the TP and SL handles first'
     case 'missing-tp':
@@ -245,6 +264,11 @@ export function positionLimitPlacementHint(
     case 'invalid-sl':
       return 'Drawn stop loss is not valid for this entry'
     default:
+      if (kind === 'stopLimit') {
+        return side === 'long'
+          ? 'Place a Buy Stop Limit at the drawing entry with its drawn TP/SL'
+          : 'Place a Sell Stop Limit at the drawing entry with its drawn TP/SL'
+      }
       return side === 'long'
         ? 'Place a Buy Limit at the drawing entry with its drawn TP/SL'
         : 'Place a Sell Limit at the drawing entry with its drawn TP/SL'
