@@ -22,6 +22,7 @@ import {
   resolvedPositionLevels,
   positionLimitPlacementBlock,
   positionLimitPlacementHint,
+  positionPendingChipLabel,
   type Drawing,
   type DrawingStyle,
   type Endpoint,
@@ -58,16 +59,19 @@ import {
   formatPnlUsd,
   formatRiskReward,
   formatTradeSizeForSymbol,
-  isValidLimitPrice,
+  isPendingTicketType,
+  isValidPendingPrice,
   isValidPendingStopLoss,
   isValidStopLoss,
   isValidTakeProfit,
   inferTicketSide,
   linkedTicketOpposite,
+  pendingKindForEntry,
   pendingToPosition,
   pnlForSide,
   pnlScaleForSymbol,
   realizedRiskReward,
+  resolvedPendingKind,
   stopLossFromTakeProfit,
   takeProfitFromStopLoss,
   unrealizedPnl
@@ -164,7 +168,7 @@ const POSITION_BOX_MIN_W = 140
 /** Minimum visible box height (px) when no TP/SL is armed yet. */
 const POSITION_BOX_MIN_H = 26
 /** "Place Buy/Sell Limit" chip shown above a selected position drawing. */
-const PLACE_LIMIT_CHIP_W = 108
+const PLACE_LIMIT_CHIP_W = 148
 const PLACE_LIMIT_CHIP_H = 22
 /** Vertical gap (px) between the box top edge and the chip. */
 const PLACE_LIMIT_CHIP_GAP = 26
@@ -639,7 +643,7 @@ export default function DrawingOverlay({
         const pending = state.pendingOrder
         const mark = state.currentCandle?.close
         if (!pending || mark == null) return
-        if (isValidLimitPrice(pending.side, mark, price)) {
+        if (isValidPendingPrice(resolvedPendingKind(pending.kind), pending.side, mark, price)) {
           setPendingPrice(price)
         }
         return
@@ -669,10 +673,9 @@ export default function DrawingOverlay({
           }
           return
         }
-        const entry =
-          state.ticketOrderType === 'limit'
-            ? state.ticketLimitPrice
-            : (state.currentCandle?.close ?? null)
+        const entry = isPendingTicketType(state.ticketOrderType)
+          ? state.ticketLimitPrice
+          : (state.currentCandle?.close ?? null)
         if (drag.level === 'tp') {
           setTicketTakeProfit(price)
           if (drag.linkRr && entry != null) {
@@ -1188,31 +1191,38 @@ export default function DrawingOverlay({
     }
   }
 
-  /** "Place limit" action for a selected position drawing: auto-submits a Buy/Sell
-   * Limit at the drawing's entry with its drawn TP/SL levels, then deselects so
-   * the button is not shown again. A fresh drawing's painted 1:3 guide is used
-   * when the handles have not been dragged yet.
+  /** Place Limit / Stop Limit from a selected position drawing: auto-submits at
+   * the drawing's entry with its drawn TP/SL, then deselects so the button is
+   * not shown again. Entry vs mark picks Buy/Sell Limit or Stop Limit. A fresh
+   * drawing's painted 1:3 guide is used when the handles have not been dragged.
    */
   const limitAction =
     selectedDrawing != null && isPositionDrawing(selectedDrawing) && canEditTrade
       ? (() => {
           const visibleRange = readVisiblePriceRange()
           const levels = resolvedPositionLevels(selectedDrawing, visibleRange)
+          const mark = markCandle?.close ?? null
+          const pendingKind =
+            mark != null
+              ? pendingKindForEntry(selectedDrawing.type, mark, selectedDrawing.entry)
+              : null
           const block = positionLimitPlacementBlock(selectedDrawing, {
             hasWorkingTrade: Boolean(position || pendingOrder),
-            hasMark: markCandle?.close != null,
+            hasMark: mark != null,
+            markPrice: mark,
             visibleRange
           })
           return {
             side: selectedDrawing.type,
+            kind: pendingKind,
             disabled: block != null,
-            hint: positionLimitPlacementHint(block, selectedDrawing.type),
+            hint: positionLimitPlacementHint(block, selectedDrawing.type, pendingKind),
             onPlace: () => {
-              if (block != null) return
+              if (block != null || pendingKind == null) return
               const target = levels.target
               const stop = levels.stop
               if (target == null || stop == null) return
-              placeLimit(selectedDrawing.type, selectedDrawing.entry)
+              placeLimit(selectedDrawing.type, selectedDrawing.entry, pendingKind)
               setTakeProfit(target, { linkRr: false })
               setStopLoss(stop, { linkRr: false })
               selectDrawing(null)
@@ -1265,7 +1275,7 @@ export default function DrawingOverlay({
     working == null &&
     (ticketTakeProfit != null ||
       ticketStopLoss != null ||
-      (ticketOrderType === 'limit' && ticketLimitPrice != null))
+      (isPendingTicketType(ticketOrderType) && ticketLimitPrice != null))
   const draftLevels = {
     orderType: ticketOrderType,
     markPrice: markCandle?.close,
@@ -1275,15 +1285,16 @@ export default function DrawingOverlay({
   }
   const draftSide = showTicketDraft ? inferTicketSide(draftLevels) : null
   const draftEntryColor = draftSide === 'short' ? TRADE_OVERLAY.shortLine : TRADE_OVERLAY.longLine
-  const draftEntryPrice =
-    ticketOrderType === 'limit'
-      ? ticketLimitPrice
-      : ticketTakeProfit != null || ticketStopLoss != null
-        ? (markCandle?.close ?? null)
-        : null
-  const draftEntryDraggable = ticketOrderType === 'limit'
+  const draftEntryPrice = isPendingTicketType(ticketOrderType)
+    ? ticketLimitPrice
+    : ticketTakeProfit != null || ticketStopLoss != null
+      ? (markCandle?.close ?? null)
+      : null
+  const draftEntryDraggable = isPendingTicketType(ticketOrderType)
 
-  const openPnlLabel = isPending ? 'Limit' : formatPnlUsd(openPnl)
+  const pendingKindLabel =
+    resolvedPendingKind(pendingOrder?.kind) === 'stopLimit' ? 'Stop Lim' : 'Limit'
+  const openPnlLabel = isPending ? pendingKindLabel : formatPnlUsd(openPnl)
   const tpPnl =
     working != null && tpPrice != null
       ? pnlForSide(working.side, working.entryPrice, tpPrice, pnlScale)
@@ -1325,8 +1336,9 @@ export default function DrawingOverlay({
   ) {
     const y = series?.priceToCoordinate(price)
     if (y == null) return null
-    const hasEntry =
-      ticketOrderType === 'limit' ? ticketLimitPrice != null : markCandle?.close != null
+    const hasEntry = isPendingTicketType(ticketOrderType)
+      ? ticketLimitPrice != null
+      : markCandle?.close != null
     const rrSource: 'tp' | 'sl' | undefined =
       level === 'limit'
         ? ticketStopLoss != null && ticketTakeProfit == null
@@ -2362,7 +2374,7 @@ export default function DrawingOverlay({
         (() => {
           const origin = positionChipOrigin(selectedDrawing)
           if (!origin) return null
-          const label = limitAction.side === 'long' ? 'Place Buy Limit' : 'Place Sell Limit'
+          const label = positionPendingChipLabel(limitAction.side, limitAction.kind)
           return (
             <div
               className="absolute z-[30]"

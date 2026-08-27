@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import type { Drawing, FibLevelConfig } from '@/lib/chart/drawingGeometry'
-import type { ClosedTrade, HistoricOrder, PendingOrder, Position } from '@/lib/paperTrade'
+import type {
+  ClosedTrade,
+  HistoricOrder,
+  PendingOrder,
+  PendingOrderKind,
+  Position
+} from '@/lib/paperTrade'
 import { useReplayStore, type TradeMarker, type ViewMode } from '@/store/replayStore'
 
 const STORAGE_KEY = 'easy-candle:sessions'
@@ -12,8 +18,8 @@ const AUTO_SAVE_DEBOUNCE_MS = 800
 
 /**
  * A named, persisted bundle of the chart state: the drawings on the chart,
- * every paper-trade order (open position, pending limit, closed trades,
- * and order history including canceled limits),
+ * every paper-trade order (open position, pending limit or stop-limit, closed trades,
+ * and order history including canceled pendings),
  * and the replay position — captured together. With `autoSave` enabled the
  * bundle follows live edits, so the replay playhead is kept up to date while
  * the app is closed and can be resumed later from the same spot.
@@ -210,6 +216,10 @@ function sanitizeSide(raw: unknown): 'long' | 'short' | null {
   return raw === 'long' || raw === 'short' ? raw : null
 }
 
+function sanitizePendingKind(raw: unknown): PendingOrderKind | undefined {
+  return raw === 'stopLimit' || raw === 'limit' ? raw : undefined
+}
+
 function sanitizePosition(raw: unknown): Position | null {
   if (!raw || typeof raw !== 'object') return null
   const rec = raw as Record<string, unknown>
@@ -232,6 +242,9 @@ function sanitizePosition(raw: unknown): Position | null {
     stopLoss: isFiniteNumber(rec.stopLoss) ? rec.stopLoss : null,
     ...(isFiniteNumber(rec.pendingPlacedTime)
       ? { pendingPlacedTime: rec.pendingPlacedTime as number }
+      : {}),
+    ...(sanitizePendingKind(rec.pendingKind)
+      ? { pendingKind: sanitizePendingKind(rec.pendingKind) }
       : {})
   }
 }
@@ -247,6 +260,7 @@ function sanitizePendingOrder(raw: unknown): PendingOrder | null {
   return {
     id: rec.id,
     side,
+    kind: sanitizePendingKind(rec.kind) ?? 'limit',
     price: rec.price,
     placedTime: rec.placedTime,
     lots: rec.lots,
@@ -256,7 +270,7 @@ function sanitizePendingOrder(raw: unknown): PendingOrder | null {
 }
 
 const EXIT_REASONS = ['manual', 'tp', 'sl', 'session_exit'] as const
-const ORDER_TYPES = ['market', 'limit'] as const
+const ORDER_TYPES = ['market', 'limit', 'stopLimit'] as const
 const ORDER_STATUSES = ['filled', 'canceled'] as const
 
 function sanitizeClosedTrade(raw: unknown): ClosedTrade | null {
@@ -291,6 +305,9 @@ function sanitizeClosedTrade(raw: unknown): ClosedTrade | null {
     stopLoss: isFiniteNumber(rec.stopLoss) ? rec.stopLoss : null,
     ...(isFiniteNumber(rec.pendingPlacedTime)
       ? { pendingPlacedTime: rec.pendingPlacedTime as number }
+      : {}),
+    ...(sanitizePendingKind(rec.pendingKind)
+      ? { pendingKind: sanitizePendingKind(rec.pendingKind) }
       : {})
   }
 }

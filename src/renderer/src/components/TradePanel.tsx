@@ -66,13 +66,11 @@ function PendingOrderRow({
       <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
         Working
       </span>
-      <span className={sideClass(order.side)}>
-        {order.side === 'long' ? 'BUY LIMIT' : 'SELL LIMIT'}
-      </span>
+      <span className={sideClass(order.side)}>{formatOrderSideLabel(order.side, order.kind)}</span>
       <span className="text-zinc-500">{formatPositionSize(order.lots, symbol)}</span>
       <span className="text-zinc-400">
-        Limit {formatAssetPrice(order.price, pricePrecision)} ·{' '}
-        {formatUtcCandleTime(order.placedTime)}
+        {order.kind === 'stopLimit' ? 'Stop' : 'Limit'}{' '}
+        {formatAssetPrice(order.price, pricePrecision)} · {formatUtcCandleTime(order.placedTime)}
       </span>
       {order.takeProfit != null && (
         <span className="text-teal-400/90">
@@ -258,8 +256,8 @@ export default function TradePanel() {
 
   const howTo = (
     <EmptyRow>
-      Use the order ticket to Buy or Sell at market, or place a Buy/Sell Limit. Size is lots for
-      FX/metals and coin amount for crypto. Type TP/SL in the ticket or drag on the chart. First
+      Use the order ticket to Buy or Sell at market, or place a Limit or Stop Limit. Size is lots
+      for FX/metals and coin amount for crypto. Type TP/SL in the ticket or drag on the chart. First
       SL/TP placement seeds the other at {rrLabel} as a guide — then move either level freely.
     </EmptyRow>
   )
@@ -291,7 +289,7 @@ export default function TradePanel() {
         <PendingOrderRow order={pendingOrder} symbol={symbol} pricePrecision={pricePrecision} />
       </HistoryList>
     ) : (
-      <EmptyRow>No open orders. Place a Buy Limit or Sell Limit from the ticket.</EmptyRow>
+      <EmptyRow>No open orders. Place a Limit or Stop Limit from the ticket.</EmptyRow>
     )
   } else if (tab === 'orderHistory') {
     body =

@@ -16,10 +16,13 @@ import {
   formatOrderStatus,
   historicOrderFromPending,
   isValidLimitPrice,
+  isValidPendingPrice,
   isValidPendingStopLoss,
+  isValidStopLimitPrice,
   isValidStopLoss,
   isValidTakeProfit,
   openPosition,
+  pendingKindForEntry,
   pendingToPosition,
   placePendingLimit,
   pnlForSide,
@@ -308,6 +311,22 @@ describe('ticket draft side gates', () => {
     expect(canPlaceTicketSide('long', { ...base, limitPrice: 101 })).toBe(false)
   })
 
+  it('requires a stop-limit price above/below mark', () => {
+    const base = {
+      orderType: 'stopLimit' as const,
+      markPrice: 100,
+      limitPrice: null as number | null,
+      takeProfit: null as number | null,
+      stopLoss: null as number | null
+    }
+    expect(canPlaceTicketSide('long', base)).toBe(false)
+    expect(canPlaceTicketSide('short', base)).toBe(false)
+    expect(canPlaceTicketSide('long', { ...base, limitPrice: 101 })).toBe(true)
+    expect(canPlaceTicketSide('short', { ...base, limitPrice: 101 })).toBe(false)
+    expect(canPlaceTicketSide('short', { ...base, limitPrice: 99 })).toBe(true)
+    expect(canPlaceTicketSide('long', { ...base, limitPrice: 99 })).toBe(false)
+  })
+
   it('disables the side that TP/SL cannot serve', () => {
     const longSetup = {
       orderType: 'limit' as const,
@@ -553,6 +572,7 @@ describe('pending limit orders', () => {
   const buyLimit: PendingOrder = {
     id: 'p1',
     side: 'long',
+    kind: 'limit',
     price: 95,
     placedTime: 10,
     lots: 1,
@@ -584,6 +604,7 @@ describe('pending limit orders', () => {
     expect(result.pending).toEqual({
       id: 'p1',
       side: 'long',
+      kind: 'limit',
       price: 95,
       placedTime: 10,
       lots: 0.5,
@@ -688,6 +709,7 @@ describe('pending limit orders', () => {
       lots: 1,
       takeProfit: 110,
       stopLoss: 90,
+      pendingKind: 'limit',
       pendingPlacedTime: 10
     })
   })
@@ -802,10 +824,102 @@ describe('pending limit orders', () => {
   })
 })
 
+describe('pending stop-limit orders', () => {
+  const buyStop: PendingOrder = {
+    id: 's1',
+    side: 'long',
+    kind: 'stopLimit',
+    price: 105,
+    placedTime: 10,
+    lots: 1,
+    takeProfit: 120,
+    stopLoss: 100
+  }
+
+  it('validates buy stop-limit above mark and sell stop-limit below mark', () => {
+    expect(isValidStopLimitPrice('long', 100, 101)).toBe(true)
+    expect(isValidStopLimitPrice('long', 100, 100)).toBe(false)
+    expect(isValidStopLimitPrice('long', 100, 99)).toBe(false)
+    expect(isValidStopLimitPrice('short', 100, 99)).toBe(true)
+    expect(isValidStopLimitPrice('short', 100, 100)).toBe(false)
+    expect(isValidPendingPrice('stopLimit', 'long', 100, 101)).toBe(true)
+    expect(isValidPendingPrice('limit', 'long', 100, 101)).toBe(false)
+    expect(pendingKindForEntry('long', 100, 95)).toBe('limit')
+    expect(pendingKindForEntry('long', 100, 105)).toBe('stopLimit')
+    expect(pendingKindForEntry('short', 100, 105)).toBe('limit')
+    expect(pendingKindForEntry('short', 100, 95)).toBe('stopLimit')
+    expect(pendingKindForEntry('long', 100, 100)).toBe(null)
+  })
+
+  it('places a buy stop-limit when flat and price is above mark', () => {
+    const result = placePendingLimit({
+      current: null,
+      pending: null,
+      side: 'long',
+      price: 105,
+      markPrice: 100,
+      time: 10,
+      id: 's1',
+      lots: 0.5,
+      kind: 'stopLimit'
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.pending.kind).toBe('stopLimit')
+    expect(result.pending.price).toBe(105)
+  })
+
+  it('rejects a buy stop-limit at or below mark', () => {
+    const result = placePendingLimit({
+      current: null,
+      pending: null,
+      side: 'long',
+      price: 99,
+      markPrice: 100,
+      time: 10,
+      id: 's1',
+      kind: 'stopLimit'
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toMatch(/above current price/i)
+  })
+
+  it('fills a buy stop-limit when the candle trades up through the price', () => {
+    expect(evaluatePendingFill(buyStop, { high: 104, low: 100, close: 103 })).toBe(false)
+    expect(evaluatePendingFill(buyStop, { high: 106, low: 100, close: 104 })).toBe(true)
+    expect(evaluatePendingFill(buyStop, { high: 105, low: 105, close: 105 })).toBe(true)
+
+    const sellStop: PendingOrder = { ...buyStop, side: 'short', price: 95 }
+    expect(evaluatePendingFill(sellStop, { high: 100, low: 96, close: 98 })).toBe(false)
+    expect(evaluatePendingFill(sellStop, { high: 100, low: 94, close: 96 })).toBe(true)
+  })
+
+  it('does not fill a buy stop-limit on a dip the way a buy limit would', () => {
+    expect(evaluatePendingFill(buyStop, { high: 104, low: 90, close: 100 })).toBe(false)
+  })
+
+  it('rewinds a filled stop-limit back to a stop-limit pending', () => {
+    const filled = pendingToPosition(buyStop, 20)
+    expect(filled.pendingKind).toBe('stopLimit')
+    const afterFill = rewindTradesAfterStepBack({
+      position: filled,
+      pendingOrder: null,
+      closedTrades: [],
+      leftCandleTime: 20,
+      currentCandleTime: 15
+    })
+    expect(afterFill.position).toBeNull()
+    expect(afterFill.pendingOrder).toEqual(buyStop)
+  })
+})
+
 describe('order history labels', () => {
   it('formats side, type, and status like a trading terminal', () => {
     expect(formatOrderSideLabel('long', 'limit')).toBe('BUY LIMIT')
     expect(formatOrderSideLabel('short', 'limit')).toBe('SELL LIMIT')
+    expect(formatOrderSideLabel('long', 'stopLimit')).toBe('BUY STOP LIMIT')
+    expect(formatOrderSideLabel('short', 'stopLimit')).toBe('SELL STOP LIMIT')
     expect(formatOrderSideLabel('long', 'market')).toBe('BUY')
     expect(formatOrderSideLabel('short', 'market')).toBe('SELL')
     expect(formatOrderStatus('filled')).toBe('Filled')

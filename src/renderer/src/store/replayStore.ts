@@ -41,7 +41,9 @@ import {
   evaluateStopTakeProfit,
   historicOrderFromMarketFill,
   historicOrderFromPending,
+  isPendingTicketType,
   openPosition,
+  pendingKindForEntry,
   pendingToPosition,
   placePendingLimit,
   pnlScaleForSymbol,
@@ -62,6 +64,7 @@ import {
   type Position,
   type PnlScale,
   type SessionSummary,
+  type PendingOrderKind,
   type TicketOrderType,
   type TicketDraftLevels,
   type TradeRewindResult
@@ -514,7 +517,7 @@ type ReplayStore = {
   paperBuy: () => void
   paperSell: () => void
   paperClose: () => void
-  placeLimit: (side: 'long' | 'short', price: number) => void
+  placeLimit: (side: 'long' | 'short', price: number, kind?: PendingOrderKind) => void
   cancelPending: () => void
   setPendingPrice: (price: number) => void
   setRiskReward: (value: number) => void
@@ -1736,7 +1739,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }))
   }
 
-  function tryPlaceLimit(side: 'long' | 'short', price: number): void {
+  function tryPlaceLimit(side: 'long' | 'short', price: number, kind?: PendingOrderKind): void {
     if (get().mode !== 'replay') return
     if (get().replayLoading) return
     if (get().replayStatus === 'ended') return
@@ -1749,6 +1752,13 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       return
     }
 
+    const ticketKind = get().ticketOrderType
+    const resolvedKind =
+      kind ??
+      (isPendingTicketType(ticketKind)
+        ? ticketKind
+        : (pendingKindForEntry(side, candle.close, price) ?? 'limit'))
+
     const result = placePendingLimit({
       current: get().position,
       pending: get().pendingOrder,
@@ -1757,7 +1767,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       markPrice: candle.close,
       time: candle.time,
       id: nextTradeId(),
-      lots: clampTradeSizeForSymbol(get().tradeSize, get().symbol)
+      lots: clampTradeSizeForSymbol(get().tradeSize, get().symbol),
+      kind: resolvedKind
     })
     if (!result.ok) {
       set({ replayMessage: result.reason })
@@ -2623,8 +2634,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       tryClose()
     },
 
-    placeLimit(side, price) {
-      tryPlaceLimit(side, price)
+    placeLimit(side, price, kind) {
+      tryPlaceLimit(side, price, kind)
     },
 
     cancelPending() {
@@ -2667,7 +2678,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     setTicketOrderType(type) {
-      if (type !== 'market' && type !== 'limit') return
+      if (type !== 'market' && type !== 'limit' && type !== 'stopLimit') return
       set({ ticketOrderType: type })
       if (type === 'market' && get().pricePick === 'limit') {
         set({ pricePick: null })
