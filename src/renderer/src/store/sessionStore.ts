@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Drawing, FibLevelConfig } from '@/lib/chart/drawingGeometry'
-import type { ClosedTrade, PendingOrder, Position } from '@/lib/paperTrade'
+import type { ClosedTrade, HistoricOrder, PendingOrder, Position } from '@/lib/paperTrade'
 import { useReplayStore, type TradeMarker, type ViewMode } from '@/store/replayStore'
 
 const STORAGE_KEY = 'easy-candle:sessions'
@@ -12,7 +12,8 @@ const AUTO_SAVE_DEBOUNCE_MS = 800
 
 /**
  * A named, persisted bundle of the chart state: the drawings on the chart,
- * every paper-trade order (open position, pending limit, and closed trades),
+ * every paper-trade order (open position, pending limit, closed trades,
+ * and order history including canceled limits),
  * and the replay position — captured together. With `autoSave` enabled the
  * bundle follows live edits, so the replay playhead is kept up to date while
  * the app is closed and can be resumed later from the same spot.
@@ -30,6 +31,7 @@ export type Session = {
   position: Position | null
   pendingOrder: PendingOrder | null
   closedTrades: ClosedTrade[]
+  orderHistory: HistoricOrder[]
   tradeMarkers: TradeMarker[]
   /** Live vs replay — the mode the chart was in when captured. */
   mode: ViewMode
@@ -49,6 +51,7 @@ type SessionSnapshot = Pick<
   | 'position'
   | 'pendingOrder'
   | 'closedTrades'
+  | 'orderHistory'
   | 'tradeMarkers'
   | 'mode'
   | 'replayTime'
@@ -86,12 +89,10 @@ function chartSnapshot(): SessionSnapshot {
     position: cloneJson(state.position),
     pendingOrder: cloneJson(state.pendingOrder),
     closedTrades: cloneJson(state.closedTrades),
+    orderHistory: cloneJson(state.orderHistory),
     tradeMarkers: cloneJson(state.tradeMarkers),
     mode: state.mode,
-    replayTime:
-      state.mode === 'replay' && state.currentCandle
-        ? state.currentCandle.time
-        : null,
+    replayTime: state.mode === 'replay' && state.currentCandle ? state.currentCandle.time : null,
     speed: state.speed,
     dataSource: state.dataSource,
     importId: state.importMeta?.id ?? null
@@ -255,6 +256,8 @@ function sanitizePendingOrder(raw: unknown): PendingOrder | null {
 }
 
 const EXIT_REASONS = ['manual', 'tp', 'sl', 'session_exit'] as const
+const ORDER_TYPES = ['market', 'limit'] as const
+const ORDER_STATUSES = ['filled', 'canceled'] as const
 
 function sanitizeClosedTrade(raw: unknown): ClosedTrade | null {
   if (!raw || typeof raw !== 'object') return null
@@ -289,6 +292,43 @@ function sanitizeClosedTrade(raw: unknown): ClosedTrade | null {
     ...(isFiniteNumber(rec.pendingPlacedTime)
       ? { pendingPlacedTime: rec.pendingPlacedTime as number }
       : {})
+  }
+}
+
+function sanitizeHistoricOrder(raw: unknown): HistoricOrder | null {
+  if (!raw || typeof raw !== 'object') return null
+  const rec = raw as Record<string, unknown>
+  const side = sanitizeSide(rec.side)
+  const type = ORDER_TYPES.find((item) => item === rec.type)
+  const status = ORDER_STATUSES.find((item) => item === rec.status)
+  if (
+    typeof rec.id !== 'string' ||
+    rec.id.length === 0 ||
+    side == null ||
+    type == null ||
+    status == null
+  ) {
+    return null
+  }
+  if (
+    !isFiniteNumber(rec.price) ||
+    !isFiniteNumber(rec.lots) ||
+    !isFiniteNumber(rec.placedTime) ||
+    !isFiniteNumber(rec.updateTime)
+  ) {
+    return null
+  }
+  return {
+    id: rec.id,
+    side,
+    type,
+    status,
+    price: rec.price,
+    lots: rec.lots,
+    placedTime: rec.placedTime,
+    updateTime: rec.updateTime,
+    takeProfit: isFiniteNumber(rec.takeProfit) ? rec.takeProfit : null,
+    stopLoss: isFiniteNumber(rec.stopLoss) ? rec.stopLoss : null
   }
 }
 
@@ -338,6 +378,14 @@ function sanitizeSession(raw: unknown): Session | null {
     }
   }
 
+  const orderHistory: HistoricOrder[] = []
+  if (Array.isArray(rec.orderHistory)) {
+    for (const item of rec.orderHistory) {
+      const order = sanitizeHistoricOrder(item)
+      if (order) orderHistory.push(order)
+    }
+  }
+
   const tradeMarkers: TradeMarker[] = []
   if (Array.isArray(rec.tradeMarkers)) {
     for (const item of rec.tradeMarkers) {
@@ -358,11 +406,17 @@ function sanitizeSession(raw: unknown): Session | null {
     position: sanitizePosition(rec.position),
     pendingOrder: sanitizePendingOrder(rec.pendingOrder),
     closedTrades,
+    orderHistory,
     tradeMarkers,
     mode: rec.mode === 'replay' ? 'replay' : 'live',
     replayTime: isFiniteNumber(rec.replayTime) ? rec.replayTime : null,
     speed: isFiniteNumber(rec.speed) ? Math.min(1000, Math.max(0.1, rec.speed)) : 1,
-    dataSource: rec.dataSource === 'imported' ? 'imported' : rec.dataSource === 'mtbridge' ? 'mtbridge' : 'binance',
+    dataSource:
+      rec.dataSource === 'imported'
+        ? 'imported'
+        : rec.dataSource === 'mtbridge'
+          ? 'mtbridge'
+          : 'binance',
     importId: typeof rec.importId === 'string' && rec.importId.length > 0 ? rec.importId : null
   }
 }
@@ -473,8 +527,13 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
           useReplayStore.getState().resetReplayState()
         }
         if (session.dataSource === 'imported') {
-          if (replay.importMeta?.id !== session.importId || replay.timeframe !== session.timeframe) {
-            await useReplayStore.getState().selectImportedDataset(session.importId ?? '', session.timeframe)
+          if (
+            replay.importMeta?.id !== session.importId ||
+            replay.timeframe !== session.timeframe
+          ) {
+            await useReplayStore
+              .getState()
+              .selectImportedDataset(session.importId ?? '', session.timeframe)
           }
           // Imported series load in windows, so resume by time instead of index.
           await useReplayStore.getState().startImportedReplayAtTime(replayTime)
@@ -502,6 +561,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         position: cloneJson(session.position),
         pendingOrder: cloneJson(session.pendingOrder),
         closedTrades: cloneJson(session.closedTrades),
+        orderHistory: cloneJson(session.orderHistory ?? []),
         tradeMarkers: cloneJson(session.tradeMarkers)
       })
       set({ activeSessionId: id })
@@ -554,6 +614,7 @@ useReplayStore.subscribe((state, prev) => {
     state.position !== prev.position ||
     state.pendingOrder !== prev.pendingOrder ||
     state.closedTrades !== prev.closedTrades ||
+    state.orderHistory !== prev.orderHistory ||
     state.tradeMarkers !== prev.tradeMarkers ||
     state.symbol !== prev.symbol ||
     state.timeframe !== prev.timeframe

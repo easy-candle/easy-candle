@@ -39,6 +39,8 @@ import {
   DEFAULT_RISK_REWARD,
   evaluatePendingFill,
   evaluateStopTakeProfit,
+  historicOrderFromMarketFill,
+  historicOrderFromPending,
   openPosition,
   pendingToPosition,
   placePendingLimit,
@@ -55,6 +57,7 @@ import {
   withStopLoss,
   withTakeProfit,
   type ClosedTrade,
+  type HistoricOrder,
   type PendingOrder,
   type Position,
   type PnlScale,
@@ -249,6 +252,17 @@ function remapPositionTimes(open: Position | null, intervalSec: number): Positio
         ? alignTimeToInterval(open.pendingPlacedTime, intervalSec)
         : open.pendingPlacedTime
   }
+}
+
+function remapOrderHistoryToInterval(
+  orders: HistoricOrder[],
+  intervalSec: number
+): HistoricOrder[] {
+  return orders.map((order) => ({
+    ...order,
+    placedTime: alignTimeToInterval(order.placedTime, intervalSec),
+    updateTime: alignTimeToInterval(order.updateTime, intervalSec)
+  }))
 }
 
 const engine = createReplayEngine()
@@ -449,6 +463,8 @@ type ReplayStore = {
   position: Position | null
   pendingOrder: PendingOrder | null
   closedTrades: ClosedTrade[]
+  /** Filled market/limit orders and canceled pending limits. */
+  orderHistory: HistoricOrder[]
   tradeMarkers: TradeMarker[]
   sessionReport: SessionReport | null
   /** Reward multiple of risk for linked SL/TP (default 2 → 1:2). */
@@ -673,6 +689,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: rewound.position,
       pendingOrder: rewound.pendingOrder,
       closedTrades: rewound.closedTrades,
+      orderHistory: rewound.orderHistory,
       tradeMarkers,
       replayMessage: null
     })
@@ -688,6 +705,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         position: get().position,
         pendingOrder: get().pendingOrder,
         closedTrades: get().closedTrades,
+        orderHistory: get().orderHistory,
         leftCandleTime: leftCandle.time,
         leftCoverEnd: playheadCoverEnd(leftCandle.time, intervalSec),
         currentCandleTime
@@ -827,6 +845,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         pendingOrder: null,
         position: filled,
         tradeMarkers: [...s.tradeMarkers, marker],
+        orderHistory: [...s.orderHistory, historicOrderFromPending(pending, 'filled', candle.time)],
         replayMessage: null
       }))
       // Skip TP/SL on the fill bar — levels arm on later candles.
@@ -1407,6 +1426,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: null,
       pendingOrder: null,
       closedTrades: [],
+      orderHistory: [],
       tradeMarkers: [],
       chartSync: {
         kind: 'replace',
@@ -1623,6 +1643,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       position: null,
       pendingOrder: null,
       closedTrades: [],
+      orderHistory: [],
       tradeMarkers: [],
       driverPane: 'primary',
       ...(opts.keepImport
@@ -1689,6 +1710,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     set((s) => ({
       position: result.position,
       tradeMarkers: [...s.tradeMarkers, marker],
+      orderHistory: [...s.orderHistory, historicOrderFromMarketFill(result.position)],
       replayMessage: null
     }))
   }
@@ -1747,8 +1769,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   function tryCancelPending(): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
-    if (!get().pendingOrder) return
-    set({ pendingOrder: null, replayMessage: null, ...EMPTY_TICKET_LEVELS })
+    const pending = get().pendingOrder
+    if (!pending) return
+    const candle = priceFollowCandle()
+    const updateTime = candle?.time ?? pending.placedTime
+    set((s) => ({
+      pendingOrder: null,
+      orderHistory: [...s.orderHistory, historicOrderFromPending(pending, 'canceled', updateTime)],
+      replayMessage: null,
+      ...EMPTY_TICKET_LEVELS
+    }))
   }
 
   function trySetPendingPrice(price: number): void {
@@ -2208,6 +2238,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             ? alignTimeToInterval(trade.pendingPlacedTime, nextIntervalSec)
             : trade.pendingPlacedTime
       }))
+      const remappedOrderHistory = remapOrderHistoryToInterval(get().orderHistory, nextIntervalSec)
 
       const keptSpeed = engine.getState().speed
       engine.load(loaded.candles)
@@ -2225,6 +2256,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         pendingOrder: remappedPendingOrder,
         position: remappedPosition,
         closedTrades: remappedClosed,
+        orderHistory: remappedOrderHistory,
         replayLoading: false,
         replayMessage: `Switched imported replay to ${nextTimeframe}.`,
         status: 'ready',
@@ -2257,6 +2289,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           ? alignTimeToInterval(trade.pendingPlacedTime, nextIntervalSec)
           : trade.pendingPlacedTime
     }))
+    const remappedOrderHistory = remapOrderHistoryToInterval(get().orderHistory, nextIntervalSec)
 
     set({
       timeframe: nextTimeframe,
@@ -2265,7 +2298,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       pendingOrder: remappedPendingOrder,
       tradeMarkers: remappedMarkers,
       position: remappedPosition,
-      closedTrades: remappedClosed
+      closedTrades: remappedClosed,
+      orderHistory: remappedOrderHistory
     })
 
     const ok = await loadReplayWindow(seekTime, {
@@ -2314,6 +2348,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     position: null,
     pendingOrder: null,
     closedTrades: [],
+    orderHistory: [],
     tradeMarkers: [],
     sessionReport: null,
     riskReward: DEFAULT_RISK_REWARD,

@@ -49,6 +49,24 @@ export type ClosedTrade = {
   pendingPlacedTime?: number | null
 }
 
+export type HistoricOrderType = 'market' | 'limit'
+export type HistoricOrderStatus = 'filled' | 'canceled'
+
+/** Filled market/limit orders and canceled pending limits (Order History). */
+export type HistoricOrder = {
+  id: string
+  side: PositionSide
+  type: HistoricOrderType
+  status: HistoricOrderStatus
+  price: number
+  lots: number
+  placedTime: number
+  /** Fill time or cancel time. */
+  updateTime: number
+  takeProfit: number | null
+  stopLoss: number | null
+}
+
 export type SideReport = {
   count: number
   wins: number
@@ -272,7 +290,9 @@ export type TicketDraftLevels = {
 /** Entry used to validate TP/SL: limit price, or mark for a market ticket. */
 export function ticketEntryPrice(levels: TicketDraftLevels): number | null {
   if (levels.orderType === 'limit') {
-    return levels.limitPrice != null && Number.isFinite(levels.limitPrice) ? levels.limitPrice : null
+    return levels.limitPrice != null && Number.isFinite(levels.limitPrice)
+      ? levels.limitPrice
+      : null
   }
   return levels.markPrice != null && Number.isFinite(levels.markPrice) ? levels.markPrice : null
 }
@@ -530,6 +550,52 @@ export function pendingToPosition(pending: PendingOrder, fillTime: number): Posi
   }
 }
 
+export function historicOrderFromPending(
+  pending: PendingOrder,
+  status: HistoricOrderStatus,
+  updateTime: number
+): HistoricOrder {
+  return {
+    id: pending.id,
+    side: pending.side,
+    type: 'limit',
+    status,
+    price: pending.price,
+    lots: resolvedLots(pending.lots),
+    placedTime: pending.placedTime,
+    updateTime,
+    takeProfit: pending.takeProfit,
+    stopLoss: pending.stopLoss
+  }
+}
+
+export function historicOrderFromMarketFill(position: Position): HistoricOrder {
+  return {
+    id: position.id,
+    side: position.side,
+    type: 'market',
+    status: 'filled',
+    price: position.entryPrice,
+    lots: resolvedLots(position.lots),
+    placedTime: position.entryTime,
+    updateTime: position.entryTime,
+    takeProfit: position.takeProfit,
+    stopLoss: position.stopLoss
+  }
+}
+
+export function pendingFromHistoricOrder(order: HistoricOrder): PendingOrder {
+  return {
+    id: order.id,
+    side: order.side,
+    price: order.price,
+    placedTime: order.placedTime,
+    lots: resolvedLots(order.lots),
+    takeProfit: order.takeProfit,
+    stopLoss: order.stopLoss
+  }
+}
+
 function pendingFromFilledPosition(
   position: Position,
   currentCandleTime: number
@@ -631,22 +697,30 @@ export type TradeRewindResult = {
   position: Position | null
   pendingOrder: PendingOrder | null
   closedTrades: ClosedTrade[]
+  orderHistory: HistoricOrder[]
   /** Entry times whose open markers should be removed (forgotten / reset). */
   discardedEntryTimes: number[]
+}
+
+function eventOnLeftCandle(time: number, leftCandleTime: number, leftCoverEnd: number): boolean {
+  return time >= leftCandleTime && time <= leftCoverEnd
 }
 
 /**
  * After stepping one candle backward from `leftCandleTime` to `currentCandleTime`:
  * - Reopen a trade closed on the left candle (if still at/after its entry).
  * - Restore a limit pending if rewind lands before fill but after place.
+ * - Restore a canceled limit if rewind lands before cancel but after place.
  * - Forget a trade entirely if rewind lands before its entry (reset decision).
  * - Drop an open position if current is before its entry.
  * - Drop a pending if current is before its place time.
+ * - Drop order-history rows whose fill/cancel is on the left candle.
  */
 export function rewindTradesAfterStepBack(args: {
   position: Position | null
   pendingOrder?: PendingOrder | null
   closedTrades: ClosedTrade[]
+  orderHistory?: HistoricOrder[]
   leftCandleTime: number
   /** Inclusive end of the left candle. Defaults to `leftCandleTime` (exact match). */
   leftCoverEnd?: number
@@ -657,6 +731,7 @@ export function rewindTradesAfterStepBack(args: {
   let position = args.position
   let pendingOrder = args.pendingOrder ?? null
   let closedTrades = Array.isArray(args.closedTrades) ? [...args.closedTrades] : []
+  let orderHistory = Array.isArray(args.orderHistory) ? [...args.orderHistory] : []
   const discardedEntryTimes: number[] = []
 
   if (position && currentCandleTime < position.entryTime) {
@@ -669,7 +744,7 @@ export function rewindTradesAfterStepBack(args: {
     let idx = -1
     for (let i = closedTrades.length - 1; i >= 0; i -= 1) {
       const exitTime = closedTrades[i].exitTime
-      if (exitTime >= leftCandleTime && exitTime <= leftCoverEnd) {
+      if (eventOnLeftCandle(exitTime, leftCandleTime, leftCoverEnd)) {
         idx = i
         break
       }
@@ -693,11 +768,32 @@ export function rewindTradesAfterStepBack(args: {
     }
   }
 
+  const restoredCanceled: HistoricOrder[] = []
+  const keptHistory: HistoricOrder[] = []
+  for (const order of orderHistory) {
+    if (!eventOnLeftCandle(order.updateTime, leftCandleTime, leftCoverEnd)) {
+      keptHistory.push(order)
+      continue
+    }
+    if (order.status === 'canceled') restoredCanceled.push(order)
+  }
+  orderHistory = keptHistory
+
+  if (!position && !pendingOrder) {
+    for (let i = restoredCanceled.length - 1; i >= 0; i -= 1) {
+      const order = restoredCanceled[i]
+      if (order.type === 'limit' && order.placedTime <= currentCandleTime) {
+        pendingOrder = pendingFromHistoricOrder(order)
+        break
+      }
+    }
+  }
+
   if (pendingOrder && currentCandleTime < pendingOrder.placedTime) {
     pendingOrder = null
   }
 
-  return { position, pendingOrder, closedTrades, discardedEntryTimes }
+  return { position, pendingOrder, closedTrades, orderHistory, discardedEntryTimes }
 }
 
 /**
@@ -851,6 +947,15 @@ export function formatExitReason(reason: ExitReason | undefined): string {
     default:
       return 'Manual'
   }
+}
+
+export function formatOrderSideLabel(side: PositionSide, type: HistoricOrderType): string {
+  if (type === 'limit') return side === 'long' ? 'BUY LIMIT' : 'SELL LIMIT'
+  return side === 'long' ? 'BUY' : 'SELL'
+}
+
+export function formatOrderStatus(status: HistoricOrderStatus): string {
+  return status === 'canceled' ? 'Canceled' : 'Filled'
 }
 
 export function tradesToCsv(closedTrades: ClosedTrade[]): string {

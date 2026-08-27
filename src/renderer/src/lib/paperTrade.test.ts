@@ -12,6 +12,9 @@ import {
   formatRiskReward,
   formatTradeSize,
   formatWinRate,
+  formatOrderSideLabel,
+  formatOrderStatus,
+  historicOrderFromPending,
   isValidLimitPrice,
   isValidPendingStopLoss,
   isValidStopLoss,
@@ -725,6 +728,88 @@ describe('pending limit orders', () => {
     expect(result.position).toBeNull()
     expect(result.pendingOrder).toEqual(buyLimit)
     expect(result.discardedEntryTimes).toEqual([20])
+  })
+
+  it('keeps a canceled limit in order history until rewind passes the cancel', () => {
+    const canceled = historicOrderFromPending(buyLimit, 'canceled', 20)
+    const stillCanceled = rewindTradesAfterStepBack({
+      position: null,
+      pendingOrder: null,
+      closedTrades: [],
+      orderHistory: [canceled],
+      leftCandleTime: 25,
+      currentCandleTime: 22
+    })
+    expect(stillCanceled.pendingOrder).toBeNull()
+    expect(stillCanceled.orderHistory).toEqual([canceled])
+
+    const afterCancel = rewindTradesAfterStepBack({
+      position: null,
+      pendingOrder: null,
+      closedTrades: [],
+      orderHistory: [canceled],
+      leftCandleTime: 20,
+      currentCandleTime: 15
+    })
+    expect(afterCancel.pendingOrder).toEqual(buyLimit)
+    expect(afterCancel.orderHistory).toHaveLength(0)
+  })
+
+  it('drops a canceled limit from history when rewind lands before place', () => {
+    const canceled = historicOrderFromPending(buyLimit, 'canceled', 20)
+    const result = rewindTradesAfterStepBack({
+      position: null,
+      pendingOrder: null,
+      closedTrades: [],
+      orderHistory: [canceled],
+      leftCandleTime: 20,
+      currentCandleTime: 5
+    })
+    expect(result.pendingOrder).toBeNull()
+    expect(result.orderHistory).toHaveLength(0)
+  })
+
+  it('drops a filled order from history when rewind undoes the fill', () => {
+    const filled = pendingToPosition(buyLimit, 20)
+    const historic = historicOrderFromPending(buyLimit, 'filled', 20)
+    const result = rewindTradesAfterStepBack({
+      position: filled,
+      pendingOrder: null,
+      closedTrades: [],
+      orderHistory: [historic],
+      leftCandleTime: 20,
+      currentCandleTime: 15
+    })
+    expect(result.position).toBeNull()
+    expect(result.pendingOrder).toEqual(buyLimit)
+    expect(result.orderHistory).toHaveLength(0)
+  })
+
+  it('restores the earlier canceled limit when a later same-bar order is forgotten', () => {
+    const first = historicOrderFromPending(buyLimit, 'canceled', 20)
+    const secondPlaced: PendingOrder = { ...buyLimit, id: 'p2', placedTime: 20, price: 94 }
+    const second = historicOrderFromPending(secondPlaced, 'canceled', 20)
+    const result = rewindTradesAfterStepBack({
+      position: null,
+      pendingOrder: null,
+      closedTrades: [],
+      orderHistory: [first, second],
+      leftCandleTime: 20,
+      currentCandleTime: 15
+    })
+    expect(result.pendingOrder).toEqual(buyLimit)
+    expect(result.orderHistory).toHaveLength(0)
+  })
+})
+
+describe('order history labels', () => {
+  it('formats side, type, and status like a trading terminal', () => {
+    expect(formatOrderSideLabel('long', 'limit')).toBe('BUY LIMIT')
+    expect(formatOrderSideLabel('short', 'limit')).toBe('SELL LIMIT')
+    expect(formatOrderSideLabel('long', 'market')).toBe('BUY')
+    expect(formatOrderSideLabel('short', 'market')).toBe('SELL')
+    expect(formatOrderStatus('filled')).toBe('Filled')
+    expect(formatOrderStatus('canceled')).toBe('Canceled')
   })
 })
 
