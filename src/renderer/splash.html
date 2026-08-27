@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Easy Candle</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <style>
+      /* Mirrors the app tokens in src/renderer/src/assets/main.css: the light theme
+         inverts the scale so every rule below works unchanged in both themes. */
+      :root,
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --zinc-50: 250 250 250;
+        --zinc-200: 228 228 231;
+        --zinc-400: 161 161 170;
+        --zinc-500: 113 113 122;
+        --zinc-800: 39 39 42;
+        --zinc-900: 24 24 27;
+        --amber-500: 245 158 11;
+
+        --glow: rgb(var(--amber-500) / 0.2);
+        --floor: rgb(0 0 0 / 0.5);
+        --mascot-shadow: 0 16px 26px rgb(0 0 0 / 0.55);
+      }
+      :root[data-theme='light'] {
+        color-scheme: light;
+        --zinc-50: 9 9 11;
+        --zinc-200: 39 39 42;
+        --zinc-400: 82 82 91;
+        --zinc-500: 113 113 122;
+        --zinc-800: 228 228 231;
+        --zinc-900: 244 244 245;
+        --amber-500: 217 119 6;
+
+        --glow: rgb(var(--amber-500) / 0.13);
+        --floor: rgb(24 24 27 / 0.16);
+        --mascot-shadow: 0 14px 22px rgb(24 24 27 / 0.18);
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: rgb(var(--zinc-900));
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        user-select: none;
+        cursor: default;
+      }
+      [hidden] {
+        display: none !important;
+      }
+
+      .stage {
+        position: relative;
+        box-sizing: border-box;
+        height: 100%;
+        overflow: hidden;
+        padding: 30px 34px 34px;
+        display: flex;
+      }
+      /* Hairline frame + top highlight so the frameless window keeps an edge. */
+      .stage::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        box-shadow:
+          inset 0 0 0 1px rgb(var(--zinc-800) / 0.9),
+          inset 0 1px 0 rgb(var(--zinc-50) / 0.07);
+      }
+
+      .grid,
+      .glow,
+      .tape,
+      .floor {
+        position: absolute;
+        pointer-events: none;
+      }
+      .grid {
+        inset: 0;
+        background-image:
+          linear-gradient(to right, rgb(var(--zinc-800) / 0.55) 1px, transparent 1px),
+          linear-gradient(to bottom, rgb(var(--zinc-800) / 0.55) 1px, transparent 1px);
+        background-size: 32px 32px;
+        mask-image: radial-gradient(130% 110% at 88% 30%, #000 0%, transparent 72%);
+      }
+      .glow {
+        right: -60px;
+        top: -90px;
+        width: 420px;
+        height: 340px;
+        background: radial-gradient(closest-side, var(--glow), transparent);
+        animation: glow-pulse 5s ease-in-out infinite;
+      }
+      .tape {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 128px;
+        color: rgb(var(--amber-500));
+        opacity: 0.55;
+      }
+      .floor {
+        right: 42px;
+        bottom: 24px;
+        width: 210px;
+        height: 26px;
+        background: radial-gradient(closest-side, var(--floor), transparent);
+      }
+
+      .mascot {
+        position: absolute;
+        right: 6px;
+        bottom: -6px;
+        height: 300px;
+        width: 300px;
+        object-fit: contain;
+        object-position: right bottom;
+        filter: drop-shadow(var(--mascot-shadow));
+        animation: mascot-in 0.75s cubic-bezier(0.22, 0.61, 0.36, 1) 0.1s both;
+      }
+
+      .copy {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        justify-content: center;
+        min-width: 0;
+        padding-right: 232px;
+      }
+      .copy > * {
+        animation: rise 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+      }
+      .copy > :nth-child(1) {
+        animation-delay: 0.04s;
+      }
+      .copy > :nth-child(2) {
+        animation-delay: 0.12s;
+      }
+      .copy > :nth-child(3) {
+        animation-delay: 0.2s;
+      }
+      .copy > :nth-child(4) {
+        animation-delay: 0.28s;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 0;
+        font-size: 25px;
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        line-height: 1;
+        color: rgb(var(--zinc-50));
+      }
+      .brand-logo {
+        display: block;
+        width: 56px;
+        height: 56px;
+        flex-shrink: 0;
+      }
+      .brand .candle {
+        color: rgb(var(--amber-500));
+      }
+
+      .gen {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin: 22px 0 0;
+      }
+      .gen-major {
+        font-size: 66px;
+        font-weight: 700;
+        letter-spacing: -0.06em;
+        line-height: 0.8;
+        font-variant-numeric: tabular-nums;
+        background: linear-gradient(180deg, rgb(var(--zinc-50)), rgb(var(--zinc-400)));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .gen-major:empty {
+        display: none;
+      }
+      .gen-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-left: 14px;
+        border-left: 1px solid rgb(var(--zinc-800));
+      }
+      .gen-label {
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: rgb(var(--zinc-500));
+      }
+      .gen-codename {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        line-height: 1;
+        text-transform: lowercase;
+        font-variant: small-caps;
+        color: rgb(var(--amber-500));
+      }
+
+      .slogan {
+        margin: 18px 0 0;
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.35;
+        letter-spacing: -0.02em;
+        color: rgb(var(--zinc-200));
+      }
+
+      .meta {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 20px 0 0;
+        font-size: 11px;
+        color: rgb(var(--zinc-500));
+      }
+      .status {
+        color: rgb(var(--zinc-400));
+      }
+      .status i {
+        font-style: normal;
+        animation: blink 1.4s ease-in-out infinite;
+      }
+      .status i:nth-of-type(2) {
+        animation-delay: 0.2s;
+      }
+      .status i:nth-of-type(3) {
+        animation-delay: 0.4s;
+      }
+
+      .bar {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2px;
+        overflow: hidden;
+        background: rgb(var(--zinc-800));
+      }
+      .bar > span {
+        display: block;
+        height: 100%;
+        width: 34%;
+        border-radius: 2px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgb(var(--amber-500)),
+          rgb(var(--amber-500) / 0.2)
+        );
+        animation: bar-slide 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+
+      @keyframes bar-slide {
+        0% {
+          transform: translateX(-110%);
+        }
+        100% {
+          transform: translateX(400%);
+        }
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes mascot-in {
+        from {
+          opacity: 0;
+          transform: translate(14px, 16px) scale(0.96);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes glow-pulse {
+        0%,
+        100% {
+          opacity: 0.7;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      @keyframes tape-draw {
+        from {
+          stroke-dashoffset: 100;
+        }
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+      .tape-line {
+        stroke-dasharray: 100;
+        animation: tape-draw 1.6s ease-out 0.15s both;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .copy > *,
+        .mascot,
+        .glow,
+        .status i,
+        .tape-line {
+          animation: none;
+        }
+        .tape-line {
+          stroke-dasharray: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="grid" aria-hidden="true"></div>
+      <div class="glow" aria-hidden="true"></div>
+      <svg class="tape" viewBox="0 0 640 128" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="tape-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.3" />
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M0 96 L64 82 L112 98 L166 68 L214 78 L268 48 L318 62 L370 36 L420 48 L474 22 L524 32 L582 10 L640 18 L640 128 L0 128 Z"
+          fill="url(#tape-fill)"
+        />
+        <path
+          class="tape-line"
+          pathLength="100"
+          d="M0 96 L64 82 L112 98 L166 68 L214 78 L268 48 L318 62 L370 36 L420 48 L474 22 L524 32 L582 10 L640 18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+          vector-effect="non-scaling-stroke"
+        />
+      </svg>
+      <div class="floor" aria-hidden="true"></div>
+      <img
+        class="mascot"
+        id="mascot"
+        src="./assets/splash/codenames/fox.png"
+        alt=""
+        width="1024"
+        height="1024"
+      />
+
+      <div class="copy">
+        <p class="brand">
+          <svg
+            class="brand-logo"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 512 512"
+            aria-hidden="true"
+          >
+            <rect width="512" height="512" rx="82" fill="#F8F8F6" />
+            <path
+              d="M390 135 A178 178 0 1 0 390 377"
+              fill="none"
+              stroke="#0B2239"
+              stroke-width="34"
+              stroke-linecap="round"
+            />
+            <line x1="190" y1="176" x2="190" y2="342" stroke="#0B2239" stroke-width="10" stroke-linecap="round" />
+            <rect x="166" y="214" width="48" height="92" rx="9" fill="#0B2239" />
+            <line x1="256" y1="150" x2="256" y2="362" stroke="#F59A0B" stroke-width="10" stroke-linecap="round" />
+            <rect x="228" y="191" width="56" height="130" rx="10" fill="#F59A0B" />
+            <line x1="322" y1="142" x2="322" y2="350" stroke="#0B2239" stroke-width="10" stroke-linecap="round" />
+            <rect x="297" y="181" width="50" height="112" rx="9" fill="#0B2239" />
+            <path
+              d="M420 336 L420 418 Q420 431 431 424 L490 384 Q503 376 490 367 L431 327 Q420 320 420 336 Z"
+              fill="#F59A0B"
+            />
+          </svg>
+          <span>Easy<span class="candle">Candle</span></span>
+        </p>
+        <p class="gen">
+          <span class="gen-major" id="generation-major"></span>
+          <span class="gen-meta" id="generation-meta" hidden>
+            <span class="gen-label">Generation</span>
+            <span class="gen-codename" id="generation-codename"></span>
+          </span>
+        </p>
+        <p class="slogan">Replay the tape.<br />Trade the lesson.</p>
+        <p class="meta">
+          <span id="release"></span>
+          <span class="status">Preparing workspace<i>.</i><i>.</i><i>.</i></span>
+        </p>
+      </div>
+
+      <div class="bar" aria-hidden="true"><span></span></div>
+    </div>
+    <script type="module" src="./splash.js"></script>
+  </body>
+</html>

@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   WINDOW_CLOSE: 'window:close',
   WINDOW_IS_MAXIMIZED: 'window:is-maximized',
   WINDOW_MAXIMIZED_CHANGED: 'window:maximized-changed',
+  WINDOW_STARTUP_READY: 'window:startup-ready',
 
   KLINES_FETCH: 'klines:fetch',
 

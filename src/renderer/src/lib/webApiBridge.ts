@@ -524,6 +524,9 @@ export const webApi = {
       maximizedListeners.delete(callback)
     }
   },
+  notifyStartupReady: (): void => {
+    // Web has no splash window.
+  },
   openImportDialog: promptCsvFileInput,
   readImportFile: async (path: string): Promise<ImportReadResult> => {
     const cached = pendingFileCache.get(path)

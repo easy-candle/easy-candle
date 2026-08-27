@@ -30,7 +30,6 @@ import TradePanel from '@/components/TradePanel'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
 import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
-import { useAccountStore } from '@/store/accountStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { isMetatraderImport } from '@shared/importTypes'
@@ -69,7 +68,6 @@ export default function AppShell({
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
   const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
   const feedbackTimer = useRef<number | null>(null)
-  const hydrateAccount = useAccountStore((s) => s.hydrate)
 
   const inReplay = mode === 'replay'
   const showOrderTicket = showPaperTrade && !chartFullscreen && (inReplay || tourPaperTradePreview)
@@ -97,10 +95,6 @@ export default function AppShell({
 
   useReplayHotkeys()
   useUiHotkeys()
-
-  useEffect(() => {
-    void hydrateAccount()
-  }, [hydrateAccount])
 
   useEffect(() => {
     function onVisibility(): void {

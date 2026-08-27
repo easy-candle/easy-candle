@@ -58,6 +58,7 @@ const api = {
   isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED),
   onWindowMaximizedChange: (callback: (maximized: boolean) => void): (() => void) =>
     subscribe(IPC_CHANNELS.WINDOW_MAXIMIZED_CHANGED, callback),
+  notifyStartupReady: (): void => ipcRenderer.send(IPC_CHANNELS.WINDOW_STARTUP_READY),
   openImportDialog: (): Promise<ImportDialogResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_OPEN_DIALOG),
   readImportFile: (path: string): Promise<ImportReadResult> =>

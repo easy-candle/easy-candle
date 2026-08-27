@@ -4,6 +4,7 @@ import CandleChart from '@/components/CandleChart'
 import PaneChrome from '@/components/PaneChrome'
 import { buildOverlays } from '@/lib/indicators'
 import { alignTimeToInterval, TIMEFRAMES } from '@shared/timeframes'
+import { runAppStartup } from '@/lib/appStartup'
 import { isDesktopRuntime } from '@/lib/runtime'
 import { useReplayStore } from '@/store/replayStore'
 
@@ -18,7 +19,6 @@ export default function App() {
   const activeIndicators = useReplayStore((s) => s.activeIndicators)
   const chartType = useReplayStore((s) => s.chartType)
   const tradeMarkers = useReplayStore((s) => s.tradeMarkers)
-  const loadCandles = useReplayStore((s) => s.loadCandles)
   const chartSplit = useReplayStore((s) => s.chartSplit)
   const secondaryTimeframe = useReplayStore((s) => s.secondaryTimeframe)
   const driverPane = useReplayStore((s) => s.driverPane)
@@ -49,18 +49,14 @@ export default function App() {
   }, [dataSource, loadImportedHistory])
 
   useEffect(() => {
-    void loadCandles()
-  }, [loadCandles])
+    void runAppStartup()
+  }, [])
 
   useEffect(() => {
     if (!isDesktopRuntime()) return
-    const unsub = window.api.onMtBridgeEvent((event) => {
+    return window.api.onMtBridgeEvent((event) => {
       useReplayStore.getState().handleMtBridgeEvent(event)
     })
-    void window.api.mtBridgeStatus().then((status) => {
-      useReplayStore.getState().syncMtBridgeStatus(status)
-    })
-    return unsub
   }, [])
 
   const overlaySource = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
