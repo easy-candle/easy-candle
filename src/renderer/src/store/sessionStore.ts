@@ -34,8 +34,8 @@ export type Session = {
   /** When true, chart drawing/order edits are written back automatically. */
   autoSave: boolean
   drawings: Drawing[]
-  position: Position | null
-  pendingOrder: PendingOrder | null
+  positions: Position[]
+  pendingOrders: PendingOrder[]
   closedTrades: ClosedTrade[]
   orderHistory: HistoricOrder[]
   tradeMarkers: TradeMarker[]
@@ -54,8 +54,8 @@ type SessionSnapshot = Pick<
   | 'symbol'
   | 'timeframe'
   | 'drawings'
-  | 'position'
-  | 'pendingOrder'
+  | 'positions'
+  | 'pendingOrders'
   | 'closedTrades'
   | 'orderHistory'
   | 'tradeMarkers'
@@ -92,8 +92,8 @@ function chartSnapshot(): SessionSnapshot {
     symbol: state.symbol,
     timeframe: state.timeframe,
     drawings: cloneJson(state.drawings),
-    position: cloneJson(state.position),
-    pendingOrder: cloneJson(state.pendingOrder),
+    positions: cloneJson(state.positions),
+    pendingOrders: cloneJson(state.pendingOrders),
     closedTrades: cloneJson(state.closedTrades),
     orderHistory: cloneJson(state.orderHistory),
     tradeMarkers: cloneJson(state.tradeMarkers),
@@ -218,6 +218,32 @@ function sanitizeSide(raw: unknown): 'long' | 'short' | null {
 
 function sanitizePendingKind(raw: unknown): PendingOrderKind | undefined {
   return raw === 'stopLimit' || raw === 'limit' ? raw : undefined
+}
+
+function sanitizePositionList(raw: unknown, legacy: unknown): Position[] {
+  const out: Position[] = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const position = sanitizePosition(item)
+      if (position) out.push(position)
+    }
+    return out
+  }
+  const one = sanitizePosition(legacy)
+  return one ? [one] : []
+}
+
+function sanitizePendingOrderList(raw: unknown, legacy: unknown): PendingOrder[] {
+  const out: PendingOrder[] = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const pending = sanitizePendingOrder(item)
+      if (pending) out.push(pending)
+    }
+    return out
+  }
+  const one = sanitizePendingOrder(legacy)
+  return one ? [one] : []
 }
 
 function sanitizePosition(raw: unknown): Position | null {
@@ -420,8 +446,8 @@ function sanitizeSession(raw: unknown): Session | null {
     updatedAt,
     autoSave: rec.autoSave !== false,
     drawings,
-    position: sanitizePosition(rec.position),
-    pendingOrder: sanitizePendingOrder(rec.pendingOrder),
+    positions: sanitizePositionList(rec.positions, rec.position),
+    pendingOrders: sanitizePendingOrderList(rec.pendingOrders, rec.pendingOrder),
     closedTrades,
     orderHistory,
     tradeMarkers,
@@ -575,8 +601,9 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         drawTool: 'select',
         pendingTrend: null,
         selectedDrawingId: null,
-        position: cloneJson(session.position),
-        pendingOrder: cloneJson(session.pendingOrder),
+        positions: cloneJson(session.positions),
+        pendingOrders: cloneJson(session.pendingOrders),
+        selectedWorkingId: null,
         closedTrades: cloneJson(session.closedTrades),
         orderHistory: cloneJson(session.orderHistory ?? []),
         tradeMarkers: cloneJson(session.tradeMarkers)
@@ -628,8 +655,8 @@ function scheduleAutoSave(): void {
 useReplayStore.subscribe((state, prev) => {
   if (
     state.drawings !== prev.drawings ||
-    state.position !== prev.position ||
-    state.pendingOrder !== prev.pendingOrder ||
+    state.positions !== prev.positions ||
+    state.pendingOrders !== prev.pendingOrders ||
     state.closedTrades !== prev.closedTrades ||
     state.orderHistory !== prev.orderHistory ||
     state.tradeMarkers !== prev.tradeMarkers ||

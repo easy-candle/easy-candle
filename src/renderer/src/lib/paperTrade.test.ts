@@ -67,7 +67,7 @@ function flatClosed(
 
 describe('openPosition', () => {
   it('opens a long when flat with null TP/SL', () => {
-    const result = openPosition(null, 'long', 100, 50, 't1')
+    const result = openPosition('long', 100, 50, 't1')
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.position).toEqual({
@@ -83,18 +83,43 @@ describe('openPosition', () => {
     }
   })
 
-  it('rejects open when already in a position', () => {
-    const open = openPosition(null, 'short', 90, 10, 't1')
+  it('opens a second position while another is already open', () => {
+    const open = openPosition('short', 90, 10, 't1')
     expect(open.ok).toBe(true)
     if (!open.ok) return
-    const again = openPosition(open.position, 'long', 95, 20, 't2')
-    expect(again.ok).toBe(false)
+    const again = openPosition('long', 95, 20, 't2')
+    expect(again.ok).toBe(true)
+    if (!again.ok) return
+    expect(again.position.id).toBe('t2')
+    expect(again.position.side).toBe('long')
+  })
+
+  it('keeps take-profit and stop-loss on each position independently', () => {
+    const first = openPosition('long', 100, 10, 't1')
+    const second = openPosition('short', 100, 10, 't2')
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+
+    const firstTp = withTakeProfit(first.position, 120)
+    expect(firstTp.ok).toBe(true)
+    if (!firstTp.ok) return
+    const firstLevels = withStopLoss(firstTp.position, 90, 100)
+    const secondTp = withTakeProfit(second.position, 80)
+    expect(firstLevels.ok).toBe(true)
+    expect(secondTp.ok).toBe(true)
+    if (!firstLevels.ok || !secondTp.ok) return
+
+    expect(firstLevels.position.takeProfit).toBe(120)
+    expect(firstLevels.position.stopLoss).toBe(90)
+    expect(secondTp.position.takeProfit).toBe(80)
+    expect(secondTp.position.stopLoss).toBeNull()
+    expect(second.position.takeProfit).toBeNull()
   })
 })
 
 describe('closePosition', () => {
   it('realizes long PnL and copies levels + reason', () => {
-    const open = openPosition(null, 'long', 100, 10, 't1')
+    const open = openPosition('long', 100, 10, 't1')
     expect(open.ok).toBe(true)
     if (!open.ok) return
     const withLevels = withTakeProfit(open.position, 120)
@@ -113,7 +138,7 @@ describe('closePosition', () => {
   })
 
   it('realizes short PnL', () => {
-    const open = openPosition(null, 'short', 100, 10, 't1')
+    const open = openPosition('short', 100, 10, 't1')
     expect(open.ok).toBe(true)
     if (!open.ok) return
     const closed = closePosition(open.position, 90, 20)
@@ -155,7 +180,7 @@ describe('pnlForSide contract size', () => {
   })
 
   it('closes with the symbol scale and stored lots', () => {
-    const open = openPosition(null, 'long', 1.13889, 10, 't1', 0.1)
+    const open = openPosition('long', 1.13889, 10, 't1', 0.1)
     expect(open.ok).toBe(true)
     if (!open.ok) return
     expect(open.position.lots).toBe(0.1)
@@ -469,35 +494,37 @@ describe('rewindTradesAfterStepBack', () => {
 
   it('reopens a trade closed on the left candle and restores TP/SL', () => {
     const result = rewindTradesAfterStepBack({
-      position: null,
+      positions: [],
       closedTrades: [closedAt20],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
     expect(result.closedTrades).toHaveLength(0)
-    expect(result.position).toEqual({
-      id: 't1',
-      side: 'long',
-      entryPrice: 100,
-      entryTime: 10,
-      lots: 1,
-      takeProfit: 120,
-      stopLoss: 90,
-      pendingPlacedTime: null
-    })
+    expect(result.positions).toEqual([
+      {
+        id: 't1',
+        side: 'long',
+        entryPrice: 100,
+        entryTime: 10,
+        lots: 1,
+        takeProfit: 120,
+        stopLoss: 90,
+        pendingPlacedTime: null
+      }
+    ])
     expect(result.discardedEntryTimes).toEqual([])
   })
 
   it('reopens a trade closed on a finer bar inside the left coarser candle', () => {
     const result = rewindTradesAfterStepBack({
-      position: null,
+      positions: [],
       closedTrades: [closedAt20],
       leftCandleTime: 0,
       leftCoverEnd: 59,
       currentCandleTime: 15
     })
     expect(result.closedTrades).toHaveLength(0)
-    expect(result.position?.id).toBe('t1')
+    expect(result.positions[0]?.id).toBe('t1')
   })
 
   it('forgets a closed trade when rewind lands before its entry', () => {
@@ -514,13 +541,13 @@ describe('rewindTradesAfterStepBack', () => {
       stopLoss: 110
     })
     const result = rewindTradesAfterStepBack({
-      position: null,
+      positions: [],
       closedTrades: [sameBar],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(result.position).toBeNull()
-    expect(result.pendingOrder).toBeNull()
+    expect(result.positions).toEqual([])
+    expect(result.pendingOrders).toEqual([])
     expect(result.closedTrades).toHaveLength(0)
     expect(result.discardedEntryTimes).toEqual([20])
   })
@@ -536,13 +563,13 @@ describe('rewindTradesAfterStepBack', () => {
       stopLoss: 90
     }
     const result = rewindTradesAfterStepBack({
-      position: open,
+      positions: [open],
       closedTrades: [],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(result.position).toBeNull()
-    expect(result.pendingOrder).toBeNull()
+    expect(result.positions).toEqual([])
+    expect(result.pendingOrders).toEqual([])
     expect(result.discardedEntryTimes).toEqual([20])
   })
 
@@ -557,14 +584,44 @@ describe('rewindTradesAfterStepBack', () => {
       stopLoss: null
     }
     const result = rewindTradesAfterStepBack({
-      position: open,
+      positions: [open],
       closedTrades: [],
       leftCandleTime: 15,
       currentCandleTime: 10
     })
-    expect(result.position).toEqual(open)
-    expect(result.pendingOrder).toBeNull()
+    expect(result.positions).toEqual([open])
+    expect(result.pendingOrders).toEqual([])
     expect(result.discardedEntryTimes).toEqual([])
+  })
+
+  it('reopens two trades closed on the same candle while another stays open', () => {
+    const stillOpen: Position = {
+      id: 'keep',
+      side: 'short',
+      entryPrice: 80,
+      entryTime: 5,
+      lots: 1,
+      takeProfit: null,
+      stopLoss: null
+    }
+    const other = flatClosed({
+      id: 't2',
+      side: 'short',
+      entryPrice: 110,
+      entryTime: 8,
+      exitPrice: 100,
+      exitTime: 20,
+      pnl: 10,
+      exitReason: 'manual'
+    })
+    const result = rewindTradesAfterStepBack({
+      positions: [stillOpen],
+      closedTrades: [closedAt20, other],
+      leftCandleTime: 20,
+      currentCandleTime: 15
+    })
+    expect(result.closedTrades).toHaveLength(0)
+    expect(result.positions.map((p) => p.id).sort()).toEqual(['keep', 't1', 't2'])
   })
 })
 
@@ -590,8 +647,6 @@ describe('pending limit orders', () => {
 
   it('places a buy limit when flat and price is below mark', () => {
     const result = placePendingLimit({
-      current: null,
-      pending: null,
       side: 'long',
       price: 95,
       markPrice: 100,
@@ -615,8 +670,6 @@ describe('pending limit orders', () => {
 
   it('rejects a buy limit at or above mark', () => {
     const result = placePendingLimit({
-      current: null,
-      pending: null,
       side: 'long',
       price: 100,
       markPrice: 100,
@@ -626,10 +679,8 @@ describe('pending limit orders', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('rejects a second pending or a pending while in a position', () => {
+  it('places a second pending while another pending or position is already open', () => {
     const placed = placePendingLimit({
-      current: null,
-      pending: null,
       side: 'short',
       price: 105,
       markPrice: 100,
@@ -638,32 +689,29 @@ describe('pending limit orders', () => {
     })
     expect(placed.ok).toBe(true)
     if (!placed.ok) return
-    expect(
-      placePendingLimit({
-        current: null,
-        pending: placed.pending,
-        side: 'long',
-        price: 90,
-        markPrice: 100,
-        time: 11,
-        id: 'p2'
-      }).ok
-    ).toBe(false)
+    const second = placePendingLimit({
+      side: 'long',
+      price: 90,
+      markPrice: 100,
+      time: 11,
+      id: 'p2'
+    })
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    expect(second.pending.id).toBe('p2')
 
-    const open = openPosition(null, 'long', 100, 10, 't1')
+    const open = openPosition('long', 100, 10, 't1')
     expect(open.ok).toBe(true)
-    if (!open.ok) return
-    expect(
-      placePendingLimit({
-        current: open.position,
-        pending: null,
-        side: 'long',
-        price: 90,
-        markPrice: 100,
-        time: 11,
-        id: 'p2'
-      }).ok
-    ).toBe(false)
+    const withOpen = placePendingLimit({
+      side: 'long',
+      price: 90,
+      markPrice: 100,
+      time: 11,
+      id: 'p3'
+    })
+    expect(withOpen.ok).toBe(true)
+    if (!withOpen.ok) return
+    expect(withOpen.pending.id).toBe('p3')
   })
 
   it('moves a pending limit and attaches TP/SL vs the limit price', () => {
@@ -717,77 +765,77 @@ describe('pending limit orders', () => {
   it('rewinds a filled limit back to pending, then drops it before place time', () => {
     const filled = pendingToPosition(buyLimit, 20)
     const afterFill = rewindTradesAfterStepBack({
-      position: filled,
-      pendingOrder: null,
+      positions: [filled],
+      pendingOrders: [],
       closedTrades: [],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(afterFill.position).toBeNull()
-    expect(afterFill.pendingOrder).toEqual(buyLimit)
+    expect(afterFill.positions).toEqual([])
+    expect(afterFill.pendingOrders).toEqual([buyLimit])
     expect(afterFill.discardedEntryTimes).toEqual([20])
 
     const beforePlace = rewindTradesAfterStepBack({
-      position: null,
-      pendingOrder: buyLimit,
+      positions: [],
+      pendingOrders: [buyLimit],
       closedTrades: [],
       leftCandleTime: 15,
       currentCandleTime: 5
     })
-    expect(beforePlace.pendingOrder).toBeNull()
+    expect(beforePlace.pendingOrders).toEqual([])
   })
 
   it('restores a pending when rewind of a same-bar fill+close lands after place', () => {
     const filled = pendingToPosition(buyLimit, 20)
     const closed = closePosition(filled, 90, 20, 'sl')
     const result = rewindTradesAfterStepBack({
-      position: null,
-      pendingOrder: null,
+      positions: [],
+      pendingOrders: [],
       closedTrades: [closed],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(result.position).toBeNull()
-    expect(result.pendingOrder).toEqual(buyLimit)
+    expect(result.positions).toEqual([])
+    expect(result.pendingOrders).toEqual([buyLimit])
     expect(result.discardedEntryTimes).toEqual([20])
   })
 
   it('keeps a canceled limit in order history until rewind passes the cancel', () => {
     const canceled = historicOrderFromPending(buyLimit, 'canceled', 20)
     const stillCanceled = rewindTradesAfterStepBack({
-      position: null,
-      pendingOrder: null,
+      positions: [],
+      pendingOrders: [],
       closedTrades: [],
       orderHistory: [canceled],
       leftCandleTime: 25,
       currentCandleTime: 22
     })
-    expect(stillCanceled.pendingOrder).toBeNull()
+    expect(stillCanceled.pendingOrders).toEqual([])
     expect(stillCanceled.orderHistory).toEqual([canceled])
 
     const afterCancel = rewindTradesAfterStepBack({
-      position: null,
-      pendingOrder: null,
+      positions: [],
+      pendingOrders: [],
       closedTrades: [],
       orderHistory: [canceled],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(afterCancel.pendingOrder).toEqual(buyLimit)
+    expect(afterCancel.pendingOrders).toEqual([buyLimit])
     expect(afterCancel.orderHistory).toHaveLength(0)
   })
 
   it('drops a canceled limit from history when rewind lands before place', () => {
     const canceled = historicOrderFromPending(buyLimit, 'canceled', 20)
     const result = rewindTradesAfterStepBack({
-      position: null,
-      pendingOrder: null,
+      positions: [],
+      pendingOrders: [],
       closedTrades: [],
       orderHistory: [canceled],
       leftCandleTime: 20,
       currentCandleTime: 5
     })
-    expect(result.pendingOrder).toBeNull()
+    expect(result.pendingOrders).toEqual([])
     expect(result.orderHistory).toHaveLength(0)
   })
 
@@ -795,15 +843,15 @@ describe('pending limit orders', () => {
     const filled = pendingToPosition(buyLimit, 20)
     const historic = historicOrderFromPending(buyLimit, 'filled', 20)
     const result = rewindTradesAfterStepBack({
-      position: filled,
-      pendingOrder: null,
+      positions: [filled],
+      pendingOrders: [],
       closedTrades: [],
       orderHistory: [historic],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(result.position).toBeNull()
-    expect(result.pendingOrder).toEqual(buyLimit)
+    expect(result.positions).toEqual([])
+    expect(result.pendingOrders).toEqual([buyLimit])
     expect(result.orderHistory).toHaveLength(0)
   })
 
@@ -812,14 +860,14 @@ describe('pending limit orders', () => {
     const secondPlaced: PendingOrder = { ...buyLimit, id: 'p2', placedTime: 20, price: 94 }
     const second = historicOrderFromPending(secondPlaced, 'canceled', 20)
     const result = rewindTradesAfterStepBack({
-      position: null,
-      pendingOrder: null,
+      positions: [],
+      pendingOrders: [],
       closedTrades: [],
       orderHistory: [first, second],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(result.pendingOrder).toEqual(buyLimit)
+    expect(result.pendingOrders).toEqual([buyLimit])
     expect(result.orderHistory).toHaveLength(0)
   })
 })
@@ -853,8 +901,6 @@ describe('pending stop-limit orders', () => {
 
   it('places a buy stop-limit when flat and price is above mark', () => {
     const result = placePendingLimit({
-      current: null,
-      pending: null,
       side: 'long',
       price: 105,
       markPrice: 100,
@@ -871,8 +917,6 @@ describe('pending stop-limit orders', () => {
 
   it('rejects a buy stop-limit at or below mark', () => {
     const result = placePendingLimit({
-      current: null,
-      pending: null,
       side: 'long',
       price: 99,
       markPrice: 100,
@@ -903,14 +947,14 @@ describe('pending stop-limit orders', () => {
     const filled = pendingToPosition(buyStop, 20)
     expect(filled.pendingKind).toBe('stopLimit')
     const afterFill = rewindTradesAfterStepBack({
-      position: filled,
-      pendingOrder: null,
+      positions: [filled],
+      pendingOrders: [],
       closedTrades: [],
       leftCandleTime: 20,
       currentCandleTime: 15
     })
-    expect(afterFill.position).toBeNull()
-    expect(afterFill.pendingOrder).toEqual(buyStop)
+    expect(afterFill.positions).toEqual([])
+    expect(afterFill.pendingOrders).toEqual([buyStop])
   })
 })
 
@@ -998,6 +1042,30 @@ describe('unrealizedPnl / cumulative / session', () => {
     expect(perf.realized).toBeCloseTo(5)
     expect(perf.unrealized).toBeCloseTo(2)
     expect(perf.total).toBeCloseTo(7)
+  })
+
+  it('sums unrealized across hedge positions with per-position lots', () => {
+    const long: Position = {
+      id: 'c',
+      side: 'long',
+      entryPrice: 10,
+      entryTime: 5,
+      lots: 1,
+      takeProfit: null,
+      stopLoss: null
+    }
+    const short: Position = {
+      id: 'd',
+      side: 'short',
+      entryPrice: 12,
+      entryTime: 6,
+      lots: 2,
+      takeProfit: null,
+      stopLoss: null
+    }
+    const perf = sessionPerformance([], [long, short], 12, (p) => ({ lots: p.lots }))
+    expect(perf.unrealized).toBeCloseTo(2)
+    expect(perf.total).toBeCloseTo(2)
   })
 })
 

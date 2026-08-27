@@ -189,7 +189,6 @@ export function isValidPositionLevel(
 
 /** Why the place-pending chip cannot submit from a position drawing. */
 export type PositionLimitPlacementBlock =
-  | 'working-trade'
   | 'no-mark'
   | 'at-mark'
   | 'missing-tp'
@@ -206,13 +205,11 @@ export type PositionLimitPlacementBlock =
 export function positionLimitPlacementBlock(
   drawing: Pick<PositionDrawing, 'type' | 'entry' | 'target' | 'stop'>,
   opts: {
-    hasWorkingTrade: boolean
     hasMark: boolean
     markPrice?: number | null
     visibleRange?: VisiblePriceRange | null
   }
 ): PositionLimitPlacementBlock | null {
-  if (opts.hasWorkingTrade) return 'working-trade'
   if (!opts.hasMark) return 'no-mark'
   const mark = opts.markPrice
   if (mark != null && Number.isFinite(mark) && !(drawing.entry < mark) && !(drawing.entry > mark)) {
@@ -247,8 +244,6 @@ export function positionLimitPlacementHint(
   kind?: 'limit' | 'stopLimit' | null
 ): string {
   switch (block) {
-    case 'working-trade':
-      return 'Cannot place a pending order — an open position or pending order already exists'
     case 'no-mark':
       return 'Cannot place a pending order — no current price'
     case 'at-mark':

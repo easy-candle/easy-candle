@@ -476,8 +476,6 @@ export function withStopLoss(
 }
 
 export function placePendingLimit(args: {
-  current: Position | null
-  pending: PendingOrder | null
   side: PositionSide
   price: number
   markPrice: number
@@ -486,16 +484,10 @@ export function placePendingLimit(args: {
   lots?: number
   kind?: PendingOrderKind
 }): { ok: true; pending: PendingOrder } | { ok: false; reason: string } {
-  const { current, pending, side, price, markPrice, time, id } = args
+  const { side, price, markPrice, time, id } = args
   const kind = resolvedPendingKind(args.kind)
   if (side !== 'long' && side !== 'short') {
     return { ok: false, reason: 'Invalid side' }
-  }
-  if (current) {
-    return { ok: false, reason: 'Close the open position first' }
-  }
-  if (pending) {
-    return { ok: false, reason: 'Cancel the pending order first' }
   }
   if (!Number.isFinite(price) || !Number.isFinite(time) || !Number.isFinite(markPrice)) {
     return { ok: false, reason: 'Invalid limit' }
@@ -683,7 +675,6 @@ function pendingFromFilledPosition(
 }
 
 export function openPosition(
-  current: Position | null,
   side: PositionSide,
   price: number,
   time: number,
@@ -696,9 +687,6 @@ export function openPosition(
   }
   if (!Number.isFinite(price) || !Number.isFinite(time)) {
     return { ok: false, reason: 'Invalid fill' }
-  }
-  if (current) {
-    return { ok: false, reason: 'Close the open position first' }
   }
   return {
     ok: true,
@@ -769,8 +757,8 @@ export function positionFromClosedTrade(trade: ClosedTrade): Position {
 }
 
 export type TradeRewindResult = {
-  position: Position | null
-  pendingOrder: PendingOrder | null
+  positions: Position[]
+  pendingOrders: PendingOrder[]
   closedTrades: ClosedTrade[]
   orderHistory: HistoricOrder[]
   /** Entry times whose open markers should be removed (forgotten / reset). */
@@ -783,17 +771,17 @@ function eventOnLeftCandle(time: number, leftCandleTime: number, leftCoverEnd: n
 
 /**
  * After stepping one candle backward from `leftCandleTime` to `currentCandleTime`:
- * - Reopen a trade closed on the left candle (if still at/after its entry).
+ * - Reopen every trade closed on the left candle (if still at/after its entry).
  * - Restore a limit pending if rewind lands before fill but after place.
- * - Restore a canceled limit if rewind lands before cancel but after place.
+ * - Restore canceled limits if rewind lands before cancel but after place.
  * - Forget a trade entirely if rewind lands before its entry (reset decision).
  * - Drop an open position if current is before its entry.
  * - Drop a pending if current is before its place time.
  * - Drop order-history rows whose fill/cancel is on the left candle.
  */
 export function rewindTradesAfterStepBack(args: {
-  position: Position | null
-  pendingOrder?: PendingOrder | null
+  positions?: Position[]
+  pendingOrders?: PendingOrder[]
   closedTrades: ClosedTrade[]
   orderHistory?: HistoricOrder[]
   leftCandleTime: number
@@ -803,45 +791,39 @@ export function rewindTradesAfterStepBack(args: {
 }): TradeRewindResult {
   const { leftCandleTime, currentCandleTime } = args
   const leftCoverEnd = args.leftCoverEnd ?? leftCandleTime
-  let position = args.position
-  let pendingOrder = args.pendingOrder ?? null
+  let positions = Array.isArray(args.positions) ? [...args.positions] : []
+  let pendingOrders = Array.isArray(args.pendingOrders) ? [...args.pendingOrders] : []
   let closedTrades = Array.isArray(args.closedTrades) ? [...args.closedTrades] : []
   let orderHistory = Array.isArray(args.orderHistory) ? [...args.orderHistory] : []
   const discardedEntryTimes: number[] = []
 
-  if (position && currentCandleTime < position.entryTime) {
-    discardedEntryTimes.push(position.entryTime)
-    pendingOrder = pendingFromFilledPosition(position, currentCandleTime)
-    position = null
-  }
-
-  if (!position) {
-    let idx = -1
-    for (let i = closedTrades.length - 1; i >= 0; i -= 1) {
-      const exitTime = closedTrades[i].exitTime
-      if (eventOnLeftCandle(exitTime, leftCandleTime, leftCoverEnd)) {
-        idx = i
-        break
-      }
+  const keptPositions: Position[] = []
+  for (const position of positions) {
+    if (currentCandleTime < position.entryTime) {
+      discardedEntryTimes.push(position.entryTime)
+      const restored = pendingFromFilledPosition(position, currentCandleTime)
+      if (restored) pendingOrders.push(restored)
+      continue
     }
+    keptPositions.push(position)
+  }
+  positions = keptPositions
 
-    if (idx >= 0) {
-      const trade = closedTrades[idx]
-      closedTrades = closedTrades.filter((_, i) => i !== idx)
-
-      if (trade.entryTime <= currentCandleTime) {
-        position = positionFromClosedTrade(trade)
-        pendingOrder = null
-      } else {
-        const restored = pendingFromFilledPosition(
-          positionFromClosedTrade(trade),
-          currentCandleTime
-        )
-        if (restored) pendingOrder = restored
-        discardedEntryTimes.push(trade.entryTime)
-      }
+  const stillClosed: ClosedTrade[] = []
+  for (const trade of closedTrades) {
+    if (!eventOnLeftCandle(trade.exitTime, leftCandleTime, leftCoverEnd)) {
+      stillClosed.push(trade)
+      continue
+    }
+    if (trade.entryTime <= currentCandleTime) {
+      positions.push(positionFromClosedTrade(trade))
+    } else {
+      const restored = pendingFromFilledPosition(positionFromClosedTrade(trade), currentCandleTime)
+      if (restored) pendingOrders.push(restored)
+      discardedEntryTimes.push(trade.entryTime)
     }
   }
+  closedTrades = stillClosed
 
   const restoredCanceled: HistoricOrder[] = []
   const keptHistory: HistoricOrder[] = []
@@ -854,21 +836,15 @@ export function rewindTradesAfterStepBack(args: {
   }
   orderHistory = keptHistory
 
-  if (!position && !pendingOrder) {
-    for (let i = restoredCanceled.length - 1; i >= 0; i -= 1) {
-      const order = restoredCanceled[i]
-      if (isPendingTicketType(order.type) && order.placedTime <= currentCandleTime) {
-        pendingOrder = pendingFromHistoricOrder(order)
-        break
-      }
+  for (const order of restoredCanceled) {
+    if (isPendingTicketType(order.type) && order.placedTime <= currentCandleTime) {
+      pendingOrders.push(pendingFromHistoricOrder(order))
     }
   }
 
-  if (pendingOrder && currentCandleTime < pendingOrder.placedTime) {
-    pendingOrder = null
-  }
+  pendingOrders = pendingOrders.filter((pending) => !(currentCandleTime < pending.placedTime))
 
-  return { position, pendingOrder, closedTrades, orderHistory, discardedEntryTimes }
+  return { positions, pendingOrders, closedTrades, orderHistory, discardedEntryTimes }
 }
 
 /**
@@ -933,15 +909,32 @@ export function cumulativeRealizedPnl(closedTrades: ClosedTrade[]): number {
   return closedTrades.reduce((sum, trade) => sum + trade.pnl, 0)
 }
 
+export function asPositionList(open: Position | Position[] | null | undefined): Position[] {
+  if (open == null) return []
+  return Array.isArray(open) ? open : [open]
+}
+
+export function unrealizedPnlTotal(
+  positions: Position[] | null | undefined,
+  markPrice: number | null | undefined,
+  scaleFor?: (position: Position) => PnlScale | undefined
+): number {
+  let total = 0
+  for (const position of Array.isArray(positions) ? positions : []) {
+    const u = unrealizedPnl(position, markPrice, scaleFor?.(position))
+    if (u != null) total += u
+  }
+  return total
+}
+
 export function sessionPerformance(
   closedTrades: ClosedTrade[],
-  open: Position | null,
+  open: Position | Position[] | null | undefined,
   markPrice: number | null | undefined,
-  scale?: PnlScale
+  scaleFor?: (position: Position) => PnlScale | undefined
 ): { realized: number; unrealized: number; total: number } {
   const realized = cumulativeRealizedPnl(closedTrades)
-  const u = unrealizedPnl(open, markPrice, scale)
-  const unrealized = u == null ? 0 : u
+  const unrealized = unrealizedPnlTotal(asPositionList(open), markPrice, scaleFor)
   return {
     realized,
     unrealized,

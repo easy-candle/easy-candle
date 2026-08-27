@@ -11,6 +11,7 @@ import {
   realizedRiskReward,
   sessionPerformance,
   unrealizedPnl,
+  unrealizedPnlTotal,
   type ClosedTrade,
   type HistoricOrder,
   type PendingOrder,
@@ -55,17 +56,28 @@ function HistoryList({ children }: { children: ReactNode }) {
 function PendingOrderRow({
   order,
   symbol,
-  pricePrecision
+  pricePrecision,
+  selected,
+  onSelect,
+  onCancel
 }: {
   order: PendingOrder
   symbol: string
   pricePrecision: number
+  selected: boolean
+  onSelect: () => void
+  onCancel: () => void
 }) {
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums">
-      <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
-        Working
-      </span>
+    <li
+      className={`flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums ${
+        selected ? 'bg-zinc-800/70' : 'hover:bg-zinc-800/40'
+      }`}
+    >
+      <button type="button" className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-left" onClick={onSelect}>
+        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
+          Working
+        </span>
       <span className={sideClass(order.side)}>{formatOrderSideLabel(order.side, order.kind)}</span>
       <span className="text-zinc-500">{formatPositionSize(order.lots, symbol)}</span>
       <span className="text-zinc-400">
@@ -82,6 +94,14 @@ function PendingOrderRow({
           SL {formatAssetPrice(order.stopLoss, pricePrecision)}
         </span>
       )}
+      </button>
+      <button
+        type="button"
+        className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        onClick={onCancel}
+      >
+        Cancel
+      </button>
     </li>
   )
 }
@@ -92,7 +112,10 @@ function OpenPositionRow({
   pricePrecision,
   openPnl,
   openRr,
-  rrLabel
+  rrLabel,
+  selected,
+  onSelect,
+  onClose
 }: {
   position: Position
   symbol: string
@@ -100,36 +123,56 @@ function OpenPositionRow({
   openPnl: number | null
   openRr: number | null
   rrLabel: string
+  selected: boolean
+  onSelect: () => void
+  onClose: () => void
 }) {
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums">
-      <span className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
-        Open
-      </span>
-      <span className={sideClass(position.side)}>{position.side.toUpperCase()}</span>
-      <span className="text-zinc-500">{formatPositionSize(position.lots, symbol)}</span>
-      <span className="text-zinc-400">
-        Entry {formatAssetPrice(position.entryPrice, pricePrecision)} ·{' '}
-        {formatUtcCandleTime(position.entryTime)}
-      </span>
-      {position.takeProfit != null && (
-        <span className="text-teal-400/90">
-          TP {formatAssetPrice(position.takeProfit, pricePrecision)}
-          {openRr != null ? ` · ${formatRiskReward(openRr)}` : ` · ${rrLabel}`}
-        </span>
-      )}
-      {position.stopLoss != null && (
-        <span className="text-orange-400/90">
-          SL {formatAssetPrice(position.stopLoss, pricePrecision)}
-        </span>
-      )}
-      <span
-        className={`ml-auto font-medium ${
-          openPnl != null && openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'
-        }`}
+    <li
+      className={`flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums ${
+        selected ? 'bg-zinc-800/70' : 'hover:bg-zinc-800/40'
+      }`}
+    >
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-left"
+        onClick={onSelect}
       >
-        {formatPnl(openPnl)}
-      </span>
+        <span className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+          Open
+        </span>
+        <span className={sideClass(position.side)}>{position.side.toUpperCase()}</span>
+        <span className="text-zinc-500">{formatPositionSize(position.lots, symbol)}</span>
+        <span className="text-zinc-400">
+          Entry {formatAssetPrice(position.entryPrice, pricePrecision)} ·{' '}
+          {formatUtcCandleTime(position.entryTime)}
+        </span>
+        {position.takeProfit != null && (
+          <span className="text-teal-400/90">
+            TP {formatAssetPrice(position.takeProfit, pricePrecision)}
+            {openRr != null ? ` · ${formatRiskReward(openRr)}` : ` · ${rrLabel}`}
+          </span>
+        )}
+        {position.stopLoss != null && (
+          <span className="text-orange-400/90">
+            SL {formatAssetPrice(position.stopLoss, pricePrecision)}
+          </span>
+        )}
+        <span
+          className={`ml-auto font-medium ${
+            openPnl != null && openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'
+          }`}
+        >
+          {formatPnl(openPnl)}
+        </span>
+      </button>
+      <button
+        type="button"
+        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        onClick={onClose}
+      >
+        Close
+      </button>
     </li>
   )
 }
@@ -219,13 +262,16 @@ export default function TradePanel() {
   const [showPositions, setShowPositions] = useState(true)
   const [tab, setTab] = useState<HistoryTab>('positions')
   const mode = useReplayStore((s) => s.mode)
-  const position = useReplayStore((s) => s.position)
-  const pendingOrder = useReplayStore((s) => s.pendingOrder)
+  const positions = useReplayStore((s) => s.positions)
+  const pendingOrders = useReplayStore((s) => s.pendingOrders)
+  const selectedWorkingId = useReplayStore((s) => s.selectedWorkingId)
+  const selectWorking = useReplayStore((s) => s.selectWorking)
+  const paperClose = useReplayStore((s) => s.paperClose)
+  const cancelPending = useReplayStore((s) => s.cancelPending)
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const orderHistory = useReplayStore((s) => s.orderHistory)
   const currentCandle = useReplayStore(selectPriceFollowCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
-  const tradeSize = useReplayStore((s) => s.tradeSize)
   const pricePrecision = usePricePrecision()
   const symbol = useReplayStore((s) => s.symbol)
   const preview = useUiLayoutStore((s) => s.tourPaperTradePreview)
@@ -233,23 +279,15 @@ export default function TradePanel() {
   if (mode !== 'replay' && !preview) return null
 
   const mark = currentCandle?.close
-  const scale = pnlScaleForSymbol(symbol, position?.lots ?? tradeSize)
-  const openPnl = unrealizedPnl(position, mark, scale)
-  const perf = sessionPerformance(closedTrades, position, mark, scale)
+  const openPnl = unrealizedPnlTotal(positions, mark, (p) => pnlScaleForSymbol(symbol, p.lots))
+  const perf = sessionPerformance(closedTrades, positions, mark, (p) =>
+    pnlScaleForSymbol(symbol, p.lots)
+  )
   const rrLabel = formatRiskReward(riskReward)
-  const openRr =
-    position != null
-      ? realizedRiskReward(
-          position.side,
-          position.entryPrice,
-          position.stopLoss,
-          position.takeProfit
-        )
-      : null
 
   const counts: Record<HistoryTab, number> = {
-    positions: position ? 1 : 0,
-    openOrders: pendingOrder ? 1 : 0,
+    positions: positions.length,
+    openOrders: pendingOrders.length,
     orderHistory: orderHistory.length,
     positionHistory: closedTrades.length
   }
@@ -257,40 +295,62 @@ export default function TradePanel() {
   const howTo = (
     <EmptyRow>
       Use the order ticket to Buy or Sell at market, or place a Limit or Stop Limit. Size is lots
-      for FX/metals and coin amount for crypto. Type TP/SL in the ticket or drag on the chart. First
-      SL/TP placement seeds the other at {rrLabel} as a guide — then move either level freely.
+      for FX/metals and coin amount for crypto. Ticket TP/SL apply to the next order, then the form
+      resets. Drag a position's levels on the chart to edit them. First SL/TP placement seeds the
+      other at {rrLabel} as a guide — then move either level freely.
     </EmptyRow>
   )
 
   const neverTraded =
-    !position && !pendingOrder && orderHistory.length === 0 && closedTrades.length === 0
+    positions.length === 0 &&
+    pendingOrders.length === 0 &&
+    orderHistory.length === 0 &&
+    closedTrades.length === 0
 
   let body: ReactNode
   if (tab === 'positions') {
-    body = position ? (
-      <HistoryList>
-        <OpenPositionRow
-          position={position}
-          symbol={symbol}
-          pricePrecision={pricePrecision}
-          openPnl={openPnl}
-          openRr={openRr}
-          rrLabel={rrLabel}
-        />
-      </HistoryList>
-    ) : neverTraded ? (
-      howTo
-    ) : (
-      <EmptyRow>No open positions</EmptyRow>
-    )
+    body =
+      positions.length > 0 ? (
+        <HistoryList>
+          {positions.map((open) => (
+            <OpenPositionRow
+              key={open.id}
+              position={open}
+              symbol={symbol}
+              pricePrecision={pricePrecision}
+              openPnl={unrealizedPnl(open, mark, pnlScaleForSymbol(symbol, open.lots))}
+              openRr={realizedRiskReward(open.side, open.entryPrice, open.stopLoss, open.takeProfit)}
+              rrLabel={rrLabel}
+              selected={selectedWorkingId === open.id}
+              onSelect={() => selectWorking(selectedWorkingId === open.id ? null : open.id)}
+              onClose={() => paperClose(open.id)}
+            />
+          ))}
+        </HistoryList>
+      ) : neverTraded ? (
+        howTo
+      ) : (
+        <EmptyRow>No open positions</EmptyRow>
+      )
   } else if (tab === 'openOrders') {
-    body = pendingOrder ? (
-      <HistoryList>
-        <PendingOrderRow order={pendingOrder} symbol={symbol} pricePrecision={pricePrecision} />
-      </HistoryList>
-    ) : (
-      <EmptyRow>No open orders. Place a Limit or Stop Limit from the ticket.</EmptyRow>
-    )
+    body =
+      pendingOrders.length > 0 ? (
+        <HistoryList>
+          {pendingOrders.map((order) => (
+            <PendingOrderRow
+              key={order.id}
+              order={order}
+              symbol={symbol}
+              pricePrecision={pricePrecision}
+              selected={selectedWorkingId === order.id}
+              onSelect={() => selectWorking(selectedWorkingId === order.id ? null : order.id)}
+              onCancel={() => cancelPending(order.id)}
+            />
+          ))}
+        </HistoryList>
+      ) : (
+        <EmptyRow>No open orders. Place a Limit or Stop Limit from the ticket.</EmptyRow>
+      )
   } else if (tab === 'orderHistory') {
     body =
       orderHistory.length > 0 ? (

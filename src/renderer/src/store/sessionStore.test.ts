@@ -29,8 +29,9 @@ function seedReplayIn(
     drawTool: 'select',
     pendingTrend: null,
     selectedDrawingId: null,
-    position: null,
-    pendingOrder: null,
+    positions: [],
+    pendingOrders: [],
+    selectedWorkingId: null,
     closedTrades: closedTrades ?? [],
     orderHistory: [],
     tradeMarkers: []
@@ -83,7 +84,8 @@ describe('createSession', () => {
     expect(session?.closedTrades).toHaveLength(1)
     expect(session?.orderHistory).toEqual([])
     expect(session?.autoSave).toBe(true)
-    expect(session?.position).toBeNull()
+    expect(session?.positions).toEqual([])
+    expect(session?.pendingOrders).toEqual([])
   })
 
   it('captures canceled orders in order history', () => {
