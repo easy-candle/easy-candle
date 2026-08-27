@@ -86,6 +86,38 @@ import { useDrawingSettingsStore } from '@/store/drawingSettingsStore'
 import { selectPriceFollowCandle, useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { useThemeStore } from '@/store/themeStore'
+import type { PendingOrder, Position } from '@/lib/paperTrade'
+
+type WorkingOverlayItem = {
+  id: string
+  working: Position
+  isPending: boolean
+  pendingKind?: PendingOrder['kind']
+}
+
+function workingItemsFrom(
+  positions: Position[],
+  pendingOrders: PendingOrder[]
+): WorkingOverlayItem[] {
+  return [
+    ...positions.map((p) => ({ id: p.id, working: p, isPending: false })),
+    ...pendingOrders.map((p) => ({
+      id: p.id,
+      working: pendingToPosition(p, p.placedTime),
+      isPending: true,
+      pendingKind: p.kind
+    }))
+  ]
+}
+
+function lookupWorking(
+  positions: Position[],
+  pendingOrders: PendingOrder[],
+  id: string | null | undefined
+): WorkingOverlayItem | null {
+  if (!id) return null
+  return workingItemsFrom(positions, pendingOrders).find((item) => item.id === id) ?? null
+}
 
 type BodyOrigin = { drawing: Drawing; time: number; price: number }
 
@@ -131,8 +163,8 @@ type DragState =
     }
   | { kind: 'pos-place'; id: string; level: PositionLevel; moved: boolean }
   | { kind: 'place-two'; tool: TwoPointTool; startX: number; startY: number; moved: boolean }
-  | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean }
-  | { kind: 'pending'; moved: boolean }
+  | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean; workingId: string }
+  | { kind: 'pending'; moved: boolean; workingId: string }
   | {
       kind: 'draft'
       level: 'limit' | 'tp' | 'sl'
@@ -285,8 +317,10 @@ export default function DrawingOverlay({
   const pendingTrend = useReplayStore((s) => s.pendingTrend)
   const selectedDrawingId = useReplayStore((s) => s.selectedDrawingId)
   const closedTrades = useReplayStore((s) => s.closedTrades)
-  const position = useReplayStore((s) => s.position)
-  const pendingOrder = useReplayStore((s) => s.pendingOrder)
+  const positions = useReplayStore((s) => s.positions)
+  const pendingOrders = useReplayStore((s) => s.pendingOrders)
+  const selectedWorkingId = useReplayStore((s) => s.selectedWorkingId)
+  const selectWorking = useReplayStore((s) => s.selectWorking)
   const markCandle = useReplayStore(selectPriceFollowCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
@@ -508,11 +542,8 @@ export default function DrawingOverlay({
       const price = pickSeries.coordinateToPrice(y)
       if (price == null || !Number.isFinite(price)) return
       const state = useReplayStore.getState()
-      const working =
-        state.position ??
-        (state.pendingOrder != null
-          ? pendingToPosition(state.pendingOrder, state.pendingOrder.placedTime)
-          : null)
+      const item = lookupWorking(state.positions, state.pendingOrders, state.selectedWorkingId)
+      const working = item?.working ?? null
       if (!working) {
         setLevelPreview(null)
         return
@@ -640,10 +671,11 @@ export default function DrawingOverlay({
       if (drag.kind === 'pending') {
         drag.moved = true
         const state = useReplayStore.getState()
-        const pending = state.pendingOrder
+        const pending = state.pendingOrders.find((p) => p.id === drag.workingId)
         const mark = state.currentCandle?.close
         if (!pending || mark == null) return
         if (isValidPendingPrice(resolvedPendingKind(pending.kind), pending.side, mark, price)) {
+          selectWorking(pending.id)
           setPendingPrice(price)
         }
         return
@@ -695,10 +727,13 @@ export default function DrawingOverlay({
       if (drag.kind === 'tp' || drag.kind === 'sl') {
         drag.moved = true
         const state = useReplayStore.getState()
-        const open = state.position
-        const pending = state.pendingOrder
-        const working =
-          open ?? (pending != null ? pendingToPosition(pending, pending.placedTime) : null)
+        const item = lookupWorking(state.positions, state.pendingOrders, drag.workingId)
+        const working = item?.working ?? null
+        const pending = item?.isPending
+          ? (state.pendingOrders.find((p) => p.id === drag.workingId) ?? null)
+          : null
+        const open = item && !item.isPending ? item.working : null
+        selectWorking(drag.workingId)
         // Guide preview only while placing the first level; later moves are free.
         const linked =
           drag.mode === 'place' && working != null
@@ -722,16 +757,16 @@ export default function DrawingOverlay({
           if (!working) return
           if (drag.kind === 'tp') {
             if (isValidTakeProfit(working.side, working.entryPrice, price)) {
-              setTakeProfit(price)
+              setTakeProfit(price, { id: drag.workingId })
             }
           } else if (pending && !open) {
             if (isValidPendingStopLoss(pending.side, pending.price, price)) {
-              setStopLoss(price)
+              setStopLoss(price, { id: drag.workingId })
             }
           } else {
             const mark = state.currentCandle?.close
             if (mark != null && isValidStopLoss(working.side, mark, price)) {
-              setStopLoss(price)
+              setStopLoss(price, { id: drag.workingId })
             }
           }
         }
@@ -796,8 +831,8 @@ export default function DrawingOverlay({
       if (drag && (drag.kind === 'tp' || drag.kind === 'sl') && drag.mode === 'place') {
         const preview = levelPreviewRef.current
         if (preview && preview.kind === drag.kind) {
-          if (drag.kind === 'tp') setTakeProfit(preview.price, { linkRr: true })
-          else setStopLoss(preview.price, { linkRr: true })
+          if (drag.kind === 'tp') setTakeProfit(preview.price, { linkRr: true, id: drag.workingId })
+          else setStopLoss(preview.price, { linkRr: true, id: drag.workingId })
         }
       }
 
@@ -918,8 +953,7 @@ export default function DrawingOverlay({
     const price = series.coordinateToPrice(y)
     if (price == null || !Number.isFinite(price)) return
     const working =
-      position ??
-      (pendingOrder != null ? pendingToPosition(pendingOrder, pendingOrder.placedTime) : null)
+      lookupWorking(positions, pendingOrders, selectedWorkingId)?.working ?? null
     if (!working) {
       setLevelPreview(null)
       return
@@ -1028,19 +1062,16 @@ export default function DrawingOverlay({
     } else if (drag.kind === 'place-two') {
       setDraggingKey('place-two')
     } else if (drag.kind === 'pending') {
-      setDraggingKey('pending')
+      setDraggingKey(`pending:${drag.workingId}`)
     } else if (drag.kind === 'draft') {
       setDraggingKey(`draft:${drag.level}`)
     } else {
-      setDraggingKey(`${drag.kind}:${drag.mode}`)
+      setDraggingKey(`${drag.kind}:${drag.mode}:${drag.workingId}`)
       setPlaceHint(null)
       // Seed preview immediately at the entry handle Y so the line appears on drag start.
       const state = useReplayStore.getState()
       const working =
-        state.position ??
-        (state.pendingOrder != null
-          ? pendingToPosition(state.pendingOrder, state.pendingOrder.placedTime)
-          : null)
+        lookupWorking(state.positions, state.pendingOrders, drag.kind === 'tp' || drag.kind === 'sl' || drag.kind === 'pending' ? drag.workingId : state.selectedWorkingId)?.working ?? null
       if (series && working) {
         const seedY = series.priceToCoordinate(working.entryPrice)
         if (seedY != null) {
@@ -1092,20 +1123,10 @@ export default function DrawingOverlay({
   const priceScaleW = chart?.priceScale('right').width() ?? 56
   const plotRight = plotRightX(width, priceScaleW, chart?.timeScale().width() ?? 0)
   const midX = plotRight / 2
-  const working =
-    position ??
-    (pendingOrder != null ? pendingToPosition(pendingOrder, pendingOrder.placedTime) : null)
-  const isPending = position == null && pendingOrder != null
-  const rrLabel = formatRiskReward(
-    working != null
-      ? (realizedRiskReward(
-          working.side,
-          working.entryPrice,
-          working.stopLoss,
-          working.takeProfit
-        ) ?? riskReward)
-      : riskReward
-  )
+  const workingOverlays = workingItemsFrom(positions, pendingOrders)
+  const selectedItem = lookupWorking(positions, pendingOrders, selectedWorkingId)
+  const working = selectedItem?.working ?? null
+  const isPending = selectedItem?.isPending ?? false
 
   function toXY(time: number, price: number): Point | null {
     if (!chart || !series) return null
@@ -1207,7 +1228,6 @@ export default function DrawingOverlay({
               ? pendingKindForEntry(selectedDrawing.type, mark, selectedDrawing.entry)
               : null
           const block = positionLimitPlacementBlock(selectedDrawing, {
-            hasWorkingTrade: Boolean(position || pendingOrder),
             hasMark: mark != null,
             markPrice: mark,
             visibleRange
@@ -1223,8 +1243,11 @@ export default function DrawingOverlay({
               const stop = levels.stop
               if (target == null || stop == null) return
               placeLimit(selectedDrawing.type, selectedDrawing.entry, pendingKind)
-              setTakeProfit(target, { linkRr: false })
-              setStopLoss(stop, { linkRr: false })
+              const created = useReplayStore.getState().pendingOrders.at(-1)
+              if (created) {
+                setTakeProfit(target, { linkRr: false, id: created.id })
+                setStopLoss(stop, { linkRr: false, id: created.id })
+              }
               selectDrawing(null)
             }
           }
@@ -1233,23 +1256,11 @@ export default function DrawingOverlay({
 
   const pnlScale = pnlScaleForSymbol(symbol, working?.lots)
   const qtyLabel = formatTradeSizeForSymbol(working?.lots ?? 1, symbol)
-  const openPnl = position != null ? unrealizedPnl(position, markCandle?.close, pnlScale) : null
-  const sideColor = working?.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
-  const openPnlColor = isPending
-    ? TRADE_OVERLAY.handleTextMuted
-    : openPnl == null
-      ? TRADE_OVERLAY.handleTextMuted
-      : openPnl >= 0
-        ? TRADE_OVERLAY.pnlProfit
-        : TRADE_OVERLAY.pnlLoss
+  const openPnl = working != null && !isPending ? unrealizedPnl(working, markCandle?.close, pnlScale) : null
 
   const draggingTradeLevel =
-    draggingKey === 'tp:place' ||
-    draggingKey === 'tp:move' ||
-    draggingKey === 'sl:place' ||
-    draggingKey === 'sl:move'
-  const liveLevelPreview =
-    pricePick === 'tp' || pricePick === 'sl' || draggingTradeLevel ? levelPreview : null
+    draggingKey?.startsWith('tp:') === true || draggingKey?.startsWith('sl:') === true
+  const liveLevelPreview = draggingTradeLevel ? levelPreview : null
 
   const tpPrice =
     liveLevelPreview?.kind === 'tp'
@@ -1263,16 +1274,9 @@ export default function DrawingOverlay({
       : liveLevelPreview?.kind === 'tp' && liveLevelPreview.linkedPrice != null
         ? liveLevelPreview.linkedPrice
         : (working?.stopLoss ?? null)
-  const showTpLine = working != null && tpPrice != null
-  const showSlLine = working != null && slPrice != null
-
-  const entryY = working != null ? series?.priceToCoordinate(working.entryPrice) : null
-  const tpY = tpPrice != null ? series?.priceToCoordinate(tpPrice) : null
-  const slY = slPrice != null ? series?.priceToCoordinate(slPrice) : null
 
   const showTicketDraft =
     canEditTrade &&
-    working == null &&
     (ticketTakeProfit != null ||
       ticketStopLoss != null ||
       (isPendingTicketType(ticketOrderType) && ticketLimitPrice != null))
@@ -1293,24 +1297,18 @@ export default function DrawingOverlay({
   const draftEntryDraggable = isPendingTicketType(ticketOrderType)
 
   const pendingKindLabel =
-    resolvedPendingKind(pendingOrder?.kind) === 'stopLimit' ? 'Stop Lim' : 'Limit'
+    resolvedPendingKind(selectedItem?.pendingKind) === 'stopLimit' ? 'Stop Lim' : 'Limit'
   const openPnlLabel = isPending ? pendingKindLabel : formatPnlUsd(openPnl)
-  const tpPnl =
-    working != null && tpPrice != null
-      ? pnlForSide(working.side, working.entryPrice, tpPrice, pnlScale)
-      : null
-  const slPnl =
-    working != null && slPrice != null
-      ? pnlForSide(working.side, working.entryPrice, slPrice, pnlScale)
-      : null
-  const tpPnlLabel = formatPnlUsd(tpPnl)
-  const slPnlLabel = formatPnlUsd(slPnl)
 
   // Sit labels in the blank pane after the last candle, left of the price scale.
   const paneRight = Math.max(0, plotRight - OVERLAY_LAYOUT.rightPad)
   const placeExtra =
-    (canEditTrade && working?.takeProfit == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0) +
-    (canEditTrade && working?.stopLoss == null ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap : 0)
+    (canEditTrade && working != null && working.takeProfit == null
+      ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
+      : 0) +
+    (canEditTrade && working != null && working.stopLoss == null
+      ? OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
+      : 0)
   const entryPillW =
     estimateQtyWidth(qtyLabel) + estimatePnlWidth(openPnlLabel) + OVERLAY_LAYOUT.closeW
   const clusterNeedW = placeExtra + entryPillW
@@ -1416,7 +1414,7 @@ export default function DrawingOverlay({
     )
   }
 
-  function renderPlaceButton(kind: 'tp' | 'sl', x: number, y: number) {
+  function renderPlaceButton(kind: 'tp' | 'sl', x: number, y: number, workingId: string) {
     const color = kind === 'tp' ? TRADE_OVERLAY.tpLine : TRADE_OVERLAY.slLine
     const label = kind === 'tp' ? 'TP' : 'SL'
     const w = OVERLAY_LAYOUT.placeW
@@ -1424,7 +1422,7 @@ export default function DrawingOverlay({
     return (
       <g
         className="pointer-events-auto cursor-ns-resize"
-        onMouseDown={(e) => startDrag(e, { kind, mode: 'place', moved: false })}
+        onMouseDown={(e) => startDrag(e, { kind, mode: 'place', moved: false, workingId })}
         onMouseEnter={() => setPlaceHint(kind)}
         onMouseLeave={() => setPlaceHint((prev) => (prev === kind ? null : prev))}
       >
@@ -1678,8 +1676,63 @@ export default function DrawingOverlay({
           </g>
         )}
 
-        {working && entryY != null && (
-          <g key={`open-pos-${working.id}`}>
+        {workingOverlays.map((item) => {
+          const working = item.working
+          const isPending = item.isPending
+          const workingId = item.id
+          const itemPnlScale = pnlScaleForSymbol(symbol, working.lots)
+          const itemOpenPnl =
+            isPending ? null : unrealizedPnl(working, markCandle?.close, itemPnlScale)
+          const itemSideColor =
+            working.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
+          const itemPendingLabel =
+            resolvedPendingKind(item.pendingKind) === 'stopLimit' ? 'Stop Lim' : 'Limit'
+          const itemOpenPnlLabel = isPending ? itemPendingLabel : formatPnlUsd(itemOpenPnl)
+          const itemOpenPnlColor = isPending
+            ? TRADE_OVERLAY.handleTextMuted
+            : itemOpenPnl == null
+              ? TRADE_OVERLAY.handleTextMuted
+              : itemOpenPnl >= 0
+                ? TRADE_OVERLAY.pnlProfit
+                : TRADE_OVERLAY.pnlLoss
+          const previewHere =
+            draggingKey === `tp:place:${workingId}` ||
+            draggingKey === `tp:move:${workingId}` ||
+            draggingKey === `sl:place:${workingId}` ||
+            draggingKey === `sl:move:${workingId}`
+          const itemTpPrice = previewHere ? tpPrice : working.takeProfit
+          const itemSlPrice = previewHere ? slPrice : working.stopLoss
+          const itemEntryY = series?.priceToCoordinate(working.entryPrice)
+          const itemTpY = itemTpPrice != null ? series?.priceToCoordinate(itemTpPrice) : null
+          const itemSlY = itemSlPrice != null ? series?.priceToCoordinate(itemSlPrice) : null
+          if (itemEntryY == null) return null
+          const showTpLine = itemTpPrice != null
+          const showSlLine = itemSlPrice != null
+          const tpPnl =
+            itemTpPrice != null
+              ? pnlForSide(working.side, working.entryPrice, itemTpPrice, itemPnlScale)
+              : null
+          const slPnl =
+            itemSlPrice != null
+              ? pnlForSide(working.side, working.entryPrice, itemSlPrice, itemPnlScale)
+              : null
+          const entryY = itemEntryY
+          const tpY = itemTpY
+          const slY = itemSlY
+          const sideColor = itemSideColor
+          const openPnlLabel = itemOpenPnlLabel
+          const openPnlColor = itemOpenPnlColor
+          const tpPnlLabel = formatPnlUsd(tpPnl)
+          const slPnlLabel = formatPnlUsd(slPnl)
+          const itemRr =
+            realizedRiskReward(working.side, working.entryPrice, working.stopLoss, working.takeProfit) ??
+            riskReward
+          const rrLabel = formatRiskReward(itemRr)
+          return (
+          <g
+            key={`open-pos-${workingId}`}
+            onMouseDown={() => selectWorking(workingId)}
+          >
             {/* Risk / reward zones between entry and armed levels. */}
             {showSlLine && slY != null && (
               <rect
@@ -1719,7 +1772,7 @@ export default function DrawingOverlay({
                 height={10}
                 fill="transparent"
                 className="pointer-events-auto cursor-ns-resize"
-                onMouseDown={(e) => startDrag(e, { kind: 'pending', moved: false })}
+                onMouseDown={(e) => startDrag(e, { kind: 'pending', moved: false, workingId })}
               />
             )}
 
@@ -1809,12 +1862,12 @@ export default function DrawingOverlay({
               const nodes: React.JSX.Element[] = []
 
               if (canEditTrade && working.takeProfit == null) {
-                nodes.push(<g key="place-tp">{renderPlaceButton('tp', x, entryY)}</g>)
+                nodes.push(<g key="place-tp">{renderPlaceButton('tp', x, entryY, workingId)}</g>)
                 x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
               }
 
               if (canEditTrade && working.stopLoss == null) {
-                nodes.push(<g key="place-sl">{renderPlaceButton('sl', x, entryY)}</g>)
+                nodes.push(<g key="place-sl">{renderPlaceButton('sl', x, entryY, workingId)}</g>)
                 x += OVERLAY_LAYOUT.placeW + OVERLAY_LAYOUT.gap
               }
 
@@ -1826,19 +1879,20 @@ export default function DrawingOverlay({
                     border: sideColor,
                     dashed: isPending,
                     qtyFill: sideColor,
+                    qtyLabel: formatTradeSizeForSymbol(working.lots, symbol),
                     pnlLabel: openPnlLabel,
                     pnlColor: openPnlColor,
                     closeColor: TRADE_OVERLAY.closeIcon,
                     dragCursor: canEditTrade && isPending ? 'cursor-ns-resize' : undefined,
                     onDragStart:
                       canEditTrade && isPending
-                        ? (e) => startDrag(e, { kind: 'pending', moved: false })
+                        ? (e) => startDrag(e, { kind: 'pending', moved: false, workingId })
                         : undefined,
                     onClose: canEditTrade
                       ? (e) => {
                           stopAction(e)
-                          if (isPending) cancelPending()
-                          else paperClose()
+                          if (isPending) cancelPending(workingId)
+                          else paperClose(workingId)
                         }
                       : undefined
                   })}
@@ -1863,12 +1917,12 @@ export default function DrawingOverlay({
                 closeColor: TRADE_OVERLAY.tpLine,
                 dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
                 onDragStart: canEditTrade
-                  ? (e) => startDrag(e, { kind: 'tp', mode: 'move', moved: false })
+                  ? (e) => startDrag(e, { kind: 'tp', mode: 'move', moved: false, workingId })
                   : undefined,
                 onClose: canEditTrade
                   ? (e) => {
                       stopAction(e)
-                      setTakeProfit(null)
+                      setTakeProfit(null, { id: workingId })
                     }
                   : undefined
               })}
@@ -1888,18 +1942,19 @@ export default function DrawingOverlay({
                 closeColor: TRADE_OVERLAY.slLine,
                 dragCursor: canEditTrade ? 'cursor-ns-resize' : undefined,
                 onDragStart: canEditTrade
-                  ? (e) => startDrag(e, { kind: 'sl', mode: 'move', moved: false })
+                  ? (e) => startDrag(e, { kind: 'sl', mode: 'move', moved: false, workingId })
                   : undefined,
                 onClose: canEditTrade
                   ? (e) => {
                       stopAction(e)
-                      setStopLoss(null)
+                      setStopLoss(null, { id: workingId })
                     }
                   : undefined
               })}
 
             {/* Live preview pills while placing (before commit). */}
-            {liveLevelPreview?.kind === 'tp' &&
+            {previewHere &&
+              liveLevelPreview?.kind === 'tp' &&
               working.takeProfit == null &&
               tpY != null &&
               renderActionPill({
@@ -1912,7 +1967,8 @@ export default function DrawingOverlay({
                 pnlColor: TRADE_OVERLAY.tpLine,
                 closeColor: TRADE_OVERLAY.tpLine
               })}
-            {liveLevelPreview?.kind === 'sl' &&
+            {previewHere &&
+              liveLevelPreview?.kind === 'sl' &&
               working.stopLoss == null &&
               slY != null &&
               renderActionPill({
@@ -1926,7 +1982,8 @@ export default function DrawingOverlay({
                 closeColor: TRADE_OVERLAY.slLine
               })}
           </g>
-        )}
+          )
+        })}
 
         {drawings.map((drawing) => {
           const selected = drawing.id === selectedDrawingId

@@ -1,21 +1,10 @@
 import { useRef } from 'react'
-import { ArrowDownCircle, ArrowUpCircle, CircleX } from 'lucide-react'
-import IconButton from '@/components/IconButton'
+import { ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import LevelPriceControl, { parseLevelPrice } from '@/components/LevelPriceControl'
 import RiskRewardControl from '@/components/RiskRewardControl'
 import Tooltip from '@/components/Tooltip'
 import TradeSizeControl from '@/components/TradeSizeControl'
-import {
-  canPlaceTicketSide,
-  formatOrderSideLabel,
-  formatPnl,
-  formatPositionSize,
-  isPendingTicketType,
-  pnlScaleForSymbol,
-  unrealizedPnl,
-  type TicketOrderType
-} from '@/lib/paperTrade'
-import { formatAssetPrice } from '@shared/pricePrecision'
+import { canPlaceTicketSide, isPendingTicketType, type TicketOrderType } from '@/lib/paperTrade'
 import { usePricePrecision } from '@/hooks/usePricePrecision'
 import { useReplayStore, selectPriceFollowCandle } from '@/store/replayStore'
 
@@ -32,17 +21,10 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
 
   const replayStatus = useReplayStore((s) => s.replayStatus)
   const replayLoading = useReplayStore((s) => s.replayLoading)
-  const position = useReplayStore((s) => s.position)
-  const pendingOrder = useReplayStore((s) => s.pendingOrder)
   const currentCandle = useReplayStore(selectPriceFollowCandle)
   const paperBuy = useReplayStore((s) => s.paperBuy)
   const paperSell = useReplayStore((s) => s.paperSell)
-  const paperClose = useReplayStore((s) => s.paperClose)
   const placeLimit = useReplayStore((s) => s.placeLimit)
-  const cancelPending = useReplayStore((s) => s.cancelPending)
-  const setPendingPrice = useReplayStore((s) => s.setPendingPrice)
-  const setTakeProfit = useReplayStore((s) => s.setTakeProfit)
-  const setStopLoss = useReplayStore((s) => s.setStopLoss)
   const ticketTakeProfit = useReplayStore((s) => s.ticketTakeProfit)
   const ticketStopLoss = useReplayStore((s) => s.ticketStopLoss)
   const ticketLimitPrice = useReplayStore((s) => s.ticketLimitPrice)
@@ -61,17 +43,11 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
   const busy = replayLoading || replayStatus === 'ended' || !currentCandle
   const mark = currentCandle?.close
   const orderType = ticketOrderType
-  const canSubmit = !busy && !position && !pendingOrder
-  const canClose = !busy && Boolean(position)
-  const canCancel = !busy && Boolean(pendingOrder)
-  const sizeValue = position?.lots ?? pendingOrder?.lots ?? tradeSize
-  const sizeLocked = Boolean(position || pendingOrder)
-  const limitPrice = pendingOrder?.price ?? ticketLimitPrice
-  const liveTp = position?.takeProfit ?? pendingOrder?.takeProfit ?? null
-  const liveSl = position?.stopLoss ?? pendingOrder?.stopLoss ?? null
-  const tpValue = liveTp ?? ticketTakeProfit
-  const slValue = liveSl ?? ticketStopLoss
-  const levelsLive = Boolean(position || pendingOrder)
+  const canSubmit = !busy
+  const sizeValue = tradeSize
+  const limitPrice = ticketLimitPrice
+  const tpValue = ticketTakeProfit
+  const slValue = ticketStopLoss
   const ticketLevels = {
     orderType,
     markPrice: mark,
@@ -81,11 +57,6 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
   }
   const canBuy = canSubmit && canPlaceTicketSide('long', ticketLevels)
   const canSell = canSubmit && canPlaceTicketSide('short', ticketLevels)
-  const openPnl = unrealizedPnl(
-    position,
-    mark,
-    pnlScaleForSymbol(symbol, position?.lots ?? tradeSize)
-  )
 
   function readLevel(input: HTMLInputElement | null, fallback: number | null): number | null {
     const parsed = parseLevelPrice(input?.value ?? '')
@@ -93,24 +64,11 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
     return parsed
   }
 
-  function applyLevels(tp: number | null, sl: number | null): void {
-    if (tp != null) setTakeProfit(tp, { linkRr: sl == null })
-    if (sl != null) setStopLoss(sl, { linkRr: tp == null })
-  }
-
   function onTpChange(value: number | null): void {
-    if (levelsLive) {
-      setTakeProfit(value, { linkRr: true })
-      return
-    }
     setTicketTakeProfit(value, { linkRr: true })
   }
 
   function onSlChange(value: number | null): void {
-    if (levelsLive) {
-      setStopLoss(value, { linkRr: true })
-      return
-    }
     setTicketStopLoss(value, { linkRr: true })
   }
 
@@ -118,28 +76,20 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
     if (pricePick) setPricePick(null)
     const tp = readLevel(tpInputRef.current, tpValue)
     const sl = readLevel(slInputRef.current, slValue)
+    setTicketTakeProfit(tp)
+    setTicketStopLoss(sl)
     if (isPendingTicketType(orderType)) {
       const price = readLevel(limitInputRef.current, limitPrice)
+      setTicketLimitPrice(price)
       placeLimit(side, price ?? Number.NaN, orderType)
     } else if (side === 'long') {
       paperBuy()
     } else {
       paperSell()
     }
-    const state = useReplayStore.getState()
-    if (!state.position && !state.pendingOrder) return
-    applyLevels(tp, sl)
   }
 
   function onLimitChange(value: number | null): void {
-    if (value == null) {
-      if (!pendingOrder) setTicketLimitPrice(null)
-      return
-    }
-    if (pendingOrder) {
-      setPendingPrice(value)
-      return
-    }
     setTicketLimitPrice(value)
   }
 
@@ -182,7 +132,7 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
       <TradeSizeControl
         value={sizeValue}
         symbol={symbol}
-        disabled={sizeLocked || busy}
+        disabled={busy}
         onChange={setTradeSize}
       />
 
@@ -197,7 +147,7 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
           }
           value={limitPrice}
           precision={pricePrecision}
-          disabled={busy || Boolean(position)}
+          disabled={busy}
           picking={pricePick === 'limit'}
           inputRef={limitInputRef}
           onChange={onLimitChange}
@@ -290,76 +240,6 @@ export default function OrderTicketForm({ compact: _compact = false }: OrderTick
           </button>
         </Tooltip>
       </div>
-
-      {canClose && (
-        <IconButton
-          tooltip="Close open position at current close"
-          onClick={paperClose}
-          tone="accent"
-          className="!h-8 !w-full gap-1 px-2.5"
-        >
-          <CircleX className="h-4 w-4" />
-          <span className="text-xs font-semibold">Close</span>
-        </IconButton>
-      )}
-
-      {canCancel && (
-        <IconButton
-          tooltip="Cancel unfilled pending order"
-          onClick={cancelPending}
-          tone="accent"
-          className="!h-8 !w-full gap-1 px-2.5"
-        >
-          <CircleX className="h-4 w-4" />
-          <span className="text-xs font-semibold">Cancel</span>
-        </IconButton>
-      )}
-
-      {pendingOrder && (
-        <div className="flex flex-wrap items-center gap-2 text-[11px] tabular-nums">
-          <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
-            Pending
-          </span>
-          <span
-            className={
-              pendingOrder.side === 'long'
-                ? 'font-semibold text-emerald-400'
-                : 'font-semibold text-red-400'
-            }
-          >
-            {formatOrderSideLabel(pendingOrder.side, pendingOrder.kind)}
-          </span>
-          <span className="text-zinc-500">{formatPositionSize(pendingOrder.lots, symbol)}</span>
-          <span className="text-zinc-500">
-            @ {formatAssetPrice(pendingOrder.price, pricePrecision)}
-          </span>
-        </div>
-      )}
-
-      {position && (
-        <div className="flex flex-wrap items-center gap-2 text-[11px] tabular-nums">
-          <span
-            className={
-              position.side === 'long'
-                ? 'font-semibold text-emerald-400'
-                : 'font-semibold text-red-400'
-            }
-          >
-            {position.side.toUpperCase()}
-          </span>
-          <span className="text-zinc-500">{formatPositionSize(position.lots, symbol)}</span>
-          <span className="text-zinc-500">
-            @ {formatAssetPrice(position.entryPrice, pricePrecision)}
-          </span>
-          <span
-            className={`ml-auto font-medium ${
-              openPnl != null && openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}
-          >
-            {formatPnl(openPnl)}
-          </span>
-        </div>
-      )}
     </div>
   )
 }

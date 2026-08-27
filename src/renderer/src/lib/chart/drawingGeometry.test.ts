@@ -254,7 +254,7 @@ describe('position drawings', () => {
   })
 
   it('blocks placing a limit when TP or SL cannot be resolved', () => {
-    const ready = { hasWorkingTrade: false, hasMark: true }
+    const ready = { hasMark: true }
     const unset: Pick<PositionDrawing, 'type' | 'entry' | 'target' | 'stop'> = {
       type: 'long',
       entry: 100,
@@ -303,31 +303,27 @@ describe('position drawings', () => {
     ).toEqual({ target: 80, stop: 45 })
     expect(
       positionLimitPlacementBlock(unset, {
-        hasWorkingTrade: false,
         hasMark: true,
         visibleRange: range
       })
     ).toBe(null)
   })
 
-  it('blocks placing a limit when a trade is already working or a level is invalid', () => {
+  it('blocks placing a limit when mark is missing or a level is invalid', () => {
     const drawing = { type: 'long' as const, entry: 100, target: 110, stop: 90 }
     expect(
-      positionLimitPlacementBlock(drawing, { hasWorkingTrade: true, hasMark: true })
-    ).toBe('working-trade')
-    expect(
-      positionLimitPlacementBlock(drawing, { hasWorkingTrade: false, hasMark: false })
+      positionLimitPlacementBlock(drawing, { hasMark: false })
     ).toBe('no-mark')
     expect(
       positionLimitPlacementBlock(
         { ...drawing, target: 90 },
-        { hasWorkingTrade: false, hasMark: true }
+        { hasMark: true }
       )
     ).toBe('invalid-tp')
     expect(
       positionLimitPlacementBlock(
         { ...drawing, stop: 110 },
-        { hasWorkingTrade: false, hasMark: true }
+        { hasMark: true }
       )
     ).toBe('invalid-sl')
   })

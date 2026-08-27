@@ -178,7 +178,7 @@ export default function SessionManagerDialog(): ReactElement | null {
                             <span className="block truncate text-[10px] text-zinc-500">
                               {session.symbol || '—'} · {session.timeframe || '—'} ·{' '}
                               {session.drawings.length} drawings ·{' '}
-                              {session.closedTrades.length + (session.position ? 1 : 0)} trades
+                              {session.closedTrades.length + session.positions.length} trades
                             </span>
                           </span>
                         </button>

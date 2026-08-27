@@ -76,6 +76,8 @@ export type LevelSetOptions = {
    * configured R:R. Never used for later manual moves.
    */
   linkRr?: boolean
+  /** Target a specific open position or pending order. Defaults to the selection. */
+  id?: string
 }
 
 /** Pick a TP/SL/limit price from the chart (order-ticket crosshair handle). */
@@ -91,6 +93,12 @@ const EMPTY_TICKET_LEVELS: {
   ticketStopLoss: null,
   ticketLimitPrice: null,
   pricePick: null
+}
+
+const EMPTY_WORKING_TRADES = {
+  positions: [] as Position[],
+  pendingOrders: [] as PendingOrder[],
+  selectedWorkingId: null as string | null
 }
 
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
@@ -234,19 +242,21 @@ function remapPendingTrendToInterval(
   }
 }
 
-function remapPendingOrderToInterval(
-  pending: PendingOrder | null,
-  intervalSec: number
-): PendingOrder | null {
-  if (pending == null) return null
+function remapPendingOrderToInterval(pending: PendingOrder, intervalSec: number): PendingOrder {
   return {
     ...pending,
     placedTime: alignTimeToInterval(pending.placedTime, intervalSec)
   }
 }
 
-function remapPositionTimes(open: Position | null, intervalSec: number): Position | null {
-  if (open == null) return null
+function remapPendingOrdersToInterval(
+  orders: PendingOrder[],
+  intervalSec: number
+): PendingOrder[] {
+  return orders.map((order) => remapPendingOrderToInterval(order, intervalSec))
+}
+
+function remapPositionTimes(open: Position, intervalSec: number): Position {
   return {
     ...open,
     entryTime: alignTimeToInterval(open.entryTime, intervalSec),
@@ -255,6 +265,10 @@ function remapPositionTimes(open: Position | null, intervalSec: number): Positio
         ? alignTimeToInterval(open.pendingPlacedTime, intervalSec)
         : open.pendingPlacedTime
   }
+}
+
+function remapPositionsTimes(opens: Position[], intervalSec: number): Position[] {
+  return opens.map((open) => remapPositionTimes(open, intervalSec))
 }
 
 function remapOrderHistoryToInterval(
@@ -463,8 +477,9 @@ type ReplayStore = {
   pendingTrend: TrendPoint | null
   /** Drawing selected with the Select tool — target for the Delete shortcut. */
   selectedDrawingId: string | null
-  position: Position | null
-  pendingOrder: PendingOrder | null
+  positions: Position[]
+  pendingOrders: PendingOrder[]
+  selectedWorkingId: string | null
   closedTrades: ClosedTrade[]
   /** Filled market/limit orders and canceled pending limits. */
   orderHistory: HistoricOrder[]
@@ -474,7 +489,7 @@ type ReplayStore = {
   riskReward: number
   /** Lots (FX/metals) or coin amount (crypto) used on the next open. */
   tradeSize: number
-  /** TP/SL/limit typed or picked before a position/pending exists. */
+  /** TP/SL/limit for the next order. Copied onto that fill, then cleared. */
   ticketTakeProfit: number | null
   ticketStopLoss: number | null
   ticketLimitPrice: number | null
@@ -516,9 +531,10 @@ type ReplayStore = {
   clearDrawings: () => void
   paperBuy: () => void
   paperSell: () => void
-  paperClose: () => void
+  paperClose: (id?: string) => void
   placeLimit: (side: 'long' | 'short', price: number, kind?: PendingOrderKind) => void
-  cancelPending: () => void
+  cancelPending: (id?: string) => void
+  selectWorking: (id: string | null) => void
   setPendingPrice: (price: number) => void
   setRiskReward: (value: number) => void
   setTradeSize: (value: number) => void
@@ -689,11 +705,16 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         ? get().tradeMarkers
         : get().tradeMarkers.filter((marker) => !discardSet.has(marker.time))
     set({
-      position: rewound.position,
-      pendingOrder: rewound.pendingOrder,
+      positions: rewound.positions,
+      pendingOrders: rewound.pendingOrders,
       closedTrades: rewound.closedTrades,
       orderHistory: rewound.orderHistory,
       tradeMarkers,
+      selectedWorkingId: workingIdStillOpen(
+        get().selectedWorkingId,
+        rewound.positions,
+        rewound.pendingOrders
+      ),
       replayMessage: null
     })
   }
@@ -705,8 +726,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   ): void {
     applyRewindResult(
       rewindTradesAfterStepBack({
-        position: get().position,
-        pendingOrder: get().pendingOrder,
+        positions: get().positions,
+        pendingOrders: get().pendingOrders,
         closedTrades: get().closedTrades,
         orderHistory: get().orderHistory,
         leftCandleTime: leftCandle.time,
@@ -820,9 +841,48 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     return null
   }
 
-  function currentPnlScale(): PnlScale {
-    const lots = get().position?.lots ?? get().tradeSize
-    return pnlScaleForSymbol(get().symbol, lots)
+  function workingIdStillOpen(
+    id: string | null,
+    positions: Position[],
+    pendingOrders: PendingOrder[]
+  ): string | null {
+    if (!id) return null
+    if (positions.some((p) => p.id === id) || pendingOrders.some((p) => p.id === id)) return id
+    return null
+  }
+
+  function resolveWorkingId(id?: string | null): string | null {
+    return id ?? get().selectedWorkingId
+  }
+
+  function findPositionById(id: string | null | undefined): Position | undefined {
+    if (!id) return undefined
+    return get().positions.find((p) => p.id === id)
+  }
+
+  function findPendingById(id: string | null | undefined): PendingOrder | undefined {
+    if (!id) return undefined
+    return get().pendingOrders.find((p) => p.id === id)
+  }
+
+  function patchPosition(id: string, next: Position, extra?: Record<string, unknown>): void {
+    set((s) => ({
+      positions: s.positions.map((p) => (p.id === id ? next : p)),
+      replayMessage: null,
+      ...extra
+    }))
+  }
+
+  function patchPending(id: string, next: PendingOrder, extra?: Record<string, unknown>): void {
+    set((s) => ({
+      pendingOrders: s.pendingOrders.map((p) => (p.id === id ? next : p)),
+      replayMessage: null,
+      ...extra
+    }))
+  }
+
+  function currentPnlScale(lots?: number): PnlScale {
+    return pnlScaleForSymbol(get().symbol, lots ?? get().tradeSize)
   }
 
   function pausePlayback(): void {
@@ -834,49 +894,79 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   }
 
   function applyWaitingPricesOnCandle(candle: Candle): WaitingPriceEvent | null {
-    const pending = get().pendingOrder
-    if (pending && !get().position && evaluatePendingFill(pending, candle)) {
+    const symbol = get().symbol
+    let pendingOrders = [...get().pendingOrders]
+    let positions = [...get().positions]
+    const orderHistory = [...get().orderHistory]
+    const tradeMarkers = [...get().tradeMarkers]
+    const closedTrades = [...get().closedTrades]
+    let selectedWorkingId = get().selectedWorkingId
+    const filledThisBar = new Set<string>()
+    let event: WaitingPriceEvent | null = null
+    let hitKind: 'tp' | 'sl' | null = null
+
+    const stillPending: PendingOrder[] = []
+    for (const pending of pendingOrders) {
+      if (!evaluatePendingFill(pending, candle)) {
+        stillPending.push(pending)
+        continue
+      }
       const filled = pendingToPosition(pending, candle.time)
-      const marker: TradeMarker = {
+      positions.push(filled)
+      filledThisBar.add(filled.id)
+      tradeMarkers.push({
         time: candle.time,
         position: pending.side === 'long' ? 'belowBar' : 'aboveBar',
         color: pending.side === 'long' ? '#22c55e' : '#ef4444',
         shape: pending.side === 'long' ? 'arrowUp' : 'arrowDown',
         text: pending.side === 'long' ? 'B' : 'S'
-      }
-      set((s) => ({
-        pendingOrder: null,
-        position: filled,
-        tradeMarkers: [...s.tradeMarkers, marker],
-        orderHistory: [...s.orderHistory, historicOrderFromPending(pending, 'filled', candle.time)],
-        replayMessage: null
-      }))
-      // Skip TP/SL on the fill bar — levels arm on later candles.
-      return 'fill'
+      })
+      orderHistory.push(historicOrderFromPending(pending, 'filled', candle.time))
+      event = 'fill'
     }
+    pendingOrders = stillPending
 
-    const open = get().position
-    if (!open) return null
-    if (open.takeProfit == null && open.stopLoss == null) return null
+    const stillOpen: Position[] = []
+    for (const open of positions) {
+      if (filledThisBar.has(open.id) || (open.takeProfit == null && open.stopLoss == null)) {
+        stillOpen.push(open)
+        continue
+      }
+      const hit = evaluateStopTakeProfit(open, candle)
+      if (!hit) {
+        stillOpen.push(open)
+        continue
+      }
+      closedTrades.push(
+        closePosition(open, hit.price, candle.time, hit.hit, pnlScaleForSymbol(symbol, open.lots))
+      )
+      if (selectedWorkingId === open.id) selectedWorkingId = null
+      hitKind = hit.hit
+      event = hit.hit
+    }
+    positions = stillOpen
 
-    const hit = evaluateStopTakeProfit(open, candle)
-    if (!hit) return null
+    if (event == null) return null
 
-    const closed = closePosition(open, hit.price, candle.time, hit.hit, currentPnlScale())
-    const pauseOnHit = get().pauseOnTpSl
-    set((s) => ({
-      position: null,
-      closedTrades: [...s.closedTrades, closed],
+    selectedWorkingId = workingIdStillOpen(selectedWorkingId, positions, pendingOrders)
+    const pauseOnHit = Boolean(hitKind) && get().pauseOnTpSl
+    set({
+      pendingOrders,
+      positions,
+      orderHistory,
+      tradeMarkers,
+      closedTrades,
+      selectedWorkingId,
       replayMessage: pauseOnHit
-        ? hit.hit === 'tp'
+        ? hitKind === 'tp'
           ? 'Paused · Take profit hit'
           : 'Paused · Stop loss hit'
         : null,
-      ...EMPTY_TICKET_LEVELS
-    }))
+      ...(hitKind ? EMPTY_TICKET_LEVELS : {})
+    })
 
     if (pauseOnHit) pausePlayback()
-    return hit.hit
+    return event
   }
 
   /** Fill a pending limit, then close an open position if TP/SL is hit. */
@@ -1426,8 +1516,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           : null,
       ...emptyDrawingState(),
       ...EMPTY_TICKET_LEVELS,
-      position: null,
-      pendingOrder: null,
+      ...EMPTY_WORKING_TRADES,
       closedTrades: [],
       orderHistory: [],
       tradeMarkers: [],
@@ -1643,8 +1732,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       ...(opts.keepDrawings ? {} : emptyDrawingState()),
       ...EMPTY_TICKET_LEVELS,
       ticketOrderType: 'market' as TicketOrderType,
-      position: null,
-      pendingOrder: null,
+      ...EMPTY_WORKING_TRADES,
       closedTrades: [],
       orderHistory: [],
       tradeMarkers: [],
@@ -1684,13 +1772,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     const candle = priceFollowCandle()
     if (!candle) return
 
-    if (get().pendingOrder) {
-      set({ replayMessage: 'Cancel the pending order first' })
-      return
-    }
-
     const result = openPosition(
-      get().position,
       side,
       candle.close,
       candle.time,
@@ -1711,31 +1793,33 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
 
     set((s) => ({
-      position: result.position,
+      positions: [...s.positions, result.position],
       tradeMarkers: [...s.tradeMarkers, marker],
       orderHistory: [...s.orderHistory, historicOrderFromMarketFill(result.position)],
       replayMessage: null
     }))
+    stampTicketLevels(result.position.id)
+    resetTicketAfterSubmit()
   }
 
-  function tryClose(): void {
+  function tryClose(id?: string): void {
     if (get().mode !== 'replay') return
     if (get().replayLoading) return
     if (get().replayStatus === 'ended') return
 
-    const open = get().position
+    const open = findPositionById(resolveWorkingId(id))
     if (!open) return
 
     const candle = priceFollowCandle()
     if (!candle) return
 
-    const closed = closePosition(open, candle.close, candle.time, 'manual', currentPnlScale())
+    const closed = closePosition(open, candle.close, candle.time, 'manual', currentPnlScale(open.lots))
 
     set((s) => ({
-      position: null,
+      positions: s.positions.filter((p) => p.id !== open.id),
+      selectedWorkingId: s.selectedWorkingId === open.id ? null : s.selectedWorkingId,
       closedTrades: [...s.closedTrades, closed],
-      replayMessage: null,
-      ...EMPTY_TICKET_LEVELS
+      replayMessage: null
     }))
   }
 
@@ -1760,8 +1844,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         : (pendingKindForEntry(side, candle.close, price) ?? 'limit'))
 
     const result = placePendingLimit({
-      current: get().position,
-      pending: get().pendingOrder,
       side,
       price,
       markPrice: candle.close,
@@ -1774,28 +1856,33 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       set({ replayMessage: result.reason })
       return
     }
-    set({ pendingOrder: result.pending, replayMessage: null })
+    set((s) => ({
+      pendingOrders: [...s.pendingOrders, result.pending],
+      replayMessage: null
+    }))
+    stampTicketLevels(result.pending.id)
+    resetTicketAfterSubmit()
   }
 
-  function tryCancelPending(): void {
+  function tryCancelPending(id?: string): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
-    const pending = get().pendingOrder
+    const pending = findPendingById(resolveWorkingId(id))
     if (!pending) return
     const candle = priceFollowCandle()
     const updateTime = candle?.time ?? pending.placedTime
     set((s) => ({
-      pendingOrder: null,
+      pendingOrders: s.pendingOrders.filter((p) => p.id !== pending.id),
+      selectedWorkingId: s.selectedWorkingId === pending.id ? null : s.selectedWorkingId,
       orderHistory: [...s.orderHistory, historicOrderFromPending(pending, 'canceled', updateTime)],
-      replayMessage: null,
-      ...EMPTY_TICKET_LEVELS
+      replayMessage: null
     }))
   }
 
-  function trySetPendingPrice(price: number): void {
+  function trySetPendingPrice(price: number, id?: string): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
-    const pending = get().pendingOrder
+    const pending = findPendingById(resolveWorkingId(id))
     if (!pending) return
     const candle = priceFollowCandle()
     const mark = candle?.close
@@ -1805,16 +1892,17 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       set({ replayMessage: result.reason })
       return
     }
-    set({ pendingOrder: result.pending, replayMessage: null })
+    patchPending(pending.id, result.pending)
   }
 
   function setTakeProfit(price: number | null, opts?: LevelSetOptions): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
-    const open = get().position
-    const pending = get().pendingOrder
+    const targetId = resolveWorkingId(opts?.id)
+    const pending = findPendingById(targetId)
+    const open = findPositionById(targetId)
 
-    if (!open && pending) {
+    if (pending) {
       let result = withPendingTakeProfit(pending, price)
       if (!result.ok) {
         set({ replayMessage: result.reason })
@@ -1832,7 +1920,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           if (withSl.ok) result = withSl
         }
       }
-      set({ pendingOrder: result.pending, replayMessage: null })
+      patchPending(pending.id, result.pending)
       return
     }
 
@@ -1844,7 +1932,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       return
     }
 
-    // First-place guide: seed missing SL only — never overwrite an existing one.
     if (opts?.linkRr && price != null && open.stopLoss == null) {
       const linkedSl = stopLossFromTakeProfit(open.side, open.entryPrice, price, get().riskReward)
       if (linkedSl != null) {
@@ -1854,18 +1941,17 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }
     }
 
-    // Do not evaluate TP/SL against the candle that is current while placing —
-    // levels only arm for subsequent candle advances.
-    set({ position: result.position, replayMessage: null })
+    patchPosition(open.id, result.position)
   }
 
   function setStopLoss(price: number | null, opts?: LevelSetOptions): void {
     if (get().mode !== 'replay') return
     if (get().replayStatus === 'ended') return
-    const open = get().position
-    const pending = get().pendingOrder
+    const targetId = resolveWorkingId(opts?.id)
+    const pending = findPendingById(targetId)
+    const open = findPositionById(targetId)
 
-    if (!open && pending) {
+    if (pending) {
       let result = withPendingStopLoss(pending, price)
       if (!result.ok) {
         set({ replayMessage: result.reason })
@@ -1883,7 +1969,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           if (withTp.ok) result = withTp
         }
       }
-      set({ pendingOrder: result.pending, replayMessage: null })
+      patchPending(pending.id, result.pending)
       return
     }
 
@@ -1897,7 +1983,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       return
     }
 
-    // First-place guide: seed missing TP only — never overwrite an existing one.
     if (opts?.linkRr && price != null && open.takeProfit == null) {
       const linkedTp = takeProfitFromStopLoss(open.side, open.entryPrice, price, get().riskReward)
       if (linkedTp != null) {
@@ -1906,9 +1991,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }
     }
 
-    // Do not evaluate TP/SL against the candle that is current while placing —
-    // levels only arm for subsequent candle advances.
-    set({ position: result.position, replayMessage: null })
+    patchPosition(open.id, result.position)
   }
 
   function currentDraftLevels(): TicketDraftLevels {
@@ -1922,8 +2005,18 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
   }
 
+  function stampTicketLevels(id: string): void {
+    const tp = get().ticketTakeProfit
+    const sl = get().ticketStopLoss
+    if (tp != null) setTakeProfit(tp, { linkRr: sl == null, id })
+    if (sl != null) setStopLoss(sl, { linkRr: tp == null, id })
+  }
+
+  function resetTicketAfterSubmit(): void {
+    set({ ...EMPTY_TICKET_LEVELS, selectedWorkingId: null })
+  }
+
   function trySetTicketTakeProfit(price: number | null, opts?: LevelSetOptions): void {
-    if (get().position || get().pendingOrder) return
     const patch: { ticketTakeProfit: number | null; ticketStopLoss?: number | null } = {
       ticketTakeProfit: price
     }
@@ -1940,7 +2033,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   }
 
   function trySetTicketStopLoss(price: number | null, opts?: LevelSetOptions): void {
-    if (get().position || get().pendingOrder) return
     const patch: { ticketStopLoss: number | null; ticketTakeProfit?: number | null } = {
       ticketStopLoss: price
     }
@@ -1957,7 +2049,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
   }
 
   function trySetTicketLimitPrice(price: number | null): void {
-    if (get().position || get().pendingOrder) return
     const s = get()
     const patch: {
       ticketLimitPrice: number | null
@@ -1983,81 +2074,20 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     set(patch)
   }
 
-  /** Re-apply R:R guide to open or pending levels when the user changes the R:R control. */
+  /** Re-apply R:R guide to ticket drafts only — live positions keep their own TP/SL. */
   function applyRiskRewardGuide(riskReward: number): void {
     if (get().mode !== 'replay' || get().replayStatus === 'ended') return
 
-    const pending = get().pendingOrder
-    if (!get().position && pending) {
-      let next = pending
-      if (pending.stopLoss != null) {
-        const linkedTp = takeProfitFromStopLoss(
-          pending.side,
-          pending.price,
-          pending.stopLoss,
-          riskReward
-        )
-        if (linkedTp != null) {
-          const withTp = withPendingTakeProfit(next, linkedTp)
-          if (withTp.ok) next = withTp.pending
-        }
-      } else if (pending.takeProfit != null) {
-        const linkedSl = stopLossFromTakeProfit(
-          pending.side,
-          pending.price,
-          pending.takeProfit,
-          riskReward
-        )
-        if (linkedSl != null) {
-          const withSl = withPendingStopLoss(next, linkedSl)
-          if (withSl.ok) next = withSl.pending
-        }
-      }
-      if (next !== pending) {
-        set({ pendingOrder: next, replayMessage: null })
-      }
-      return
-    }
-
-    const open = get().position
-    if (!open) {
-      const entry = ticketEntryPrice(currentDraftLevels())
-      if (entry == null) return
-      const sl = get().ticketStopLoss
-      const tp = get().ticketTakeProfit
-      if (sl != null) {
-        const linked = linkedTicketOpposite('sl', sl, entry, riskReward)
-        if (linked != null) set({ ticketTakeProfit: linked })
-      } else if (tp != null) {
-        const linked = linkedTicketOpposite('tp', tp, entry, riskReward)
-        if (linked != null) set({ ticketStopLoss: linked })
-      }
-      return
-    }
-
-    let next = open
-    if (open.stopLoss != null) {
-      const linkedTp = takeProfitFromStopLoss(open.side, open.entryPrice, open.stopLoss, riskReward)
-      if (linkedTp != null) {
-        const withTp = withTakeProfit(next, linkedTp)
-        if (withTp.ok) next = withTp.position
-      }
-    } else if (open.takeProfit != null) {
-      const linkedSl = stopLossFromTakeProfit(
-        open.side,
-        open.entryPrice,
-        open.takeProfit,
-        riskReward
-      )
-      if (linkedSl != null) {
-        const candle = engine.getCurrentCandle() || get().currentCandle
-        const withSl = withStopLoss(next, linkedSl, candle?.close)
-        if (withSl.ok) next = withSl.position
-      }
-    }
-
-    if (next !== open) {
-      set({ position: next, replayMessage: null })
+    const entry = ticketEntryPrice(currentDraftLevels())
+    if (entry == null) return
+    const sl = get().ticketStopLoss
+    const tp = get().ticketTakeProfit
+    if (sl != null) {
+      const linked = linkedTicketOpposite('sl', sl, entry, riskReward)
+      if (linked != null) set({ ticketTakeProfit: linked })
+    } else if (tp != null) {
+      const linked = linkedTicketOpposite('tp', tp, entry, riskReward)
+      if (linked != null) set({ ticketStopLoss: linked })
     }
   }
 
@@ -2238,8 +2268,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }))
       const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
       const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
-      const remappedPendingOrder = remapPendingOrderToInterval(get().pendingOrder, nextIntervalSec)
-      const remappedPosition = remapPositionTimes(get().position, nextIntervalSec)
+      const remappedPendingOrders = remapPendingOrdersToInterval(
+        get().pendingOrders,
+        nextIntervalSec
+      )
+      const remappedPositions = remapPositionsTimes(get().positions, nextIntervalSec)
       const remappedClosed = get().closedTrades.map((trade) => ({
         ...trade,
         entryTime: alignTimeToInterval(trade.entryTime, nextIntervalSec),
@@ -2264,8 +2297,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         tradeMarkers: remappedMarkers,
         drawings: remappedDrawings,
         pendingTrend: remappedPending,
-        pendingOrder: remappedPendingOrder,
-        position: remappedPosition,
+        pendingOrders: remappedPendingOrders,
+        positions: remappedPositions,
         closedTrades: remappedClosed,
         orderHistory: remappedOrderHistory,
         replayLoading: false,
@@ -2288,8 +2321,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }))
     const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
     const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
-    const remappedPendingOrder = remapPendingOrderToInterval(get().pendingOrder, nextIntervalSec)
-    const remappedPosition = remapPositionTimes(get().position, nextIntervalSec)
+    const remappedPendingOrders = remapPendingOrdersToInterval(get().pendingOrders, nextIntervalSec)
+    const remappedPositions = remapPositionsTimes(get().positions, nextIntervalSec)
 
     const remappedClosed = get().closedTrades.map((trade) => ({
       ...trade,
@@ -2306,9 +2339,9 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       timeframe: nextTimeframe,
       drawings: remappedDrawings,
       pendingTrend: remappedPending,
-      pendingOrder: remappedPendingOrder,
+      pendingOrders: remappedPendingOrders,
       tradeMarkers: remappedMarkers,
-      position: remappedPosition,
+      positions: remappedPositions,
       closedTrades: remappedClosed,
       orderHistory: remappedOrderHistory
     })
@@ -2356,8 +2389,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     drawings: [],
     pendingTrend: null,
     selectedDrawingId: null,
-    position: null,
-    pendingOrder: null,
+    ...EMPTY_WORKING_TRADES,
     closedTrades: [],
     orderHistory: [],
     tradeMarkers: [],
@@ -2630,16 +2662,21 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       tryOpen('short')
     },
 
-    paperClose() {
-      tryClose()
+    paperClose(id) {
+      tryClose(id)
     },
 
     placeLimit(side, price, kind) {
       tryPlaceLimit(side, price, kind)
     },
 
-    cancelPending() {
-      tryCancelPending()
+    cancelPending(id) {
+      tryCancelPending(id)
+    },
+
+    selectWorking(id) {
+      if (id != null && !findPositionById(id) && !findPendingById(id)) return
+      set({ selectedWorkingId: id })
     },
 
     setPendingPrice(price) {
@@ -2653,7 +2690,6 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     setTradeSize(value) {
-      if (get().position || get().pendingOrder) return
       set({ tradeSize: clampTradeSizeForSymbol(value, get().symbol) })
     },
 
@@ -2703,34 +2739,15 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (get().replayStatus === 'ended') return
       if (!Number.isFinite(price)) return
 
-      const open = get().position
-      const pending = get().pendingOrder
-
       if (kind === 'limit') {
-        if (open && !pending) return
-        if (pending) {
-          trySetPendingPrice(price)
-          if (get().pendingOrder?.price === price) set({ pricePick: null })
-          return
-        }
         trySetTicketLimitPrice(price)
         set({ pricePick: null, replayMessage: null })
         return
       }
 
-      if (!open && !pending) {
-        if (kind === 'tp') trySetTicketTakeProfit(price, { linkRr: true })
-        else trySetTicketStopLoss(price, { linkRr: true })
-        set({ pricePick: null, replayMessage: null })
-        return
-      }
-
-      if (kind === 'tp') setTakeProfit(price, { linkRr: true })
-      else setStopLoss(price, { linkRr: true })
-
-      const next = get().position ?? get().pendingOrder
-      const applied = kind === 'tp' ? next?.takeProfit === price : next?.stopLoss === price
-      if (applied) set({ pricePick: null })
+      if (kind === 'tp') trySetTicketTakeProfit(price, { linkRr: true })
+      else trySetTicketStopLoss(price, { linkRr: true })
+      set({ pricePick: null, replayMessage: null })
     },
 
     dismissSessionReport() {
@@ -3366,31 +3383,25 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     },
 
     exitReplay() {
-      const {
-        position,
-        closedTrades,
-        symbol,
-        timeframe,
-        currentCandle,
-        dataSource,
-        importedCandles,
-        importMeta
-      } = get()
+      const { positions, closedTrades, symbol, timeframe, currentCandle, dataSource, importedCandles, importMeta } =
+        get()
 
       let trades = [...closedTrades]
       let closedOpenOnExit = false
 
-      if (position) {
+      if (positions.length > 0) {
         const candle = engine.getCurrentCandle() || currentCandle
         if (candle) {
           trades = [
             ...trades,
-            closePosition(
-              position,
-              candle.close,
-              candle.time,
-              'session_exit',
-              pnlScaleForSymbol(symbol, position.lots)
+            ...positions.map((open) =>
+              closePosition(
+                open,
+                candle.close,
+                candle.time,
+                'session_exit',
+                pnlScaleForSymbol(symbol, open.lots)
+              )
             )
           ]
           closedOpenOnExit = true
