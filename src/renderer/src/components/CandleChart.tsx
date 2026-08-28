@@ -17,7 +17,9 @@ import {
   type Time
 } from 'lightweight-charts'
 import DrawingOverlay from '@/components/DrawingOverlay'
+import ActiveIndicatorsLegend from '@/components/ActiveIndicatorsLegend'
 import OhlcLegend from '@/components/OhlcLegend'
+import SmcOverlay from '@/components/SmcOverlay'
 import { themedWordmarkUrl } from '@/lib/chartWordmark'
 import type { ChartOverlay } from '@/lib/indicators'
 import {
@@ -634,6 +636,8 @@ export default function CandleChart({
 
   const seriesCandles = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
   const empty = seriesCandles.length === 0
+  const smcOverlay = (overlays ?? []).find((item) => item.type === 'smc')
+  const smcScene = smcOverlay?.type === 'smc' ? smcOverlay.scene : null
 
   return (
     <div className="absolute inset-0 h-full w-full">
@@ -646,12 +650,24 @@ export default function CandleChart({
       />
       {chartReady && (
         <>
-          <OhlcLegend
-            chart={chartReady.chart}
-            series={chartReady.series}
-            candles={seriesCandles}
-            pricePrecision={pricePrecision}
-          />
+          <div className="pointer-events-none absolute left-1 top-1 z-[5] flex flex-col items-start gap-0.5">
+            <OhlcLegend
+              chart={chartReady.chart}
+              series={chartReady.series}
+              candles={seriesCandles}
+              pricePrecision={pricePrecision}
+            />
+            <ActiveIndicatorsLegend />
+          </div>
+          {smcScene && (
+            <SmcOverlay
+              chart={chartReady.chart}
+              series={chartReady.series}
+              paneTimeframe={timeframe}
+              paneCandles={seriesCandles}
+              scene={smcScene}
+            />
+          )}
           <DrawingOverlay
             chart={chartReady.chart}
             series={chartReady.series}

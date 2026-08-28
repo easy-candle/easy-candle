@@ -363,10 +363,8 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
           setModalError(null)
           setOpen(true)
         }}
-        className="!w-auto gap-1.5 px-2.5"
       >
         <Database className="h-3.5 w-3.5" />
-        <span className="text-xs font-medium">Import data</span>
       </IconButton>
 
       {open && (

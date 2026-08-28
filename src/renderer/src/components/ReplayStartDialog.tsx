@@ -233,12 +233,8 @@ export default function ReplayStartDialog() {
         disabled={disabled || !canStart}
         tone="accent"
         onClick={openModal}
-        className="!w-auto gap-1.5 px-2.5"
       >
         <Play className="h-3.5 w-3.5 fill-current" />
-        <span className="text-xs font-medium">
-          {replayLoading && mode !== 'replay' ? '…' : 'Replay'}
-        </span>
       </IconButton>
 
       {open && (

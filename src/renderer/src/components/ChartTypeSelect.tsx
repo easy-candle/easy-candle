@@ -59,29 +59,28 @@ export default function ChartTypeSelect() {
         align="start"
         menuClassName="w-44"
         trigger={({ open, toggle }) => (
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label="Chart type"
-            aria-expanded={open}
-            className={`inline-flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium transition-colors ${
-              open
-                ? 'border-amber-500/70 bg-amber-950/40 text-amber-300'
-                : 'border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100'
-            }`}
-          >
-            <span className="flex h-3.5 w-3.5 items-center justify-center">
+          <Tooltip text={currentLabel} side="bottom">
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label="Chart type"
+              aria-expanded={open}
+              className={`inline-flex h-8 items-center gap-0.5 rounded border px-1.5 transition-colors ${
+                open
+                  ? 'border-amber-500/70 bg-amber-950/40 text-amber-300'
+                  : 'border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100'
+              }`}
+            >
               {(() => {
                 const Icon = ICONS[chartType]
                 return <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
               })()}
-            </span>
-            <span>{currentLabel}</span>
-            <ChevronDown
-              className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
-              aria-hidden
-            />
-          </button>
+              <ChevronDown
+                className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+                aria-hidden
+              />
+            </button>
+          </Tooltip>
         )}
       >
         {CHART_TYPES.map((entry) => {

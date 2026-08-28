@@ -1,24 +1,48 @@
 import type { Candle } from '@shared/candleUtils'
+import { computeSmc } from '@/lib/smc/compute'
+import { isEmptyScene } from '@/lib/smc/settings'
+import type { SmcScene } from '@/lib/smc/types'
 
 export type OverlayPoint = {
   time: number
   value: number
 }
 
-export type ChartOverlay = {
+export type LineOverlay = {
   id: string
   type: 'line'
   data: OverlayPoint[]
   color?: string
 }
 
-export type IndicatorDefinition = {
+export type SmcChartOverlay = {
+  id: string
+  type: 'smc'
+  scene: SmcScene
+}
+
+export type ChartOverlay = LineOverlay | SmcChartOverlay
+
+type LineIndicatorDefinition = {
   id: string
   label: string
   color: string
+  kind?: 'line'
+  requiresAuth?: boolean
   period: number
   compute: (candles: Candle[], params?: { period?: number }) => OverlayPoint[]
 }
+
+type SmcIndicatorDefinition = {
+  id: string
+  label: string
+  color: string
+  kind: 'smc'
+  requiresAuth?: boolean
+  compute: (candles: Candle[]) => SmcScene
+}
+
+export type IndicatorDefinition = LineIndicatorDefinition | SmcIndicatorDefinition
 
 export function computeSma(candles: Candle[], params: { period?: number } = {}): OverlayPoint[] {
   const period = Math.max(1, Math.floor(Number(params.period) || 20))
@@ -67,22 +91,41 @@ export function computeEma(candles: Candle[], params: { period?: number } = {}):
 export const INDICATORS: IndicatorDefinition[] = [
   {
     id: 'sma20',
-    label: 'SMA 20',
+    label: 'Simple moving average 20',
     color: '#38bdf8',
     period: 20,
     compute: (candles) => computeSma(candles, { period: 20 })
   },
   {
     id: 'ema20',
-    label: 'EMA 20',
+    label: 'Exponential moving average 20',
     color: '#f472b6',
     period: 20,
     compute: (candles) => computeEma(candles, { period: 20 })
+  },
+  {
+    id: 'smc',
+    label: 'Smart money concepts',
+    color: '#089981',
+    kind: 'smc',
+    requiresAuth: true,
+    compute: computeSmc
   }
 ]
 
 export function getIndicator(id: string): IndicatorDefinition | null {
   return INDICATORS.find((entry) => entry.id === id) ?? null
+}
+
+export function indicatorRequiresAuth(id: string): boolean {
+  return getIndicator(id)?.requiresAuth === true
+}
+
+/** Drop signed-in-only indicators when the session is anonymous. */
+export function ungatedIndicatorIds(activeIds: string[], signedIn: boolean): string[] {
+  if (!Array.isArray(activeIds) || !activeIds.length) return []
+  if (signedIn) return activeIds
+  return activeIds.filter((id) => !indicatorRequiresAuth(id))
 }
 
 export function buildOverlays(candles: Candle[], activeIds: string[] = []): ChartOverlay[] {
@@ -94,6 +137,12 @@ export function buildOverlays(candles: Candle[], activeIds: string[] = []): Char
   for (const id of activeIds) {
     const def = getIndicator(id)
     if (!def) continue
+    if (def.kind === 'smc') {
+      const scene = def.compute(candles)
+      if (isEmptyScene(scene)) continue
+      overlays.push({ id: def.id, type: 'smc', scene })
+      continue
+    }
     const data = def.compute(candles)
     if (!data.length) continue
     overlays.push({
