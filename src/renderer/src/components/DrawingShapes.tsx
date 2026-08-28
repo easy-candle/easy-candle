@@ -1,10 +1,12 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
+  fibChannelSegment,
   fibPriceAtLevel,
   formatFibLevel,
   formatPriceChangePct,
   type DrawingLineStyle,
   type DrawingStyle,
+  type FibChannelHandle,
   type FibLevelConfig,
   type RectHandle
 } from '@/lib/chart/drawingGeometry'
@@ -494,6 +496,180 @@ export function FibShape({
             selected={selected}
             cursor="cursor-move"
             onMouseDown={(e) => onDragEnd('end', e)}
+            onClick={canSelect ? onSelect : undefined}
+          />
+        </>
+      )}
+    </g>
+  )
+}
+
+export type FibChannelLevelView = {
+  ratio: number
+  a: Point
+  b: Point
+  price: number
+  color?: string
+  lineStyle?: DrawingLineStyle
+}
+
+export function fibChannelLevelsAt(
+  p1: { time: number; price: number },
+  p2: { time: number; price: number },
+  p3: { time: number; price: number },
+  toXY: (time: number, price: number) => Point | null,
+  levels: readonly FibLevelConfig[]
+): FibChannelLevelView[] {
+  const views: FibChannelLevelView[] = []
+  for (const level of levels) {
+    const seg = fibChannelSegment(p1, p2, p3, level.ratio)
+    const a = toXY(seg.a.time, seg.a.price)
+    const b = toXY(seg.b.time, seg.b.price)
+    if (!a || !b) continue
+    const right = a.x >= b.x ? seg.a : seg.b
+    const view: FibChannelLevelView = { ratio: level.ratio, a, b, price: right.price }
+    if (level.color) view.color = level.color
+    if (level.lineStyle != null) view.lineStyle = level.lineStyle
+    views.push(view)
+  }
+  return views
+}
+
+export function FibChannelShape({
+  p1,
+  p2,
+  p3,
+  levels,
+  selected,
+  labelColor,
+  canSelect,
+  canDraw,
+  showHandles = true,
+  style,
+  onMouseEnter,
+  onMouseLeave,
+  pricePrecision = DEFAULT_PRICE_PRECISION,
+  plotRight,
+  onSelect,
+  onDragHandle,
+  onDragBody
+}: {
+  p1: Point
+  p2: Point
+  p3: Point
+  levels: FibChannelLevelView[]
+  selected: boolean
+  labelColor: string
+  canSelect: boolean
+  canDraw: boolean
+  showHandles?: boolean
+  style?: DrawingStyle
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
+  pricePrecision?: number
+  plotRight?: number
+  onSelect?: (event: ReactMouseEvent) => void
+  onDragHandle?: (handle: FibChannelHandle, event: ReactMouseEvent) => void
+  onDragBody?: (event: ReactMouseEvent) => void
+}) {
+  const levelWidth = style?.lineWidth ?? DRAW_WIDTH
+  const sorted = [...levels].sort((l, r) => l.ratio - r.ratio)
+  const levelColor = (level: FibChannelLevelView): string =>
+    level.color ?? style?.color ?? DRAW_STROKE
+  const levelDash = (level: FibChannelLevelView): string | undefined => {
+    const lineStyle = level.lineStyle ?? style?.lineStyle
+    return lineStyle == null ? undefined : drawingDashArray({ lineStyle })
+  }
+
+  return (
+    <g onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+      {sorted.slice(0, -1).map((level, i) => {
+        const next = sorted[i + 1]
+        if (!next) return null
+        return (
+          <polygon
+            key={`zone-${level.ratio}`}
+            points={`${level.a.x},${level.a.y} ${level.b.x},${level.b.y} ${next.b.x},${next.b.y} ${next.a.x},${next.a.y}`}
+            fill={hexToRgba(levelColor(level), 0.06)}
+            className="pointer-events-none"
+          />
+        )
+      })}
+      {levels.map((level) => {
+        const right = level.a.x >= level.b.x ? level.a : level.b
+        const label = fibLabelPlacement(right.x, plotRight ?? 0)
+        return (
+          <g key={`lv-${level.ratio}`}>
+            <line
+              x1={level.a.x}
+              y1={level.a.y}
+              x2={level.b.x}
+              y2={level.b.y}
+              stroke={levelColor(level)}
+              strokeWidth={level.ratio === 0 || level.ratio === 1 ? levelWidth : 1.25}
+              strokeOpacity={level.ratio === 0 || level.ratio === 1 ? 1 : 0.85}
+              strokeDasharray={levelDash(level)}
+            />
+            <text
+              x={label.x}
+              y={right.y + 3.5}
+              textAnchor={label.textAnchor}
+              fill={labelColor}
+              fontSize={10}
+              fontFamily="ui-sans-serif, system-ui, sans-serif"
+              className="pointer-events-none select-none"
+            >
+              {formatFibLevel(level.ratio)} ({formatAssetPrice(level.price, pricePrecision)})
+            </text>
+          </g>
+        )
+      })}
+      {canDraw && sorted.length >= 2 && (
+        <polygon
+          points={`${sorted[0].a.x},${sorted[0].a.y} ${sorted[0].b.x},${sorted[0].b.y} ${sorted[sorted.length - 1].b.x},${sorted[sorted.length - 1].b.y} ${sorted[sorted.length - 1].a.x},${sorted[sorted.length - 1].a.y}`}
+          fill="transparent"
+          className="pointer-events-auto cursor-move"
+          onMouseDown={onDragBody}
+          onClick={canSelect ? onSelect : undefined}
+        />
+      )}
+      {canDraw && (
+        <line
+          x1={p1.x}
+          y1={p1.y}
+          x2={p2.x}
+          y2={p2.y}
+          stroke="transparent"
+          strokeWidth={16}
+          className="pointer-events-auto cursor-move"
+          onMouseDown={onDragBody}
+          onClick={canSelect ? onSelect : undefined}
+        />
+      )}
+      {canDraw && showHandles && onDragHandle && (
+        <>
+          <HandleDot
+            x={p1.x}
+            y={p1.y}
+            selected={selected}
+            cursor="cursor-move"
+            onMouseDown={(e) => onDragHandle('p1', e)}
+            onClick={canSelect ? onSelect : undefined}
+          />
+          <HandleDot
+            x={p2.x}
+            y={p2.y}
+            selected={selected}
+            cursor="cursor-move"
+            onMouseDown={(e) => onDragHandle('p2', e)}
+            onClick={canSelect ? onSelect : undefined}
+          />
+          <HandleDot
+            x={p3.x}
+            y={p3.y}
+            selected={selected}
+            cursor="cursor-move"
+            onMouseDown={(e) => onDragHandle('p3', e)}
             onClick={canSelect ? onSelect : undefined}
           />
         </>

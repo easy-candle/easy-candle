@@ -116,12 +116,14 @@ import {
   POSITION_SPAN_MIN,
   remapDrawingTimes,
   translateDrawing,
+  updateFibChannelHandle as updateFibChannelHandleGeom,
   updateRectHandle as updateRectHandleGeom,
   updateTwoPointEndpoint as updateTwoPointEndpointGeom,
   type Drawing,
   type DrawingStyle,
   type DrawTool,
   type Endpoint,
+  type FibChannelHandle,
   type FibLevelConfig,
   type PositionDrawing,
   type PositionLevel,
@@ -168,6 +170,8 @@ export type {
   Drawing,
   DrawTool,
   Endpoint,
+  FibChannelDrawing,
+  FibChannelHandle,
   FibDrawing,
   FibLevelConfig,
   HLineDrawing,
@@ -218,12 +222,14 @@ function emptyDrawingState(): {
   drawTool: DrawTool
   drawings: Drawing[]
   pendingTrend: null
+  pendingTrendEnd: null
   selectedDrawingId: null
 } {
   return {
     drawTool: 'select',
     drawings: [],
     pendingTrend: null,
+    pendingTrendEnd: null,
     selectedDrawingId: null
   }
 }
@@ -474,8 +480,10 @@ type ReplayStore = {
   chartType: ChartType
   drawTool: DrawTool
   drawings: Drawing[]
-  /** First-click anchor for two-point tools (trendline, fib, rect). */
+  /** First-click anchor for two-point tools (trendline, fib, rect) and fib channel. */
   pendingTrend: TrendPoint | null
+  /** Second-click anchor while placing a fib channel (P1–P2 base). */
+  pendingTrendEnd: TrendPoint | null
   /** Drawing selected with the Select tool — target for the Delete shortcut. */
   selectedDrawingId: string | null
   positions: Position[]
@@ -517,6 +525,8 @@ type ReplayStore = {
   updateHorizontalLine: (id: string, price: number) => void
   addTwoPoint: (point: TrendPoint) => void
   updateTwoPointEndpoint: (id: string, end: Endpoint, point: TrendPoint) => void
+  addFibChannelPoint: (point: TrendPoint) => void
+  updateFibChannelHandle: (id: string, handle: FibChannelHandle, point: TrendPoint) => void
   updateRectHandle: (id: string, handle: RectHandle, point: TrendPoint) => void
   addPosition: (point: TrendPoint, levels?: { target: number | null; stop: number | null }) => void
   updatePositionLevel: (id: string, level: PositionLevel, price: number) => void
@@ -2269,6 +2279,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }))
       const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
       const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
+      const remappedPendingEnd = remapPendingTrendToInterval(get().pendingTrendEnd, nextIntervalSec)
       const remappedPendingOrders = remapPendingOrdersToInterval(
         get().pendingOrders,
         nextIntervalSec
@@ -2298,6 +2309,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
         tradeMarkers: remappedMarkers,
         drawings: remappedDrawings,
         pendingTrend: remappedPending,
+        pendingTrendEnd: remappedPendingEnd,
         pendingOrders: remappedPendingOrders,
         positions: remappedPositions,
         closedTrades: remappedClosed,
@@ -2322,6 +2334,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }))
     const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
     const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
+    const remappedPendingEnd = remapPendingTrendToInterval(get().pendingTrendEnd, nextIntervalSec)
     const remappedPendingOrders = remapPendingOrdersToInterval(get().pendingOrders, nextIntervalSec)
     const remappedPositions = remapPositionsTimes(get().positions, nextIntervalSec)
 
@@ -2340,6 +2353,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       timeframe: nextTimeframe,
       drawings: remappedDrawings,
       pendingTrend: remappedPending,
+      pendingTrendEnd: remappedPendingEnd,
       pendingOrders: remappedPendingOrders,
       tradeMarkers: remappedMarkers,
       positions: remappedPositions,
@@ -2389,6 +2403,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     drawTool: 'select',
     drawings: [],
     pendingTrend: null,
+    pendingTrendEnd: null,
     selectedDrawingId: null,
     ...EMPTY_WORKING_TRADES,
     closedTrades: [],
@@ -2436,7 +2451,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     setDrawTool(tool) {
       if (!isDrawTool(tool)) return
-      set({ drawTool: tool, pendingTrend: null, pricePick: null })
+      set({ drawTool: tool, pendingTrend: null, pendingTrendEnd: null, pricePick: null })
     },
 
     addHorizontalLine(price) {
@@ -2472,13 +2487,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
       const pending = get().pendingTrend
       if (!pending) {
-        set({ pendingTrend: point })
+        set({ pendingTrend: point, pendingTrendEnd: null })
         return
       }
 
       const id = nextDrawingId()
       set((s) => ({
         pendingTrend: null,
+        pendingTrendEnd: null,
         drawTool: 'select',
         drawings: [
           ...s.drawings,
@@ -2506,6 +2522,59 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
           if ((d.type !== 'trendline' && d.type !== 'fib') || d.id !== id) return d
           return updateTwoPointEndpointGeom(d, end, point)
         })
+      }))
+    },
+
+    addFibChannelPoint(point) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!point || !Number.isFinite(point.time) || !Number.isFinite(point.price)) {
+        return
+      }
+      if (get().drawTool !== 'fibchannel') return
+
+      const pending = get().pendingTrend
+      if (!pending) {
+        set({ pendingTrend: point, pendingTrendEnd: null })
+        return
+      }
+      const pendingEnd = get().pendingTrendEnd
+      if (!pendingEnd) {
+        set({ pendingTrendEnd: point })
+        return
+      }
+
+      const id = nextDrawingId()
+      set((s) => ({
+        pendingTrend: null,
+        pendingTrendEnd: null,
+        drawTool: 'select',
+        drawings: [
+          ...s.drawings,
+          {
+            id,
+            type: 'fibchannel' as const,
+            t1: pending.time,
+            p1: pending.price,
+            t2: pendingEnd.time,
+            p2: pendingEnd.price,
+            t3: point.time,
+            p3: point.price,
+            style: defaultStyleForTool('fibchannel'),
+            levels: defaultFibLevelsForTool()
+          }
+        ],
+        selectedDrawingId: id
+      }))
+    },
+
+    updateFibChannelHandle(id, handle, point) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!id || !point) return
+      if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) return
+      set((s) => ({
+        drawings: s.drawings.map((d) =>
+          d.type === 'fibchannel' && d.id === id ? updateFibChannelHandleGeom(d, handle, point) : d
+        )
       }))
     },
 
@@ -2637,13 +2706,15 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (!id || !Array.isArray(levels)) return
       set((s) => ({
         drawings: s.drawings.map((d) =>
-          d.type === 'fib' && d.id === id ? { ...d, levels: levels.map((l) => ({ ...l })) } : d
+          (d.type === 'fib' || d.type === 'fibchannel') && d.id === id
+            ? { ...d, levels: levels.map((l) => ({ ...l })) }
+            : d
         )
       }))
     },
 
     clearDrawings() {
-      set({ drawings: [], pendingTrend: null, selectedDrawingId: null })
+      set({ drawings: [], pendingTrend: null, pendingTrendEnd: null, selectedDrawingId: null })
     },
 
     selectDrawing(id) {
@@ -2734,7 +2805,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       if (get().mode !== 'replay') return
       if (get().replayStatus === 'ended') return
       const next = get().pricePick === kind ? null : kind
-      set({ pricePick: next, drawTool: 'select', pendingTrend: null })
+      set({ pricePick: next, drawTool: 'select', pendingTrend: null, pendingTrendEnd: null })
     },
 
     applyPricePick(price) {
@@ -2802,6 +2873,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             importMeta: { ...meta, timeframe },
             drawings: remapDrawingsToInterval(get().drawings, nextIntervalSec),
             pendingTrend: remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec),
+            pendingTrendEnd: remapPendingTrendToInterval(get().pendingTrendEnd, nextIntervalSec),
             currentCandle: null,
             status: 'ready' as const,
             error: null,
@@ -2824,7 +2896,8 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
             error: null,
             timeframe,
             drawings: remapDrawingsToInterval(get().drawings, nextIntervalSec),
-            pendingTrend: remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
+            pendingTrend: remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec),
+            pendingTrendEnd: remapPendingTrendToInterval(get().pendingTrendEnd, nextIntervalSec)
           })
           // Newest window for the new timeframe; older bars page in on scroll.
           const loaded = await loadImportedSeries(meta.id, timeframe, tailRange())
@@ -2864,12 +2937,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const nextIntervalSec = intervalSecondsFor(timeframe)
       const remappedDrawings = remapDrawingsToInterval(get().drawings, nextIntervalSec)
       const remappedPending = remapPendingTrendToInterval(get().pendingTrend, nextIntervalSec)
+      const remappedPendingEnd = remapPendingTrendToInterval(get().pendingTrendEnd, nextIntervalSec)
       resetReplayState({ keepDrawings: true })
       set({
         timeframe,
         candles: [],
         drawings: remappedDrawings,
-        pendingTrend: remappedPending
+        pendingTrend: remappedPending,
+        pendingTrendEnd: remappedPendingEnd
       })
       void get().loadCandles()
       if (get().chartSplit) {

@@ -16,6 +16,7 @@ export const DRAWING_TOOL_TYPES: readonly DrawingToolType[] = [
   'hline',
   'trendline',
   'fib',
+  'fibchannel',
   'rect',
   'long',
   'short'
@@ -42,6 +43,7 @@ export const DEFAULT_TOOL_DEFAULTS: Record<DrawingToolType, DrawingStyle> = {
   hline: { ...DEFAULT_DRAWING_STYLE },
   trendline: { ...DEFAULT_DRAWING_STYLE },
   fib: { ...DEFAULT_DRAWING_STYLE },
+  fibchannel: { ...DEFAULT_DRAWING_STYLE },
   rect: { ...DEFAULT_DRAWING_STYLE },
   long: { ...DEFAULT_DRAWING_STYLE, color: '#10B981' },
   short: { ...DEFAULT_DRAWING_STYLE, color: '#F23645' }
@@ -74,6 +76,14 @@ export const DEFAULT_WIDGET_FIELDS: Record<DrawingToolType, WidgetFieldSet> = {
     slColor: false
   },
   fib: {
+    color: true,
+    fillColor: false,
+    lineWidth: true,
+    lineStyle: true,
+    tpColor: false,
+    slColor: false
+  },
+  fibchannel: {
     color: true,
     fillColor: false,
     lineWidth: true,

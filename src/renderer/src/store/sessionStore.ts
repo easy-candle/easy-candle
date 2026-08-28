@@ -193,6 +193,31 @@ function sanitizeDrawing(raw: unknown): Drawing | null {
         ...(levels ? { levels } : {})
       }
     }
+    case 'fibchannel': {
+      if (
+        !isFiniteNumber(rec.t1) ||
+        !isFiniteNumber(rec.p1) ||
+        !isFiniteNumber(rec.t2) ||
+        !isFiniteNumber(rec.p2) ||
+        !isFiniteNumber(rec.t3) ||
+        !isFiniteNumber(rec.p3)
+      ) {
+        return null
+      }
+      const levels = sanitizeFibLevels(rec.levels)
+      return {
+        id: rec.id,
+        type: 'fibchannel',
+        t1: rec.t1,
+        p1: rec.p1,
+        t2: rec.t2,
+        p2: rec.p2,
+        t3: rec.t3,
+        p3: rec.p3,
+        ...(style ? { style } : {}),
+        ...(levels ? { levels } : {})
+      }
+    }
     case 'long':
     case 'short': {
       if (!isFiniteNumber(rec.t) || !isFiniteNumber(rec.entry)) return null
@@ -600,6 +625,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         drawings: cloneJson(session.drawings),
         drawTool: 'select',
         pendingTrend: null,
+        pendingTrendEnd: null,
         selectedDrawingId: null,
         positions: cloneJson(session.positions),
         pendingOrders: cloneJson(session.pendingOrders),

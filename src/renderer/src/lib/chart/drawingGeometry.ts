@@ -1,6 +1,15 @@
 import { alignTimeToInterval } from '@shared/timeframes'
 
-export const DRAW_TOOLS = ['select', 'hline', 'trendline', 'fib', 'rect', 'long', 'short'] as const
+export const DRAW_TOOLS = [
+  'select',
+  'hline',
+  'trendline',
+  'fib',
+  'fibchannel',
+  'rect',
+  'long',
+  'short'
+] as const
 export type DrawTool = (typeof DRAW_TOOLS)[number]
 
 /** A drawable tool (excludes the non-drawing Select tool). */
@@ -49,6 +58,19 @@ export type FibDrawing = {
   /** Per-level overrides; omitted levels inherit the drawing style. */
   levels?: FibLevelConfig[]
 }
+export type FibChannelDrawing = {
+  id: string
+  type: 'fibchannel'
+  t1: number
+  p1: number
+  t2: number
+  p2: number
+  t3: number
+  p3: number
+  style?: DrawingStyle
+  /** Per-level overrides; omitted levels inherit the drawing style. */
+  levels?: FibLevelConfig[]
+}
 export type RectDrawing = {
   id: string
   type: 'rect'
@@ -73,14 +95,17 @@ export type Drawing =
   | HLineDrawing
   | TrendDrawing
   | FibDrawing
+  | FibChannelDrawing
   | RectDrawing
   | PositionDrawing
 export type TwoPointDrawing = TrendDrawing | FibDrawing | RectDrawing
 export type TwoPointTool = 'trendline' | 'fib' | 'rect'
+export type ThreePointTool = 'fibchannel'
 export type PositionTool = 'long' | 'short'
 export type PositionLevel = 'target' | 'stop'
 export type RectHandle = 'nw' | 'ne' | 'sw' | 'se'
 export type Endpoint = 'start' | 'end'
+export type FibChannelHandle = 'p1' | 'p2' | 'p3'
 
 /** Default position box width in bars. */
 export const POSITION_SPAN_DEFAULT = 6
@@ -148,7 +173,7 @@ export function cloneFibLevels(levels: readonly FibLevelConfig[]): FibLevelConfi
 
 /** The level list a fib drawing should render: its own overrides, else the tool defaults. */
 export function fibLevelsOf(
-  drawing: FibDrawing,
+  drawing: Pick<FibDrawing, 'levels'>,
   defaults: readonly FibLevelConfig[]
 ): FibLevelConfig[] {
   const source = drawing.levels ? drawing.levels : defaults
@@ -161,6 +186,10 @@ export function isDrawTool(value: unknown): value is DrawTool {
 
 export function isTwoPointTool(tool: DrawTool): tool is TwoPointTool {
   return tool === 'trendline' || tool === 'fib' || tool === 'rect'
+}
+
+export function isThreePointTool(tool: DrawTool): tool is ThreePointTool {
+  return tool === 'fibchannel'
 }
 
 export function isPositionTool(tool: DrawTool): tool is PositionTool {
@@ -292,6 +321,21 @@ export function fibPriceAtLevel(p1: number, p2: number, ratio: number): number {
   return p1 + (p2 - p1) * ratio
 }
 
+/** Parallel segment at `ratio` between the base (P1–P2, ratio 0) and the width line through P3 (ratio 1). */
+export function fibChannelSegment(
+  p1: TrendPoint,
+  p2: TrendPoint,
+  p3: TrendPoint,
+  ratio: number
+): { a: TrendPoint; b: TrendPoint } {
+  const dt = p3.time - p1.time
+  const dp = p3.price - p1.price
+  return {
+    a: { time: p1.time + dt * ratio, price: p1.price + dp * ratio },
+    b: { time: p2.time + dt * ratio, price: p2.price + dp * ratio }
+  }
+}
+
 export function formatFibLevel(ratio: number): string {
   if (ratio === 0 || ratio === 1) return ratio.toFixed(1)
   if (ratio === 0.5) return '0.5'
@@ -326,6 +370,17 @@ export function translateDrawing(drawing: Drawing, dTime: number, dPrice: number
       stop: drawing.stop == null ? null : drawing.stop + dPrice
     }
   }
+  if (drawing.type === 'fibchannel') {
+    return {
+      ...drawing,
+      t1: drawing.t1 + dTime,
+      p1: drawing.p1 + dPrice,
+      t2: drawing.t2 + dTime,
+      p2: drawing.p2 + dPrice,
+      t3: drawing.t3 + dTime,
+      p3: drawing.p3 + dPrice
+    }
+  }
   return {
     ...drawing,
     t1: drawing.t1 + dTime,
@@ -340,6 +395,14 @@ export function remapDrawingTimes(drawing: Drawing, intervalSec: number): Drawin
     return isPositionDrawing(drawing)
       ? { ...drawing, t: alignTimeToInterval(drawing.t, intervalSec) }
       : drawing
+  }
+  if (drawing.type === 'fibchannel') {
+    return {
+      ...drawing,
+      t1: alignTimeToInterval(drawing.t1, intervalSec),
+      t2: alignTimeToInterval(drawing.t2, intervalSec),
+      t3: alignTimeToInterval(drawing.t3, intervalSec)
+    }
   }
   return {
     ...drawing,
@@ -356,6 +419,16 @@ export function updateTwoPointEndpoint<T extends TrendDrawing | FibDrawing>(
   return end === 'start'
     ? { ...drawing, t1: point.time, p1: point.price }
     : { ...drawing, t2: point.time, p2: point.price }
+}
+
+export function updateFibChannelHandle(
+  drawing: FibChannelDrawing,
+  handle: FibChannelHandle,
+  point: TrendPoint
+): FibChannelDrawing {
+  if (handle === 'p1') return { ...drawing, t1: point.time, p1: point.price }
+  if (handle === 'p2') return { ...drawing, t2: point.time, p2: point.price }
+  return { ...drawing, t3: point.time, p3: point.price }
 }
 
 export function updateRectHandle(
