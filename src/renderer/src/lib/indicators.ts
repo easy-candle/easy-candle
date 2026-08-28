@@ -108,7 +108,6 @@ export const INDICATORS: IndicatorDefinition[] = [
     label: 'Smart money concepts',
     color: '#089981',
     kind: 'smc',
-    requiresAuth: true,
     compute: computeSmc
   }
 ]

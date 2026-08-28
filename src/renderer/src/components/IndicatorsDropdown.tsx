@@ -81,7 +81,7 @@ export default function IndicatorsDropdown() {
       </Dropdown>
       <SignInRequiredDialog
         open={authPrompt != null}
-        indicatorLabel={authPrompt?.label ?? 'Smart money concepts'}
+        indicatorLabel={authPrompt?.label ?? ''}
         onOk={onOkSignIn}
         onDismiss={dismissPrompt}
       />

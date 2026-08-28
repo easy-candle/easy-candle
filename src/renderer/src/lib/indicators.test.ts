@@ -57,8 +57,8 @@ describe("buildOverlays / getIndicator", () => {
   it("resolves registered indicators", () => {
     expect(getIndicator("sma20")?.label).toBe("Simple moving average 20");
     expect(getIndicator("smc")?.label).toBe("Smart money concepts");
-    expect(getIndicator("smc")?.requiresAuth).toBe(true);
-    expect(indicatorRequiresAuth("smc")).toBe(true);
+    expect(getIndicator("smc")?.requiresAuth).toBeFalsy();
+    expect(indicatorRequiresAuth("smc")).toBe(false);
     expect(indicatorRequiresAuth("sma20")).toBe(false);
     expect(getIndicator("missing")).toBeNull();
   });
@@ -88,8 +88,8 @@ describe("buildOverlays / getIndicator", () => {
     }
   });
 
-  it("drops auth-gated indicators when signed out", () => {
+  it("keeps free indicators when signed out", () => {
     expect(ungatedIndicatorIds(["sma20", "smc"], true)).toEqual(["sma20", "smc"]);
-    expect(ungatedIndicatorIds(["sma20", "smc"], false)).toEqual(["sma20"]);
+    expect(ungatedIndicatorIds(["sma20", "smc"], false)).toEqual(["sma20", "smc"]);
   });
 });
