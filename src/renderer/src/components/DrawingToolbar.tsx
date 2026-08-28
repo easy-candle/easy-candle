@@ -4,6 +4,7 @@ import IconButton from '@/components/IconButton'
 import { useDrawingSettingsStore } from '@/store/drawingSettingsStore'
 import { useReplayStore } from '@/store/replayStore'
 import fibonacciIcon from '@/assets/drawings/fibonacci.svg?raw'
+import fibchannelIcon from '@/assets/drawings/fibchannel.svg?raw'
 import hlineIcon from '@/assets/drawings/hline.svg?raw'
 import longIcon from '@/assets/drawings/long.svg?raw'
 import rectangleIcon from '@/assets/drawings/rectangle.svg?raw'
@@ -68,6 +69,16 @@ export default function DrawingToolbar() {
         onClick={() => setDrawTool('fib')}
       >
         <DrawingToolIcon svg={fibonacciIcon} className="w-6 h-6" />
+      </IconButton>
+      <IconButton
+        variant="ghost"
+        tooltip="Fibonacci channel"
+        tooltipSide="right"
+        active={drawTool === 'fibchannel'}
+        disabled={disabled}
+        onClick={() => setDrawTool('fibchannel')}
+      >
+        <DrawingToolIcon svg={fibchannelIcon} className="w-6 h-6" />
       </IconButton>
       <IconButton
         variant="ghost"

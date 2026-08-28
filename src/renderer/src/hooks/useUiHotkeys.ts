@@ -46,7 +46,7 @@ export function useUiHotkeys(): void {
           state.setPricePick(null)
           return
         }
-        if (state.pendingTrend || state.drawTool !== 'select') {
+        if (state.pendingTrend || state.pendingTrendEnd || state.drawTool !== 'select') {
           event.preventDefault()
           setDrawTool('select')
         }

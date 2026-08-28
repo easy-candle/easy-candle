@@ -28,6 +28,7 @@ function seedReplayIn(
     drawings: drawings ?? [],
     drawTool: 'select',
     pendingTrend: null,
+    pendingTrendEnd: null,
     selectedDrawingId: null,
     positions: [],
     pendingOrders: [],
@@ -329,5 +330,56 @@ describe('persisted load', () => {
     expect(state.sessions[0].autoSave).toBe(false)
     expect(state.sessions[0].drawings[0]).toEqual({ id: 'd-1', type: 'hline', price: 42 })
     expect(state.activeSessionId).toBeNull()
+  })
+
+  it('keeps a fib channel drawing and drops one missing the width point', async () => {
+    const store = {
+      [STORAGE_KEY]: JSON.stringify({
+        sessions: [
+          {
+            id: 's-1',
+            name: 'Channel',
+            symbol: 'BTCUSDT',
+            timeframe: '15m',
+            createdAt: 1,
+            updatedAt: 2,
+            autoSave: false,
+            drawings: [
+              {
+                id: 'd-ok',
+                type: 'fibchannel',
+                t1: 1,
+                p1: 2,
+                t2: 3,
+                p2: 4,
+                t3: 5,
+                p3: 6,
+                levels: [{ ratio: 0.5 }]
+              },
+              { id: 'd-bad', type: 'fibchannel', t1: 1, p1: 2, t2: 3, p2: 4 }
+            ],
+            closedTrades: [],
+            orderHistory: [],
+            tradeMarkers: []
+          }
+        ]
+      })
+    }
+    stubLocalStorage(store)
+    vi.resetModules()
+    const mod = await import('@/store/sessionStore')
+    expect(mod.useSessionStore.getState().sessions[0].drawings).toEqual([
+      {
+        id: 'd-ok',
+        type: 'fibchannel',
+        t1: 1,
+        p1: 2,
+        t2: 3,
+        p2: 4,
+        t3: 5,
+        p3: 6,
+        levels: [{ ratio: 0.5 }]
+      }
+    ])
   })
 })

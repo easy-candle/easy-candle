@@ -23,6 +23,7 @@ const TOOL_LABELS: Record<DrawingToolType, string> = {
   hline: 'H. line',
   trendline: 'Trend',
   fib: 'Fib',
+  fibchannel: 'Fib ch.',
   rect: 'Rect',
   long: 'Long',
   short: 'Short'
@@ -361,7 +362,10 @@ export default function DrawingSettingsDialog(): ReactElement | null {
   const toolPresets = [...presets[activeTool]].sort((a, b) => b.savedAt - a.savedAt)
 
   const editingFibDrawing =
-    source === 'widget' && selectedDrawing?.type === 'fib' ? selectedDrawing : null
+    source === 'widget' &&
+    (selectedDrawing?.type === 'fib' || selectedDrawing?.type === 'fibchannel')
+      ? selectedDrawing
+      : null
   const fibLevels: FibLevelConfig[] = editingFibDrawing
     ? (editingFibDrawing.levels ?? fibLevelDefaults)
     : fibLevelDefaults
@@ -485,7 +489,7 @@ export default function DrawingSettingsDialog(): ReactElement | null {
                     tpColor: defaultStyle.tpColor,
                     slColor: defaultStyle.slColor
                   })
-                  if (selectedDrawing.type === 'fib') {
+                  if (selectedDrawing.type === 'fib' || selectedDrawing.type === 'fibchannel') {
                     updateDrawingLevels(
                       selectedDrawing.id,
                       fibLevelDefaults.map((level) => ({ ...level }))
@@ -499,13 +503,11 @@ export default function DrawingSettingsDialog(): ReactElement | null {
             </Section>
           )}
 
-          {activeTool === 'fib' && (
+          {(activeTool === 'fib' || activeTool === 'fibchannel') && (
             <Section
               title="Fib levels"
               hint={
-                editingFibDrawing
-                  ? 'Overrides this fib only'
-                  : 'Used by new fib drawings'
+                editingFibDrawing ? 'Overrides this drawing only' : 'Used by new fib drawings'
               }
             >
               <FibLevelsEditor

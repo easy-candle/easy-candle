@@ -6,10 +6,12 @@ import {
   defaultPositionLevels,
   drawingToolType,
   FIB_LEVELS,
+  fibChannelSegment,
   fibLevelsOf,
   fibPriceAtLevel,
   formatFibLevel,
   formatPriceChangePct,
+  isThreePointTool,
   isPositionTool,
   isValidPositionLevel,
   mirrorPositionLevel,
@@ -18,11 +20,12 @@ import {
   positionPendingChipLabel,
   remapDrawingTimes,
   resolvedPositionLevels,
-  remapDrawingTimes,
   translateDrawing,
+  updateFibChannelHandle,
   updateRectHandle,
   updateTwoPointEndpoint,
   type DrawingStyle,
+  type FibChannelDrawing,
   type FibDrawing,
   type HLineDrawing,
   type PositionDrawing,
@@ -46,6 +49,16 @@ const fib: FibDrawing = {
   p1: 100,
   t2: 1_060,
   p2: 200
+}
+const fibChannel: FibChannelDrawing = {
+  id: 'd-8',
+  type: 'fibchannel',
+  t1: 100,
+  p1: 10,
+  t2: 200,
+  p2: 20,
+  t3: 120,
+  p3: 40
 }
 const rect: RectDrawing = {
   id: 'd-4',
@@ -184,6 +197,19 @@ describe('translateDrawing', () => {
       p2: 82
     })
   })
+
+  it('shifts all three anchors on a fib channel', () => {
+    expect(translateDrawing(fibChannel, 10, -4)).toEqual({
+      id: 'd-8',
+      type: 'fibchannel',
+      t1: 110,
+      p1: 6,
+      t2: 210,
+      p2: 16,
+      t3: 130,
+      p3: 36
+    })
+  })
 })
 
 describe('remapDrawingTimes', () => {
@@ -201,6 +227,15 @@ describe('remapDrawingTimes', () => {
 
   it('aligns the entry time of position drawings', () => {
     expect(remapDrawingTimes(longPos, 60)).toEqual({ ...longPos, t: 60 })
+  })
+
+  it('aligns all three fib channel times onto the candle open grid', () => {
+    expect(remapDrawingTimes(fibChannel, 60)).toEqual({
+      ...fibChannel,
+      t1: 60,
+      t2: 180,
+      t3: 120
+    })
   })
 })
 
@@ -353,6 +388,48 @@ describe('updateTwoPointEndpoint', () => {
   })
 })
 
+describe('fibChannelSegment', () => {
+  const p1 = { time: 100, price: 10 }
+  const p2 = { time: 200, price: 20 }
+  const p3 = { time: 120, price: 40 }
+
+  it('ratio 0 is the base trendline P1–P2', () => {
+    expect(fibChannelSegment(p1, p2, p3, 0)).toEqual({ a: p1, b: p2 })
+  })
+
+  it('ratio 1 is the parallel through P3', () => {
+    expect(fibChannelSegment(p1, p2, p3, 1)).toEqual({
+      a: p3,
+      b: { time: 220, price: 50 }
+    })
+  })
+
+  it('ratio 0.5 sits halfway between the base and the width line', () => {
+    expect(fibChannelSegment(p1, p2, p3, 0.5)).toEqual({
+      a: { time: 110, price: 25 },
+      b: { time: 210, price: 35 }
+    })
+  })
+})
+
+describe('updateFibChannelHandle', () => {
+  it('moves only the requested anchor', () => {
+    expect(updateFibChannelHandle(fibChannel, 'p1', { time: 50, price: 1 })).toMatchObject({
+      t1: 50,
+      p1: 1,
+      t2: fibChannel.t2,
+      p2: fibChannel.p2,
+      t3: fibChannel.t3
+    })
+    expect(updateFibChannelHandle(fibChannel, 'p3', { time: 80, price: 9 })).toMatchObject({
+      t1: fibChannel.t1,
+      t2: fibChannel.t2,
+      t3: 80,
+      p3: 9
+    })
+  })
+})
+
 describe('updateRectHandle', () => {
   it('moves the north-west corner independently', () => {
     expect(updateRectHandle(rect, 'nw', { time: 5, price: 130 })).toEqual({
@@ -374,9 +451,12 @@ describe('drawing styles', () => {
     expect(drawingToolType(hline)).toBe('hline')
     expect(drawingToolType(trend)).toBe('trendline')
     expect(drawingToolType(fib)).toBe('fib')
+    expect(drawingToolType(fibChannel)).toBe('fibchannel')
     expect(drawingToolType(rect)).toBe('rect')
     expect(drawingToolType(longPos)).toBe('long')
     expect(drawingToolType(shortPos)).toBe('short')
+    expect(isThreePointTool('fibchannel')).toBe(true)
+    expect(isThreePointTool('fib')).toBe(false)
   })
 
   it('survives clone, translate and remap untouched', () => {

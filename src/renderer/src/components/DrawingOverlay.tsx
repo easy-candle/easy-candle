@@ -15,6 +15,7 @@ import {
   fibLevelsOf,
   isPositionDrawing,
   isPositionTool,
+  isThreePointTool,
   isTwoPointTool,
   isValidPositionLevel,
   mirrorPositionLevel,
@@ -26,6 +27,7 @@ import {
   type Drawing,
   type DrawingStyle,
   type Endpoint,
+  type FibChannelHandle,
   type PositionDrawing,
   type PositionLevel,
   type RectHandle,
@@ -42,7 +44,9 @@ import { clampXToPlot, isInPlotX, plotRightX } from '@/lib/chart/drawingPlotBoun
 import {
   DRAW_STROKE,
   DRAW_WIDTH,
+  FibChannelShape,
   FibShape,
+  fibChannelLevelsAt,
   fibLevelsAt,
   HANDLE_FILL,
   HANDLE_STROKE,
@@ -138,6 +142,13 @@ type DragState =
       origin?: BodyOrigin
     }
   | {
+      kind: 'fibchannel'
+      id: string
+      end: FibChannelHandle | 'body'
+      moved: boolean
+      origin?: BodyOrigin
+    }
+  | {
       kind: 'rect'
       id: string
       handle: RectHandle | 'body'
@@ -162,7 +173,13 @@ type DragState =
       startY: number
     }
   | { kind: 'pos-place'; id: string; level: PositionLevel; moved: boolean }
-  | { kind: 'place-two'; tool: TwoPointTool; startX: number; startY: number; moved: boolean }
+  | {
+      kind: 'place-two'
+      tool: TwoPointTool | 'fibchannel'
+      startX: number
+      startY: number
+      moved: boolean
+    }
   | { kind: 'tp' | 'sl'; mode: 'place' | 'move'; moved: boolean; workingId: string }
   | { kind: 'pending'; moved: boolean; workingId: string }
   | {
@@ -315,6 +332,7 @@ export default function DrawingOverlay({
   const drawings = useReplayStore((s) => s.drawings)
   const drawTool = useReplayStore((s) => s.drawTool)
   const pendingTrend = useReplayStore((s) => s.pendingTrend)
+  const pendingTrendEnd = useReplayStore((s) => s.pendingTrendEnd)
   const selectedDrawingId = useReplayStore((s) => s.selectedDrawingId)
   const closedTrades = useReplayStore((s) => s.closedTrades)
   const positions = useReplayStore((s) => s.positions)
@@ -327,6 +345,8 @@ export default function DrawingOverlay({
   const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
   const addTwoPoint = useReplayStore((s) => s.addTwoPoint)
   const updateTwoPointEndpoint = useReplayStore((s) => s.updateTwoPointEndpoint)
+  const addFibChannelPoint = useReplayStore((s) => s.addFibChannelPoint)
+  const updateFibChannelHandle = useReplayStore((s) => s.updateFibChannelHandle)
   const updateRectHandle = useReplayStore((s) => s.updateRectHandle)
   const addPosition = useReplayStore((s) => s.addPosition)
   const updatePositionLevel = useReplayStore((s) => s.updatePositionLevel)
@@ -486,6 +506,7 @@ export default function DrawingOverlay({
     canDraw &&
     (drawTool === 'hline' ||
       isTwoPointTool(drawTool) ||
+      isThreePointTool(drawTool) ||
       isPositionTool(drawTool) ||
       pricePick != null)
 
@@ -773,7 +794,12 @@ export default function DrawingOverlay({
         return
       }
 
-      if (drag.kind === 'trend' || drag.kind === 'fib' || drag.kind === 'rect') {
+      if (
+        drag.kind === 'trend' ||
+        drag.kind === 'fib' ||
+        drag.kind === 'fibchannel' ||
+        drag.kind === 'rect'
+      ) {
         const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
         if (timeSec == null) return
         const point: TrendPoint = { time: timeSec, price }
@@ -797,6 +823,11 @@ export default function DrawingOverlay({
           return
         }
 
+        if (drag.kind === 'fibchannel') {
+          updateFibChannelHandle(drag.id, drag.end, point)
+          return
+        }
+
         updateTwoPointEndpoint(drag.id, drag.end, point)
       }
     }
@@ -817,12 +848,16 @@ export default function DrawingOverlay({
             const price = series.coordinateToPrice(y)
             const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
             if (price != null && Number.isFinite(price) && timeSec != null) {
-              addTwoPoint({ time: timeSec, price })
+              if (drag.tool === 'fibchannel') {
+                addFibChannelPoint({ time: timeSec, price })
+              } else {
+                addTwoPoint({ time: timeSec, price })
+              }
             } else {
               setDrawTool(drag.tool)
             }
           }
-        } else {
+        } else if (!(drag.tool === 'fibchannel' && useReplayStore.getState().pendingTrend)) {
           setDrawTool(drag.tool)
         }
         setHover(null)
@@ -869,12 +904,14 @@ export default function DrawingOverlay({
     series,
     updateHorizontalLine,
     updateTwoPointEndpoint,
+    updateFibChannelHandle,
     updateRectHandle,
     updatePositionLevel,
     updatePositionEntry,
     updatePositionSpan,
     moveDrawing,
     addTwoPoint,
+    addFibChannelPoint,
     setDrawTool,
     setTakeProfit,
     setStopLoss,
@@ -919,7 +956,8 @@ export default function DrawingOverlay({
 
   function onSvgMouseDown(event: ReactMouseEvent<SVGSVGElement>): void {
     if (pricePick) return
-    if (!canDraw || !isTwoPointTool(drawTool) || event.button !== 0 || !chart || !series) return
+    const placingPoints = isTwoPointTool(drawTool) || isThreePointTool(drawTool)
+    if (!canDraw || !placingPoints || event.button !== 0 || !chart || !series) return
     const box = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - box.left
     const y = event.clientY - box.top
@@ -927,7 +965,12 @@ export default function DrawingOverlay({
     const point = pointerAtEvent(event)
     if (!point) return
     event.preventDefault()
-    addTwoPoint(point)
+    if (drawTool === 'fibchannel') {
+      addFibChannelPoint(point)
+      if (useReplayStore.getState().drawTool !== 'fibchannel') return
+    } else {
+      addTwoPoint(point)
+    }
     dragRef.current = { kind: 'place-two', tool: drawTool, startX: x, startY: y, moved: false }
     setHover({ x, y })
     setDrawingCrosshair(chart, series, x, y, paneCandles, intervalSeconds)
@@ -992,6 +1035,7 @@ export default function DrawingOverlay({
       next.kind === 'hline' ||
       next.kind === 'trend' ||
       next.kind === 'fib' ||
+      next.kind === 'fibchannel' ||
       next.kind === 'rect' ||
       next.kind === 'pos' ||
       next.kind === 'pos-level' ||
@@ -1007,7 +1051,10 @@ export default function DrawingOverlay({
       const isBody =
         next.kind === 'hline' ||
         (next.kind === 'rect' && next.handle === 'body') ||
-        ((next.kind === 'trend' || next.kind === 'fib' || next.kind === 'pos') &&
+        ((next.kind === 'trend' ||
+          next.kind === 'fib' ||
+          next.kind === 'fibchannel' ||
+          next.kind === 'pos') &&
           next.end === 'body')
 
       let id = next.id
@@ -1032,7 +1079,7 @@ export default function DrawingOverlay({
     dragRef.current = drag
     if (drag.kind === 'hline') {
       setDraggingKey(`hline:${drag.id}`)
-    } else if (drag.kind === 'trend' || drag.kind === 'fib') {
+    } else if (drag.kind === 'trend' || drag.kind === 'fib' || drag.kind === 'fibchannel') {
       setDraggingKey(`${drag.kind}:${drag.id}:${drag.end}`)
     } else if (drag.kind === 'rect') {
       setDraggingKey(`rect:${drag.id}:${drag.handle}`)
@@ -2079,6 +2126,45 @@ export default function DrawingOverlay({
             )
           }
 
+          if (drawing.type === 'fibchannel') {
+            const a = toXY(drawing.t1, drawing.p1)
+            const b = toXY(drawing.t2, drawing.p2)
+            const c = toXY(drawing.t3, drawing.p3)
+            if (!a || !b || !c) return null
+            const levelConfigs = fibLevelsOf(drawing, fibLevelDefaults)
+            return (
+              <FibChannelShape
+                key={drawing.id}
+                p1={a}
+                p2={b}
+                p3={c}
+                levels={fibChannelLevelsAt(
+                  { time: drawing.t1, price: drawing.p1 },
+                  { time: drawing.t2, price: drawing.p2 },
+                  { time: drawing.t3, price: drawing.p3 },
+                  toXY,
+                  levelConfigs
+                )}
+                selected={selected}
+                labelColor={chrome.hintText}
+                canSelect={canSelect}
+                canDraw={canDraw}
+                showHandles={showHandles}
+                style={drawing.style}
+                pricePrecision={pricePrecision}
+                plotRight={plotRight}
+                onSelect={(e) => selectDrawingOnClick(e, drawing.id)}
+                onDragHandle={(handle, e) =>
+                  startDrag(e, { kind: 'fibchannel', id: drawing.id, end: handle, moved: false })
+                }
+                onDragBody={(e) =>
+                  startDrag(e, { kind: 'fibchannel', id: drawing.id, end: 'body', moved: false })
+                }
+                {...hoverHandlers}
+              />
+            )
+          }
+
           if (drawing.type === 'rect') {
             const a = toXY(drawing.t1, drawing.p1)
             const b = toXY(drawing.t2, drawing.p2)
@@ -2373,6 +2459,68 @@ export default function DrawingOverlay({
                     plotRight={plotRight}
                   />
                   {firstHandle}
+                </g>
+              )
+            }
+
+            if (drawTool === 'fibchannel' && hover && chart) {
+              const hoverTime = xToUnixTime(chart, hover.x, paneCandles, intervalSeconds)
+              const hoverPrice = series?.coordinateToPrice(hover.y)
+              if (pendingTrendEnd) {
+                const b = toXY(pendingTrendEnd.time, pendingTrendEnd.price)
+                if (
+                  b &&
+                  hoverTime != null &&
+                  hoverPrice != null &&
+                  Number.isFinite(hoverPrice)
+                ) {
+                  const levels = fibChannelLevelsAt(
+                    pendingTrend,
+                    pendingTrendEnd,
+                    { time: hoverTime, price: hoverPrice },
+                    toXY,
+                    fibLevelDefaults
+                  )
+                  return (
+                    <g key="pending">
+                      <FibChannelShape
+                        p1={a}
+                        p2={b}
+                        p3={hover}
+                        levels={levels}
+                        selected={false}
+                        labelColor={chrome.hintText}
+                        canSelect={false}
+                        canDraw={false}
+                        showHandles={false}
+                        pricePrecision={pricePrecision}
+                        plotRight={plotRight}
+                      />
+                      {firstHandle}
+                      <circle
+                        cx={b.x}
+                        cy={b.y}
+                        r={4.5}
+                        fill={HANDLE_FILL}
+                        stroke={HANDLE_STROKE}
+                        strokeWidth={1.25}
+                      />
+                    </g>
+                  )
+                }
+              }
+              return (
+                <g key="pending">
+                  {firstHandle}
+                  <line
+                    x1={a.x}
+                    y1={a.y}
+                    x2={hover.x}
+                    y2={hover.y}
+                    stroke={DRAW_STROKE}
+                    strokeWidth={DRAW_WIDTH}
+                    strokeDasharray="4 3"
+                  />
                 </g>
               )
             }
