@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import AppShell from '@/components/AppShell'
 import CandleChart from '@/components/CandleChart'
 import PaneChrome from '@/components/PaneChrome'
-import { buildOverlays } from '@/lib/indicators'
+import { buildOverlays, ungatedIndicatorIds } from '@/lib/indicators'
 import { alignTimeToInterval, TIMEFRAMES } from '@shared/timeframes'
 import { runAppStartup } from '@/lib/appStartup'
 import { isDesktopRuntime } from '@/lib/runtime'
+import { useAccountStore } from '@/store/accountStore'
 import { useReplayStore } from '@/store/replayStore'
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
   const currentCandle = useReplayStore((s) => s.currentCandle)
   const chartSync = useReplayStore((s) => s.chartSync)
   const activeIndicators = useReplayStore((s) => s.activeIndicators)
+  const signedIn = useAccountStore((s) => s.signedIn)
   const chartType = useReplayStore((s) => s.chartType)
   const tradeMarkers = useReplayStore((s) => s.tradeMarkers)
   const chartSplit = useReplayStore((s) => s.chartSplit)
@@ -62,15 +64,27 @@ export default function App() {
   const overlaySource = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
   const secondaryOverlaySource =
     mode === 'replay' ? (secondaryVisibleCandles ?? []) : (secondaryCandles ?? [])
+  const overlayIds = useMemo(
+    () => ungatedIndicatorIds(activeIndicators, signedIn),
+    [activeIndicators, signedIn]
+  )
+
+  useEffect(() => {
+    if (signedIn) return
+    const current = useReplayStore.getState().activeIndicators
+    const next = ungatedIndicatorIds(current, false)
+    if (next.length === current.length) return
+    useReplayStore.setState({ activeIndicators: next })
+  }, [signedIn])
 
   const overlays = useMemo(
-    () => buildOverlays(overlaySource, activeIndicators),
-    [overlaySource, activeIndicators]
+    () => buildOverlays(overlaySource, overlayIds),
+    [overlaySource, overlayIds]
   )
 
   const secondaryOverlays = useMemo(
-    () => buildOverlays(secondaryOverlaySource, activeIndicators),
-    [secondaryOverlaySource, activeIndicators]
+    () => buildOverlays(secondaryOverlaySource, overlayIds),
+    [secondaryOverlaySource, overlayIds]
   )
 
   const secondaryMarkers = useMemo(() => {

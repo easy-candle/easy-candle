@@ -30,7 +30,7 @@ import {
   type MtBridgeIpcEvent,
   type MtPreviewSummary
 } from '@shared/mtBridgeTypes'
-import { getIndicator } from '@/lib/indicators'
+import { getIndicator, indicatorRequiresAuth } from '@/lib/indicators'
 import {
   clampRiskReward,
   clampTradeSizeForSymbol,
@@ -129,6 +129,7 @@ import {
   type TrendPoint
 } from '@/lib/chart/drawingGeometry'
 import { defaultFibLevelsForTool, defaultStyleForTool } from '@/store/drawingSettingsStore'
+import { useAccountStore } from '@/store/accountStore'
 import { DEFAULT_SYMBOL } from '@shared/symbols'
 import {
   alignTimeToInterval,
@@ -2413,10 +2414,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     toggleIndicator(id) {
       if (!getIndicator(id)) return
+      const active = get().activeIndicators.includes(id)
+      if (!active && indicatorRequiresAuth(id) && !useAccountStore.getState().signedIn) {
+        return
+      }
       set((s) => {
-        const active = s.activeIndicators.includes(id)
+        const on = s.activeIndicators.includes(id)
         return {
-          activeIndicators: active
+          activeIndicators: on
             ? s.activeIndicators.filter((item) => item !== id)
             : [...s.activeIndicators, id]
         }
