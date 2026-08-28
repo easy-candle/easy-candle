@@ -30,7 +30,7 @@ Easy Candle is a desktop app for learning to read the market and practicing trad
         <tbody align="left">
             <tr>
                 <td>
-                    <a href="https://github.com/easy-candle/easy-candle/releases/latest/download/easy-candle-2.11.0-setup.exe"><img src="https://img.shields.io/badge/Windows-Setup x64-0C88D8.svg?logo=gitforwindows"></a>
+                    <a href="https://github.com/easy-candle/easy-candle/releases/latest/download/easy-candle-2.12.0-setup.exe"><img src="https://img.shields.io/badge/Windows-Setup x64-0C88D8.svg?logo=gitforwindows"></a>
                 </td>
                 <td>10+</td>
             </tr>
@@ -42,13 +42,13 @@ Easy Candle is a desktop app for learning to read the market and practicing trad
             </tr>
             <tr>
                 <td>
-                    <a href="https://github.com/easy-candle/easy-candle/releases/latest/download/easy-candle-2.11.0-arm64-mac.zip"><img src="https://img.shields.io/badge/macOS-ZIP arm64-F0F0F1.svg?logo=apple"></a>
+                    <a href="https://github.com/easy-candle/easy-candle/releases/latest/download/easy-candle-2.12.0-arm64-mac.zip"><img src="https://img.shields.io/badge/macOS-ZIP arm64-F0F0F1.svg?logo=apple"></a>
                 </td>
                 <td>10.15+</td>
             </tr>
             <tr>
                 <td>
-                    <a href="https://github.com/easy-candle/easy-candle/releases/latest/download/easy-candle-2.11.0.AppImage"><img src="https://img.shields.io/badge/GNU/Linux-AppImage x64-EDC204.svg?logo=linux"></a>
+                    <a href="https://github.com/easy-candle/easy-candle/releases/latest/download/easy-candle-2.12.0.AppImage"><img src="https://img.shields.io/badge/GNU/Linux-AppImage x64-EDC204.svg?logo=linux"></a>
                 </td>
                 <td>
                     GNU/Linux (glibc)
