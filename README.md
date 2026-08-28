@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="build/icon.png" alt="Easy Candle" width="128" height="128">
+  <img src="src/renderer/assets/splash/splash.png" alt="Easy Candle">
 </p>
 
-# Easy Candle (Electron)
+# Easy Candle
 
-Desktop port of Easy Candle — a Binance-powered charting and trading-practice workstation. It pulls real Binance candles across many symbols (BTC, ETH, SOL, …) and timeframes (1m–1d), then lets you step through history candle by candle in UTC to study price action. Built-in indicators, drawing tools (trend lines, horizontal lines, rectangles, Fibonacci retracement) and split-pane charts make analysis flexible, while the paper-trading engine lets you practice long/short entries with position sizing, risk/reward guides, stop-loss/take-profit and live PnL tracking. Import your own CSV data or stream M1 candles from MetaTrader 5 via the Easy Candle EA, snapshot the chart as an image, and enjoy a fast dark UI with themes, keyboard shortcuts and automatic updates.
+Easy Candle is a desktop app for learning to read the market and practicing trades without live-market pressure. Replay history one candle at a time so you can study price action at your own pace, test your process, and build conviction before you risk real capital.
 
 [![Version](https://img.shields.io/github/v/release/easy-candle/easy-candle?label=Version&color=blue)](https://github.com/easy-candle/easy-candle/releases/latest)
 [![Download](https://img.shields.io/github/downloads/easy-candle/easy-candle/total?label=Downloads)](https://github.com/easy-candle/easy-candle/releases/latest)
