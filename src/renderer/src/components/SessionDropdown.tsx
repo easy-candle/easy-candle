@@ -101,6 +101,19 @@ export default function SessionDropdown(): ReactElement {
     showToast('error', `Could not save “${active.name}” — it no longer exists.`)
   }
 
+  /** Exit wipes the chart, so say whether the work was written back first. */
+  function handleExit(): void {
+    if (!active) return
+    const { name: exited, autoSave } = active
+    exitActiveSession()
+    showToast(
+      autoSave ? 'success' : 'info',
+      autoSave
+        ? `Session “${exited}” saved and closed. The chart is now empty.`
+        : `Session “${exited}” closed without saving — auto-save was off. The chart is now empty.`
+    )
+  }
+
   return (
     <Dropdown
       align="end"
@@ -176,7 +189,7 @@ export default function SessionDropdown(): ReactElement {
                       type="button"
                       aria-label="Exit session"
                       onClick={() => {
-                        exitActiveSession()
+                        handleExit()
                         close()
                       }}
                       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:bg-zinc-700/60 hover:text-red-400"
