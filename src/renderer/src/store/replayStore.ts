@@ -585,7 +585,8 @@ type ReplayStore = {
     opts?: { forwardBars?: number; message?: string | null }
   ) => Promise<void>
   jumpToTime: (timeSeconds: number) => Promise<void>
-  exitReplay: () => void
+  /** Leave replay back to the live chart. Set `report: false` to skip the report dialog. */
+  exitReplay: (opts?: { report?: boolean }) => void
   resetReplayState: (opts?: { keepImport?: boolean; keepDrawings?: boolean }) => void
   play: () => void
   pause: () => void
@@ -3462,7 +3463,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       await loadReplayWindow(target)
     },
 
-    exitReplay() {
+    exitReplay(opts = {}) {
       const { positions, closedTrades, symbol, timeframe, currentCandle, dataSource, importedCandles, importMeta } =
         get()
 
@@ -3489,7 +3490,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       }
 
       const sessionReport: SessionReport | null =
-        trades.length > 0
+        opts.report !== false && trades.length > 0
           ? {
               symbol,
               timeframe,

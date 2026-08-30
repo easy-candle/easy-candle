@@ -13,7 +13,7 @@ export default function SessionDropdown(): ReactElement {
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const saveActiveSession = useSessionStore((s) => s.saveActiveSession)
   const setSessionAutoSave = useSessionStore((s) => s.setSessionAutoSave)
-  const setActiveSession = useSessionStore((s) => s.setActiveSession)
+  const exitActiveSession = useSessionStore((s) => s.exitActiveSession)
   const setSessionManagerDialogOpen = useUiLayoutStore((s) => s.setSessionManagerDialogOpen)
   const [name, setName] = useState('')
 
@@ -89,10 +89,13 @@ export default function SessionDropdown(): ReactElement {
                       <Save className="h-3.5 w-3.5" aria-hidden />
                     </button>
                   </Tooltip>
-                  <Tooltip text="Exit session" side="top">
+                  <Tooltip text="Exit session — clears the chart" side="top">
                     <button
                       type="button"
-                      onClick={() => setActiveSession(null)}
+                      onClick={() => {
+                        exitActiveSession()
+                        close()
+                      }}
                       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:text-red-400 hover:bg-zinc-700/60"
                     >
                       <LogOut className="h-3.5 w-3.5" aria-hidden />

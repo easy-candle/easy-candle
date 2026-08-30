@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSessionStore, type Session } from '@/store/sessionStore'
 import { useReplayStore } from '@/store/replayStore'
+import { summarizeSession } from '@/lib/paperTrade'
 
 const STORAGE_KEY = 'easy-candle:sessions'
 
@@ -292,6 +293,122 @@ describe('auto-save', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('exitActiveSession', () => {
+  it('saves once more, detaches, and clears drawings and orders', () => {
+    freshStore()
+    seedReplay([{ id: 'd-1', type: 'hline', price: 100 }])
+    const id = useSessionStore.getState().createSession('Exiting')!
+
+    // Draw after creating, so the exit save is the only way this is captured.
+    seedReplay([
+      { id: 'd-1', type: 'hline', price: 100 },
+      { id: 'd-2', type: 'hline', price: 200 }
+    ])
+    useSessionStore.getState().exitActiveSession()
+
+    expect(useSessionStore.getState().activeSessionId).toBeNull()
+    const saved = useSessionStore.getState().sessions.find((item) => item.id === id)
+    expect(saved?.drawings).toHaveLength(2)
+
+    const chart = useReplayStore.getState()
+    expect(chart.drawings).toEqual([])
+    expect(chart.selectedDrawingId).toBeNull()
+    expect(chart.positions).toEqual([])
+    expect(chart.pendingOrders).toEqual([])
+    expect(chart.closedTrades).toEqual([])
+    expect(chart.orderHistory).toEqual([])
+    expect(chart.tradeMarkers).toEqual([])
+  })
+
+  it('never leaves a session report behind', () => {
+    freshStore()
+    useReplayStore.setState({
+      sessionReport: {
+        symbol: 'BTCUSDT',
+        timeframe: '15m',
+        trades: [],
+        summary: summarizeSession([]),
+        closedOpenOnExit: false
+      }
+    })
+    useSessionStore.getState().createSession('No Report')
+    useSessionStore.getState().exitActiveSession()
+    expect(useReplayStore.getState().sessionReport).toBeNull()
+  })
+
+  it('does not write a final save when auto-save is off', () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Manual Exit')!
+    useSessionStore.getState().setSessionAutoSave(id, false)
+    seedReplay([{ id: 'd-5', type: 'hline', price: 5 }])
+
+    useSessionStore.getState().exitActiveSession()
+
+    expect(useSessionStore.getState().sessions[0].drawings).toHaveLength(0)
+    expect(useSessionStore.getState().activeSessionId).toBeNull()
+    expect(useReplayStore.getState().drawings).toEqual([])
+  })
+
+  it('ignores a pending auto-save queued before the exit', () => {
+    vi.useFakeTimers()
+    try {
+      freshStore()
+      const id = useSessionStore.getState().createSession('Debounced')!
+      seedReplay([{ id: 'd-6', type: 'hline', price: 6 }])
+      // Exit inside the debounce window; the queued write must not resurrect it.
+      useSessionStore.getState().exitActiveSession()
+      vi.advanceTimersByTime(900)
+
+      const saved = useSessionStore.getState().sessions.find((item) => item.id === id)
+      expect(saved?.drawings).toHaveLength(1)
+      expect(useSessionStore.getState().activeSessionId).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('exits replay without producing a session report', () => {
+    freshStore()
+    useSessionStore.getState().createSession('In Replay')
+    // A closed trade would normally make exitReplay raise the report dialog.
+    useReplayStore.setState({
+      mode: 'replay',
+      dataSource: 'binance',
+      closedTrades: [
+        {
+          id: 't-1',
+          side: 'long',
+          entryPrice: 99,
+          entryTime: 100,
+          exitPrice: 102,
+          exitTime: 200,
+          lots: 1,
+          pnl: 3,
+          exitReason: 'tp',
+          takeProfit: 102,
+          stopLoss: 98
+        }
+      ],
+      drawings: [{ id: 'd-8', type: 'hline', price: 8 }]
+    })
+
+    useSessionStore.getState().exitActiveSession()
+
+    const chart = useReplayStore.getState()
+    expect(chart.sessionReport).toBeNull()
+    expect(chart.mode).toBe('live')
+    expect(chart.drawings).toEqual([])
+    expect(chart.closedTrades).toEqual([])
+  })
+
+  it('is a no-op without an active session', () => {
+    freshStore()
+    seedReplay([{ id: 'd-7', type: 'hline', price: 7 }])
+    useSessionStore.getState().exitActiveSession()
+    expect(useReplayStore.getState().drawings).toHaveLength(1)
   })
 })
 

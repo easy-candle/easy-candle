@@ -74,6 +74,12 @@ type SessionStoreState = {
   renameSession: (id: string, name: string) => void
   deleteSession: (id: string) => void
   setActiveSession: (id: string | null) => void
+  /**
+   * Close the active session: save it one last time, then clear the chart back
+   * to a blank live view — drawings and orders removed, replay exited, and no
+   * session report shown.
+   */
+  exitActiveSession: () => void
   /** Restore a session's drawings, orders, and replay position onto the chart. */
   loadSession: (id: string) => Promise<boolean>
   /** Write the current chart drawings/orders into the active session. */
@@ -579,6 +585,40 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   setActiveSession(id) {
     if (get().activeSessionId === id) return
     set({ activeSessionId: id })
+  },
+
+  exitActiveSession() {
+    const activeId = get().activeSessionId
+    if (activeId == null) return
+
+    // Persist the final state before detaching, so reopening resumes here.
+    const active = get().sessions.find((session) => session.id === activeId)
+    if (active?.autoSave) updateSessionSnapshot(activeId, chartSnapshot())
+
+    // Detach first so the teardown below is not written back into the session.
+    suppressAutoSave += 1
+    try {
+      set({ activeSessionId: null })
+
+      const replay = useReplayStore.getState()
+      if (replay.mode === 'replay') {
+        // resetReplayState already wipes drawings and trades; skip the report.
+        replay.exitReplay({ report: false })
+      } else {
+        replay.clearDrawings()
+        useReplayStore.setState({
+          positions: [],
+          pendingOrders: [],
+          selectedWorkingId: null,
+          closedTrades: [],
+          orderHistory: [],
+          tradeMarkers: [],
+          sessionReport: null
+        })
+      }
+    } finally {
+      suppressAutoSave -= 1
+    }
   },
 
   async loadSession(id) {

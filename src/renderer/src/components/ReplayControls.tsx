@@ -211,7 +211,12 @@ export default function ReplayControls() {
         </form>
       </Dropdown>
 
-      <IconButton tooltip="Exit replay" onClick={exitReplay} tooltipSide="top" className="ml-0.5">
+      <IconButton
+        tooltip="Exit replay"
+        onClick={() => exitReplay()}
+        tooltipSide="top"
+        className="ml-0.5"
+      >
         <LogOut className="h-4 w-4" />
       </IconButton>
     </div>
