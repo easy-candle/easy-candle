@@ -1,13 +1,19 @@
 import { create } from 'zustand'
 import type { Drawing, FibLevelConfig } from '@/lib/chart/drawingGeometry'
-import type {
-  ClosedTrade,
-  HistoricOrder,
-  PendingOrder,
-  PendingOrderKind,
-  Position
+import {
+  summarizeSession,
+  type ClosedTrade,
+  type HistoricOrder,
+  type PendingOrder,
+  type PendingOrderKind,
+  type Position
 } from '@/lib/paperTrade'
-import { useReplayStore, type TradeMarker, type ViewMode } from '@/store/replayStore'
+import {
+  useReplayStore,
+  type SessionReport,
+  type TradeMarker,
+  type ViewMode
+} from '@/store/replayStore'
 
 const STORAGE_KEY = 'easy-candle:sessions'
 
@@ -167,6 +173,21 @@ export function describeUnsavedWork(state: {
 
   if (drawings === 0 && trades === 0 && !inReplay) return null
   return { drawings, trades, inReplay }
+}
+
+/**
+ * A session's closed trades as a report, for viewing performance without
+ * loading the session onto the chart. Returns null when it recorded no trades.
+ */
+export function sessionReportFor(session: Session | null | undefined): SessionReport | null {
+  if (!session || session.closedTrades.length === 0) return null
+  return {
+    symbol: session.symbol,
+    timeframe: session.timeframe,
+    trades: session.closedTrades,
+    summary: summarizeSession(session.closedTrades),
+    closedOpenOnExit: false
+  }
 }
 
 function sanitizeStyle(raw: unknown): Drawing['style'] {

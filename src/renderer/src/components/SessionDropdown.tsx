@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactElement } from 'react'
 import {
+  BarChart3,
   Check,
   FolderOpen,
   FolderPlus,
@@ -11,7 +12,7 @@ import {
   TrendingUp
 } from 'lucide-react'
 import Dropdown from '@/components/Dropdown'
-import { useSessionStore, type Session } from '@/store/sessionStore'
+import { sessionReportFor, useSessionStore, type Session } from '@/store/sessionStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { showToast } from '@/store/toastStore'
 import { formatTimeAgo } from '@/lib/utcDateTime'
@@ -71,6 +72,7 @@ export default function SessionDropdown(): ReactElement {
   const setSessionAutoSave = useSessionStore((s) => s.setSessionAutoSave)
   const exitActiveSession = useSessionStore((s) => s.exitActiveSession)
   const setSessionManagerDialogOpen = useUiLayoutStore((s) => s.setSessionManagerDialogOpen)
+  const setPreviewSessionReport = useUiLayoutStore((s) => s.setPreviewSessionReport)
   const [name, setName] = useState('')
 
   const active = sessions.find((session) => session.id === activeSessionId) ?? null
@@ -112,6 +114,17 @@ export default function SessionDropdown(): ReactElement {
         ? `Session “${exited}” saved and closed. The chart is now empty.`
         : `Session “${exited}” closed without saving — auto-save was off. The chart is now empty.`
     )
+  }
+
+  /** Open the performance report for a session without loading it. */
+  function handleShowReport(session: Session, close: () => void): void {
+    const report = sessionReportFor(session)
+    if (!report) {
+      showToast('info', `Session “${session.name}” has no closed trades to report.`)
+      return
+    }
+    setPreviewSessionReport(report)
+    close()
   }
 
   return (
@@ -174,6 +187,16 @@ export default function SessionDropdown(): ReactElement {
                   {active.name}
                 </span>
                 <div className="flex shrink-0 gap-0.5">
+                  <Tooltip text="Session report" side="top">
+                    <button
+                      type="button"
+                      aria-label="View session report"
+                      onClick={() => handleShowReport(active, close)}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:bg-zinc-700/60 hover:text-amber-300"
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </Tooltip>
                   <Tooltip text="Save now" side="top">
                     <button
                       type="button"
@@ -279,6 +302,16 @@ export default function SessionDropdown(): ReactElement {
                         </span>
                       </span>
                     </button>
+                    <Tooltip text="Session report" side="left">
+                      <button
+                        type="button"
+                        aria-label={`View report for ${session.name}`}
+                        onClick={() => handleShowReport(session, close)}
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 opacity-0 transition-opacity hover:bg-zinc-700/60 hover:text-amber-300 focus-visible:opacity-100 group-hover:opacity-100"
+                      >
+                        <BarChart3 className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </Tooltip>
                     <Tooltip text="Delete session" side="left">
                       <button
                         type="button"

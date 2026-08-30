@@ -1,9 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { BarChart3, Check, FolderOpen, FolderPlus, Pencil, Trash2, X } from 'lucide-react'
-import { useSessionStore } from '@/store/sessionStore'
+import { sessionReportFor, useSessionStore } from '@/store/sessionStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { showToast } from '@/store/toastStore'
-import { summarizeSession } from '@/lib/paperTrade'
 
 export default function SessionManagerDialog(): ReactElement | null {
   const open = useUiLayoutStore((s) => s.sessionManagerDialogOpen)
@@ -201,13 +200,15 @@ export default function SessionManagerDialog(): ReactElement | null {
                           aria-label={`View report for ${session.name}`}
                           title="View session report"
                           onClick={() => {
-                            setPreviewSessionReport({
-                              symbol: session.symbol,
-                              timeframe: session.timeframe,
-                              trades: session.closedTrades,
-                              summary: summarizeSession(session.closedTrades),
-                              closedOpenOnExit: false
-                            })
+                            const report = sessionReportFor(session)
+                            if (!report) {
+                              showToast(
+                                'info',
+                                `Session “${session.name}” has no closed trades to report.`
+                              )
+                              return
+                            }
+                            setPreviewSessionReport(report)
                           }}
                           className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 transition-colors hover:text-amber-300"
                         >

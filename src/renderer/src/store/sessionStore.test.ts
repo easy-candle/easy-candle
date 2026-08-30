@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { describeUnsavedWork, useSessionStore, type Session } from '@/store/sessionStore'
+import {
+  describeUnsavedWork,
+  sessionReportFor,
+  useSessionStore,
+  type Session
+} from '@/store/sessionStore'
 import { useReplayStore } from '@/store/replayStore'
 import { summarizeSession } from '@/lib/paperTrade'
 
@@ -636,6 +641,54 @@ describe('requestDeleteSession', () => {
     const remaining = useSessionStore.getState().sessions
     expect(remaining).toHaveLength(1)
     expect(remaining[0].id).toBe(keep)
+  })
+})
+
+describe('sessionReportFor', () => {
+  const closed: Session['closedTrades'] = [
+    {
+      id: 't-1',
+      side: 'long',
+      entryPrice: 99,
+      entryTime: 100,
+      exitPrice: 102,
+      exitTime: 200,
+      lots: 1,
+      pnl: 3,
+      exitReason: 'tp',
+      takeProfit: 102,
+      stopLoss: 98
+    }
+  ]
+
+  it('builds a report from a session with trades', () => {
+    freshStore()
+    seedReplay([], closed)
+    useReplayStore.setState({ symbol: 'BTCUSDT', timeframe: '15m' })
+    const id = useSessionStore.getState().createSession('Reported')!
+    const session = useSessionStore.getState().sessions.find((item) => item.id === id)!
+
+    const report = sessionReportFor(session)
+    expect(report).toMatchObject({
+      symbol: 'BTCUSDT',
+      timeframe: '15m',
+      closedOpenOnExit: false
+    })
+    expect(report?.trades).toHaveLength(1)
+    expect(report?.summary.overall.count).toBe(1)
+    expect(report?.summary.overall.totalPnl).toBe(3)
+  })
+
+  it('is null when the session recorded no trades', () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Empty')!
+    const session = useSessionStore.getState().sessions.find((item) => item.id === id)!
+    expect(sessionReportFor(session)).toBeNull()
+  })
+
+  it('is null for a missing session', () => {
+    expect(sessionReportFor(null)).toBeNull()
+    expect(sessionReportFor(undefined)).toBeNull()
   })
 })
 
