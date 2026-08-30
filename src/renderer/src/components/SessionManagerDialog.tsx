@@ -11,7 +11,7 @@ export default function SessionManagerDialog(): ReactElement | null {
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const createSession = useSessionStore((s) => s.createSession)
   const renameSession = useSessionStore((s) => s.renameSession)
-  const deleteSession = useSessionStore((s) => s.deleteSession)
+  const requestDeleteSession = useSessionStore((s) => s.requestDeleteSession)
   const requestLoadSession = useSessionStore((s) => s.requestLoadSession)
   const setPreviewSessionReport = useUiLayoutStore((s) => s.setPreviewSessionReport)
 
@@ -213,7 +213,7 @@ export default function SessionManagerDialog(): ReactElement | null {
                         <button
                           type="button"
                           aria-label={`Delete ${session.name}`}
-                          onClick={() => deleteSession(session.id)}
+                          onClick={() => requestDeleteSession(session.id)}
                           className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 transition-colors hover:text-red-400"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />

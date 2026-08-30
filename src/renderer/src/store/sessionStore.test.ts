@@ -45,7 +45,12 @@ function seedReplay(drawings?: Session['drawings'], closedTrades?: Session['clos
 }
 
 function freshStore(): void {
-  useSessionStore.setState({ sessions: [], activeSessionId: null, pendingLoadId: null })
+  useSessionStore.setState({
+    sessions: [],
+    activeSessionId: null,
+    pendingLoadId: null,
+    pendingDeleteId: null
+  })
   useReplayStore.setState({ mode: 'live', sessionReport: null })
   seedReplay()
 }
@@ -573,6 +578,64 @@ describe('describeUnsavedWork', () => {
       trades: 0,
       inReplay: true
     })
+  })
+})
+
+describe('requestDeleteSession', () => {
+  it('stages the delete without removing anything yet', () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Doomed')!
+    useSessionStore.getState().requestDeleteSession(id)
+
+    expect(useSessionStore.getState().pendingDeleteId).toBe(id)
+    expect(useSessionStore.getState().sessions).toHaveLength(1)
+    expect(useSessionStore.getState().activeSessionId).toBe(id)
+  })
+
+  it('ignores an unknown session', () => {
+    freshStore()
+    useSessionStore.getState().requestDeleteSession('missing')
+    expect(useSessionStore.getState().pendingDeleteId).toBeNull()
+  })
+
+  it('confirm removes the session and clears the prompt', () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Doomed')!
+    useSessionStore.getState().requestDeleteSession(id)
+    useSessionStore.getState().confirmPendingDelete()
+
+    expect(useSessionStore.getState().sessions).toHaveLength(0)
+    expect(useSessionStore.getState().pendingDeleteId).toBeNull()
+    expect(useSessionStore.getState().activeSessionId).toBeNull()
+  })
+
+  it('cancel keeps the session', () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Spared')!
+    useSessionStore.getState().requestDeleteSession(id)
+    useSessionStore.getState().cancelPendingDelete()
+
+    expect(useSessionStore.getState().pendingDeleteId).toBeNull()
+    expect(useSessionStore.getState().sessions).toHaveLength(1)
+  })
+
+  it('confirm without a staged delete is a no-op', () => {
+    freshStore()
+    useSessionStore.getState().createSession('Safe')
+    useSessionStore.getState().confirmPendingDelete()
+    expect(useSessionStore.getState().sessions).toHaveLength(1)
+  })
+
+  it('leaves other sessions alone', () => {
+    freshStore()
+    const keep = useSessionStore.getState().createSession('Keep')!
+    const drop = useSessionStore.getState().createSession('Drop')!
+    useSessionStore.getState().requestDeleteSession(drop)
+    useSessionStore.getState().confirmPendingDelete()
+
+    const remaining = useSessionStore.getState().sessions
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].id).toBe(keep)
   })
 })
 

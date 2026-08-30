@@ -75,6 +75,11 @@ type SessionStoreState = {
    * `requestLoadSession`; cleared by `confirmPendingLoad` / `cancelPendingLoad`.
    */
   pendingLoadId: string | null
+  /**
+   * Session id waiting on the delete confirmation. Set by `requestDeleteSession`;
+   * cleared by `confirmPendingDelete` / `cancelPendingDelete`.
+   */
+  pendingDeleteId: string | null
   createSession: (name: string) => string | null
   renameSession: (id: string, name: string) => void
   deleteSession: (id: string) => void
@@ -93,6 +98,11 @@ type SessionStoreState = {
   /** Load the session held by `pendingLoadId`. */
   confirmPendingLoad: () => Promise<boolean>
   cancelPendingLoad: () => void
+  /** Ask before deleting, since a session cannot be recovered. */
+  requestDeleteSession: (id: string) => void
+  /** Delete the session held by `pendingDeleteId`. */
+  confirmPendingDelete: () => void
+  cancelPendingDelete: () => void
   /** Restore a session's drawings, orders, and replay position onto the chart. */
   loadSession: (id: string) => Promise<boolean>
   /** Write the current chart drawings/orders into the active session. */
@@ -590,6 +600,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   sessions: initialSessions,
   activeSessionId: null,
   pendingLoadId: null,
+  pendingDeleteId: null,
 
   createSession(name) {
     const trimmed = name.trim().slice(0, SESSION_NAME_MAX_LENGTH)
@@ -623,9 +634,28 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     set((state) => ({
       sessions,
       activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
-      pendingLoadId: state.pendingLoadId === id ? null : state.pendingLoadId
+      pendingLoadId: state.pendingLoadId === id ? null : state.pendingLoadId,
+      pendingDeleteId: state.pendingDeleteId === id ? null : state.pendingDeleteId
     }))
     persistLive()
+  },
+
+  requestDeleteSession(id) {
+    if (!get().sessions.some((session) => session.id === id)) return
+    set({ pendingDeleteId: id })
+  },
+
+  confirmPendingDelete() {
+    const id = get().pendingDeleteId
+    if (id == null) return
+    // deleteSession clears pendingDeleteId as part of the same update.
+    get().deleteSession(id)
+    if (get().pendingDeleteId === id) set({ pendingDeleteId: null })
+  },
+
+  cancelPendingDelete() {
+    if (get().pendingDeleteId == null) return
+    set({ pendingDeleteId: null })
   },
 
   setActiveSession(id) {

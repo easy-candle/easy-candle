@@ -17,6 +17,7 @@ import IndicatorsDropdown from '@/components/IndicatorsDropdown'
 import KeyboardShortcutsDialog from '@/components/KeyboardShortcutsDialog'
 import ReplayStartDialog from '@/components/ReplayStartDialog'
 import SessionDropdown from '@/components/SessionDropdown'
+import SessionDeleteConfirmDialog from '@/components/SessionDeleteConfirmDialog'
 import SessionLoadConfirmDialog from '@/components/SessionLoadConfirmDialog'
 import SessionManagerDialog from '@/components/SessionManagerDialog'
 import SessionReportDialog from '@/components/SessionReportDialog'
@@ -289,6 +290,7 @@ export default function AppShell({
       <SymbolManagerDialog />
       <SessionManagerDialog />
       <SessionLoadConfirmDialog />
+      <SessionDeleteConfirmDialog />
       <SessionReportDialog />
       <UpdateModal />
     </div>
