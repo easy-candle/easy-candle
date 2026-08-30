@@ -37,3 +37,24 @@ export function formatUtcCandleTime(unixSeconds: number | null | undefined): str
     .replace('T', ' ')
     .replace(/\.\d{3}Z$/, ' UTC')
 }
+
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * Coarse "how long ago" label for wall-clock timestamps in ms, e.g. when a
+ * session was last saved. Deliberately low-resolution: these lists are scanned,
+ * not read precisely. Future timestamps (clock skew) read as "just now".
+ */
+export function formatTimeAgo(timestampMs: number | null | undefined, nowMs = Date.now()): string {
+  if (timestampMs == null || !Number.isFinite(timestampMs)) return '—'
+
+  const elapsed = nowMs - timestampMs
+  if (elapsed < MINUTE_MS) return 'just now'
+  if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)}m ago`
+  if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)}h ago`
+  if (elapsed < 7 * DAY_MS) return `${Math.floor(elapsed / DAY_MS)}d ago`
+
+  return new Date(timestampMs).toISOString().slice(0, 10)
+}
