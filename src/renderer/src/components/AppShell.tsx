@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import { Maximize2, Minimize2, Moon, Settings2, SquareSplitVertical, Sun, X } from 'lucide-react'
+import { useEffect, type ReactNode } from 'react'
+import { Maximize2, Minimize2, Moon, Settings2, SquareSplitVertical, Sun } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
 import AccountDialog from '@/components/AccountDialog'
 import AppTour from '@/components/AppTour'
 import ChartSettingsDialog from '@/components/ChartSettingsDialog'
 import ChartTypeSelect from '@/components/ChartTypeSelect'
 import ChartSnapshotDropdown from '@/components/ChartSnapshotDropdown'
-import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
+import ImportDataDialog from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import DrawingSettingsDialog from '@/components/DrawingSettingsDialog'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
@@ -27,6 +26,7 @@ import SymbolManagerDialog from '@/components/SymbolManagerDialog'
 import SymbolSelect from '@/components/SymbolSelect'
 import TimeframeSelect from '@/components/TimeframeSelect'
 import TitleBar from '@/components/TitleBar'
+import ToastStack from '@/components/ToastStack'
 import OrderTicket from '@/components/OrderTicket'
 import TradePanel from '@/components/TradePanel'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
@@ -68,8 +68,6 @@ export default function AppShell({
   const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
-  const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
-  const feedbackTimer = useRef<number | null>(null)
 
   const inReplay = mode === 'replay'
   const showOrderTicket = showPaperTrade && !chartFullscreen && (inReplay || tourPaperTradePreview)
@@ -79,21 +77,6 @@ export default function AppShell({
   const showEmptyLive =
     !inReplay && candles.length === 0 && (status === 'ready' || (mtbridge && status === 'idle'))
   const showEndedBanner = inReplay && replayStatus === 'ended' && !chartFullscreen
-
-  useEffect(() => {
-    if (inReplay) setImportFeedback(null)
-  }, [inReplay])
-
-  useEffect(() => {
-    if (feedbackTimer.current != null) window.clearTimeout(feedbackTimer.current)
-    feedbackTimer.current = null
-    if (!importFeedback) return undefined
-
-    feedbackTimer.current = window.setTimeout(() => setImportFeedback(null), 5000)
-    return () => {
-      if (feedbackTimer.current != null) window.clearTimeout(feedbackTimer.current)
-    }
-  }, [importFeedback])
 
   useReplayHotkeys()
   useUiHotkeys()
@@ -122,7 +105,7 @@ export default function AppShell({
           <TimeframeSelect />
           <ChartTypeSelect />
           <IndicatorsDropdown />
-          {!inReplay && <ImportDataDialog onFeedback={setImportFeedback} />}
+          {!inReplay && <ImportDataDialog />}
           {!inReplay && <ReplayStartDialog />}
           <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
             <IconButton
@@ -162,31 +145,6 @@ export default function AppShell({
           {showStatusBar && <StatusBar />}
         </div>
       )}
-
-      {importFeedback &&
-        createPortal(
-          <div className="pointer-events-none fixed bottom-4 right-4 z-[70] w-80 max-w-[calc(100vw-2rem)]">
-            <div
-              role="status"
-              className={`pointer-events-auto flex items-center justify-between gap-3 rounded border bg-zinc-950/95 px-3 py-2.5 text-xs leading-relaxed shadow-xl shadow-black/50 ${
-                importFeedback.tone === 'error'
-                  ? 'border-red-900/60 text-red-200'
-                  : 'border-zinc-800/50 text-amber-200/90'
-              }`}
-            >
-              <p className="min-w-0 flex-1 break-words">{importFeedback.message}</p>
-              <button
-                type="button"
-                aria-label="Dismiss message"
-                onClick={() => setImportFeedback(null)}
-                className="inline-flex h-6 w-6 shrink-0 text-gray-400 items-center justify-center rounded border border-transparent opacity-80 hover:opacity-100"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
 
       {!chartFullscreen && status === 'error' && error && (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-red-900/50 bg-red-950/40 px-3 py-1.5 text-sm text-red-300 sm:px-4">
@@ -292,6 +250,7 @@ export default function AppShell({
       <SessionLoadConfirmDialog />
       <SessionDeleteConfirmDialog />
       <SessionReportDialog />
+      <ToastStack />
       <UpdateModal />
     </div>
   )

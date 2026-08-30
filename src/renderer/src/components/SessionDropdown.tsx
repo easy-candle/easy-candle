@@ -13,6 +13,7 @@ import {
 import Dropdown from '@/components/Dropdown'
 import { useSessionStore, type Session } from '@/store/sessionStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { showToast } from '@/store/toastStore'
 import { formatTimeAgo } from '@/lib/utcDateTime'
 import Tooltip from '@/components/Tooltip'
 
@@ -84,8 +85,20 @@ export default function SessionDropdown(): ReactElement {
 
   function handleCreate(event: FormEvent): void {
     event.preventDefault()
-    const id = createSession(name)
-    if (id != null) setName('')
+    const created = createSession(name)
+    if (created == null) return
+    setName('')
+    showToast('success', `Session “${name.trim()}” created from the current chart.`)
+  }
+
+  /** Manual save is invisible otherwise — the row only shows a relative time. */
+  function handleSave(): void {
+    if (!active) return
+    if (saveActiveSession()) {
+      showToast('success', `Session “${active.name}” saved.`)
+      return
+    }
+    showToast('error', `Could not save “${active.name}” — it no longer exists.`)
   }
 
   return (
@@ -152,7 +165,7 @@ export default function SessionDropdown(): ReactElement {
                     <button
                       type="button"
                       aria-label="Save session now"
-                      onClick={() => void saveActiveSession()}
+                      onClick={handleSave}
                       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:bg-zinc-700/60 hover:text-amber-300"
                     >
                       <Save className="h-3.5 w-3.5" aria-hidden />

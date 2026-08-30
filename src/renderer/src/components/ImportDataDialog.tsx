@@ -15,24 +15,16 @@ import { MT_BRIDGE_WS_URL } from '@shared/mtBridgeProtocol'
 import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { showToast } from '@/store/toastStore'
 import { isDesktopRuntime } from '@/lib/runtime'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
 
 const EA_DOWNLOAD_URL =
   'https://github.com/easy-candle/easy-candle-ea/releases/latest/download/EasyCandleBridge.ex5'
 
-export type ImportFeedback = {
-  tone: 'error' | 'info'
-  message: string
-}
-
 type PendingImport = ImportConfirmDetails & {
   content: string
   origin: ImportOrigin
-}
-
-type ImportDataDialogProps = {
-  onFeedback?: (feedback: ImportFeedback | null) => void
 }
 
 type InlineMessage = { tone: 'error' | 'info' | 'success'; message: string } | null
@@ -44,7 +36,7 @@ function normalizeSymbol(value: string): string {
     .replace(/[^A-Z0-9]/g, '')
 }
 
-export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps): ReactNode {
+export default function ImportDataDialog(): ReactNode {
   const mode = useReplayStore((s) => s.mode)
   const status = useReplayStore((s) => s.status)
   const dataSource = useReplayStore((s) => s.dataSource)
@@ -72,12 +64,9 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
   const disabled =
     mode === 'replay' || status === 'loading' || replayLoading || busy || pending != null
 
-  const showBanner = useCallback(
-    (tone: ImportFeedback['tone'], messageText: string): void => {
-      onFeedback?.({ tone, message: messageText })
-    },
-    [onFeedback]
-  )
+  const showBanner = useCallback((tone: 'error' | 'info', messageText: string): void => {
+    showToast(tone, messageText)
+  }, [])
 
   const showInline = useCallback(
     (tone: NonNullable<InlineMessage>['tone'], messageText: string): void => {

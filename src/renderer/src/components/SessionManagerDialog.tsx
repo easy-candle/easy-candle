@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import { BarChart3, Check, FolderOpen, FolderPlus, Pencil, Trash2, X } from 'lucide-react'
 import { useSessionStore } from '@/store/sessionStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
+import { showToast } from '@/store/toastStore'
 import { summarizeSession } from '@/lib/paperTrade'
 
 export default function SessionManagerDialog(): ReactElement | null {
@@ -44,8 +45,10 @@ export default function SessionManagerDialog(): ReactElement | null {
 
   function handleCreate(event: React.FormEvent): void {
     event.preventDefault()
-    const id = createSession(name)
-    if (id != null) setName('')
+    const created = createSession(name)
+    if (created == null) return
+    showToast('success', `Session “${name.trim()}” created from the current chart.`)
+    setName('')
   }
 
   function handleRenameSubmit(event: React.FormEvent, sessionId: string): void {
