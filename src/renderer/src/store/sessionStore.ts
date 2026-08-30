@@ -70,6 +70,11 @@ type SessionStoreState = {
   sessions: Session[]
   /** The session currently receiving auto-saves; null when none is active. */
   activeSessionId: string | null
+  /**
+   * Session id waiting on the "you will lose your work" confirmation. Set by
+   * `requestLoadSession`; cleared by `confirmPendingLoad` / `cancelPendingLoad`.
+   */
+  pendingLoadId: string | null
   createSession: (name: string) => string | null
   renameSession: (id: string, name: string) => void
   deleteSession: (id: string) => void
@@ -80,6 +85,14 @@ type SessionStoreState = {
    * session report shown.
    */
   exitActiveSession: () => void
+  /**
+   * Load a session, but ask first when unsaved chart work would be discarded.
+   * Returns 'confirm' when a dialog is now pending, otherwise the load result.
+   */
+  requestLoadSession: (id: string) => Promise<boolean | 'confirm'>
+  /** Load the session held by `pendingLoadId`. */
+  confirmPendingLoad: () => Promise<boolean>
+  cancelPendingLoad: () => void
   /** Restore a session's drawings, orders, and replay position onto the chart. */
   loadSession: (id: string) => Promise<boolean>
   /** Write the current chart drawings/orders into the active session. */
@@ -113,6 +126,37 @@ function chartSnapshot(): SessionSnapshot {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+/** Chart state a session load would overwrite. */
+export type UnsavedChartWork = {
+  drawings: number
+  trades: number
+  inReplay: boolean
+}
+
+/**
+ * What a session load is about to discard. Only meaningful when no session is
+ * active — with one active the work is already saved into it.
+ */
+export function describeUnsavedWork(state: {
+  drawings: unknown[]
+  positions: unknown[]
+  pendingOrders: unknown[]
+  closedTrades: unknown[]
+  orderHistory: unknown[]
+  mode: ViewMode
+}): UnsavedChartWork | null {
+  const drawings = state.drawings.length
+  const trades =
+    state.positions.length +
+    state.pendingOrders.length +
+    state.closedTrades.length +
+    state.orderHistory.length
+  const inReplay = state.mode === 'replay'
+
+  if (drawings === 0 && trades === 0 && !inReplay) return null
+  return { drawings, trades, inReplay }
 }
 
 function sanitizeStyle(raw: unknown): Drawing['style'] {
@@ -545,6 +589,7 @@ const initialSessions = loadPersisted()
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
   sessions: initialSessions,
   activeSessionId: null,
+  pendingLoadId: null,
 
   createSession(name) {
     const trimmed = name.trim().slice(0, SESSION_NAME_MAX_LENGTH)
@@ -577,7 +622,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     if (sessions.length === get().sessions.length) return
     set((state) => ({
       sessions,
-      activeSessionId: state.activeSessionId === id ? null : state.activeSessionId
+      activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+      pendingLoadId: state.pendingLoadId === id ? null : state.pendingLoadId
     }))
     persistLive()
   },
@@ -621,6 +667,32 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     }
   },
 
+  async requestLoadSession(id) {
+    if (!get().sessions.some((session) => session.id === id)) return false
+    if (id === get().activeSessionId) return true
+
+    // With a session active its work is already saved into it, so only an
+    // unattached chart can lose anything.
+    if (get().activeSessionId == null && describeUnsavedWork(useReplayStore.getState())) {
+      set({ pendingLoadId: id })
+      return 'confirm'
+    }
+
+    return get().loadSession(id)
+  },
+
+  async confirmPendingLoad() {
+    const id = get().pendingLoadId
+    if (id == null) return false
+    set({ pendingLoadId: null })
+    return get().loadSession(id)
+  },
+
+  cancelPendingLoad() {
+    if (get().pendingLoadId == null) return
+    set({ pendingLoadId: null })
+  },
+
   async loadSession(id) {
     const session = get().sessions.find((item) => item.id === id)
     if (!session) return false
@@ -657,6 +729,9 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
           await useReplayStore.getState().startReplayAt(replayTime)
         }
         useReplayStore.getState().setSpeed(session.speed)
+      } else if (replay.mode === 'replay') {
+        // A live-mode session must not inherit the replay we were sitting in.
+        useReplayStore.getState().exitReplay({ report: false })
       }
 
       // Restore drawings and orders after the replay is positioned so the

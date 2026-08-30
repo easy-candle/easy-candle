@@ -12,7 +12,7 @@ export default function SessionManagerDialog(): ReactElement | null {
   const createSession = useSessionStore((s) => s.createSession)
   const renameSession = useSessionStore((s) => s.renameSession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
-  const loadSession = useSessionStore((s) => s.loadSession)
+  const requestLoadSession = useSessionStore((s) => s.requestLoadSession)
   const setPreviewSessionReport = useUiLayoutStore((s) => s.setPreviewSessionReport)
 
   const [name, setName] = useState('')
@@ -160,7 +160,7 @@ export default function SessionManagerDialog(): ReactElement | null {
                       <>
                         <button
                           type="button"
-                          onClick={() => loadSession(session.id)}
+                          onClick={() => void requestLoadSession(session.id)}
                           className="flex min-w-0 flex-1 items-center gap-2 rounded py-0.5 text-left"
                         >
                           {isActive ? (

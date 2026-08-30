@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useSessionStore, type Session } from '@/store/sessionStore'
+import { describeUnsavedWork, useSessionStore, type Session } from '@/store/sessionStore'
 import { useReplayStore } from '@/store/replayStore'
 import { summarizeSession } from '@/lib/paperTrade'
 
@@ -45,7 +45,8 @@ function seedReplay(drawings?: Session['drawings'], closedTrades?: Session['clos
 }
 
 function freshStore(): void {
-  useSessionStore.setState({ sessions: [], activeSessionId: null })
+  useSessionStore.setState({ sessions: [], activeSessionId: null, pendingLoadId: null })
+  useReplayStore.setState({ mode: 'live', sessionReport: null })
   seedReplay()
 }
 
@@ -409,6 +410,169 @@ describe('exitActiveSession', () => {
     seedReplay([{ id: 'd-7', type: 'hline', price: 7 }])
     useSessionStore.getState().exitActiveSession()
     expect(useReplayStore.getState().drawings).toHaveLength(1)
+  })
+})
+
+describe('requestLoadSession', () => {
+  it('loads straight away on a clean chart', async () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Clean')!
+    // Detach and wipe, so this exercises the clean-chart path rather than the
+    // already-active short circuit.
+    useSessionStore.setState({ activeSessionId: null })
+    seedReplay()
+
+    expect(await useSessionStore.getState().requestLoadSession(id)).toBe(true)
+    expect(useSessionStore.getState().pendingLoadId).toBeNull()
+    expect(useSessionStore.getState().activeSessionId).toBe(id)
+  })
+
+  it('asks first when the unattached chart has drawings', async () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Target')!
+    useSessionStore.setState({ activeSessionId: null })
+    seedReplay([{ id: 'd-1', type: 'hline', price: 100 }])
+
+    expect(await useSessionStore.getState().requestLoadSession(id)).toBe('confirm')
+    expect(useSessionStore.getState().pendingLoadId).toBe(id)
+    // Nothing loaded yet: the chart is untouched.
+    expect(useSessionStore.getState().activeSessionId).toBeNull()
+    expect(useReplayStore.getState().drawings).toHaveLength(1)
+  })
+
+  it('asks first when the unattached chart is in replay', async () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Target')!
+    useSessionStore.setState({ activeSessionId: null })
+    seedReplay()
+    useReplayStore.setState({ mode: 'replay' })
+
+    expect(await useSessionStore.getState().requestLoadSession(id)).toBe('confirm')
+    expect(useSessionStore.getState().pendingLoadId).toBe(id)
+  })
+
+  it('asks first when the unattached chart has orders but no drawings', async () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Target')!
+    useSessionStore.setState({ activeSessionId: null })
+    seedReplay()
+    useReplayStore.setState({
+      pendingOrders: [
+        {
+          id: 'p-1',
+          side: 'long',
+          kind: 'limit',
+          price: 95,
+          placedTime: 10,
+          lots: 1,
+          takeProfit: null,
+          stopLoss: null
+        }
+      ]
+    })
+
+    expect(await useSessionStore.getState().requestLoadSession(id)).toBe('confirm')
+  })
+
+  it('does not ask while a session is active — that work is already saved', async () => {
+    freshStore()
+    const first = useSessionStore.getState().createSession('First')!
+    const second = useSessionStore.getState().createSession('Second')!
+    // createSession leaves `second` active.
+    expect(useSessionStore.getState().activeSessionId).toBe(second)
+    seedReplay([{ id: 'd-2', type: 'hline', price: 5 }])
+
+    expect(await useSessionStore.getState().requestLoadSession(first)).toBe(true)
+    expect(useSessionStore.getState().pendingLoadId).toBeNull()
+    expect(useSessionStore.getState().activeSessionId).toBe(first)
+  })
+
+  it('is a no-op for the already active session', async () => {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Active')!
+    expect(await useSessionStore.getState().requestLoadSession(id)).toBe(true)
+    expect(useSessionStore.getState().pendingLoadId).toBeNull()
+  })
+
+  it('returns false for an unknown session', async () => {
+    freshStore()
+    expect(await useSessionStore.getState().requestLoadSession('missing')).toBe(false)
+    expect(useSessionStore.getState().pendingLoadId).toBeNull()
+  })
+})
+
+describe('confirmPendingLoad / cancelPendingLoad', () => {
+  async function pending(): Promise<string> {
+    freshStore()
+    const id = useSessionStore.getState().createSession('Pending')!
+    useSessionStore.setState({ activeSessionId: null })
+    seedReplay([{ id: 'd-9', type: 'hline', price: 9 }])
+    await useSessionStore.getState().requestLoadSession(id)
+    return id
+  }
+
+  it('loads the pending session and clears the prompt', async () => {
+    const id = await pending()
+    expect(await useSessionStore.getState().confirmPendingLoad()).toBe(true)
+    expect(useSessionStore.getState().pendingLoadId).toBeNull()
+    expect(useSessionStore.getState().activeSessionId).toBe(id)
+    // The session was created on a clean chart, so the drawing is gone.
+    expect(useReplayStore.getState().drawings).toEqual([])
+  })
+
+  it('cancel keeps the chart untouched', async () => {
+    await pending()
+    useSessionStore.getState().cancelPendingLoad()
+    expect(useSessionStore.getState().pendingLoadId).toBeNull()
+    expect(useSessionStore.getState().activeSessionId).toBeNull()
+    expect(useReplayStore.getState().drawings).toHaveLength(1)
+  })
+
+  it('confirm without a pending id is false', async () => {
+    freshStore()
+    expect(await useSessionStore.getState().confirmPendingLoad()).toBe(false)
+  })
+
+  it('deleting the pending session clears the prompt', async () => {
+    const id = await pending()
+    useSessionStore.getState().deleteSession(id)
+    expect(useSessionStore.getState().pendingLoadId).toBeNull()
+  })
+})
+
+describe('describeUnsavedWork', () => {
+  const clean = {
+    drawings: [],
+    positions: [],
+    pendingOrders: [],
+    closedTrades: [],
+    orderHistory: [],
+    mode: 'live' as const
+  }
+
+  it('is null for a clean live chart', () => {
+    expect(describeUnsavedWork(clean)).toBeNull()
+  })
+
+  it('counts drawings and every order bucket as trades', () => {
+    expect(
+      describeUnsavedWork({
+        ...clean,
+        drawings: [{}, {}],
+        positions: [{}],
+        pendingOrders: [{}],
+        closedTrades: [{}],
+        orderHistory: [{}]
+      })
+    ).toEqual({ drawings: 2, trades: 4, inReplay: false })
+  })
+
+  it('flags replay even with an empty chart', () => {
+    expect(describeUnsavedWork({ ...clean, mode: 'replay' })).toEqual({
+      drawings: 0,
+      trades: 0,
+      inReplay: true
+    })
   })
 })
 

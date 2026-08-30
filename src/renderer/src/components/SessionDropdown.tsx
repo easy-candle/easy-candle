@@ -9,7 +9,7 @@ export default function SessionDropdown(): ReactElement {
   const sessions = useSessionStore((s) => s.sessions)
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const createSession = useSessionStore((s) => s.createSession)
-  const loadSession = useSessionStore((s) => s.loadSession)
+  const requestLoadSession = useSessionStore((s) => s.requestLoadSession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const saveActiveSession = useSessionStore((s) => s.saveActiveSession)
   const setSessionAutoSave = useSessionStore((s) => s.setSessionAutoSave)
@@ -144,7 +144,7 @@ export default function SessionDropdown(): ReactElement {
                       <button
                         type="button"
                         onClick={() => {
-                          loadSession(session.id)
+                          void requestLoadSession(session.id)
                           close()
                         }}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded py-0.5 text-left"
