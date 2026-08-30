@@ -16,6 +16,9 @@ export const PREFETCH_BATCH_SIZE = 500
 /** Max forward pages when filling a replay/jump window. */
 const MAX_RANGE_PAGES = 8
 
+/** Max bars a single `fetchCandlesRange` call can return. */
+export const MAX_RANGE_BARS = MAX_RANGE_PAGES * 1000
+
 /** Client-side: fetch one page via Electron main-process IPC. */
 export async function fetchCandlesPage(params: {
   symbol: string

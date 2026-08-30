@@ -35,12 +35,14 @@ import {
   historyEdgeKey,
   type VisibleRangeInfo
 } from '@/lib/chart/visibleRange'
+import { currentFocusBars, focusRangeForTime } from '@/lib/chart/focusRange'
 import type { Candle } from '@shared/candleUtils'
 import { resolvePricePrecision, toChartPriceFormat } from '@shared/pricePrecision'
 import { TIMEFRAMES } from '@shared/timeframes'
 import { type ChartPalette } from '@/lib/theme'
 import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useThemeStore } from '@/store/themeStore'
+import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
 const DEFAULT_VISIBLE_BARS = 50
@@ -149,6 +151,9 @@ export default function CandleChart({
     overlays,
     tradeMarkers
   } = useChartPaneModel(isPrimary)
+  // Focus is a pane-level command: each pane maps the same UTC time onto its
+  // own series, so both scroll together in split view.
+  const chartFocus = useReplayStore((s) => s.chartFocus)
   const theme = useThemeStore((s) => s.theme)
   const chartSettings = useChartSettingsStore()
   const colorOverrides = useChartSettingsStore((s) => s.colors)
@@ -609,6 +614,29 @@ export default function CandleChart({
   useEffect(() => {
     rangeIntervalRef.current = TIMEFRAMES[timeframe]?.seconds ?? 60
   }, [timeframe])
+
+  // Scroll a requested UTC time into view. Declared after the effects that keep
+  // the range refs current so a focus arriving with new data uses that series.
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || !chartFocus) return undefined
+
+    const range = focusRangeForTime(
+      chartFocus.time,
+      rangeCandlesRef.current,
+      rangeIntervalRef.current,
+      currentFocusBars(chart)
+    )
+    if (!range) return undefined
+
+    // Defer past the data/viewport resets above, which also run on a frame.
+    const frame = requestAnimationFrame(() => {
+      if (chartRef.current !== chart) return
+      chart.timeScale().setVisibleLogicalRange(range)
+    })
+    return () => cancelAnimationFrame(frame)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartFocus?.revision])
 
   function applyTradeMarkers(): void {
     const markersApi = markersRef.current

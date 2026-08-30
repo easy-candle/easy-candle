@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  focusHistoryRange,
   forwardRange,
   historyRange,
+  IMPORT_FOCUS_MAX_BARS,
   IMPORT_HISTORY_PAGE_BARS,
   IMPORT_LIVE_WINDOW_BARS,
   IMPORT_PREFETCH_BATCH_BARS,
@@ -64,6 +66,32 @@ describe('replayRange', () => {
 
   it('never asks for a negative start time', () => {
     expect(replayRange(60, 60, { lookbackBars: 100, forwardBars: 5 }).startTime).toBe(0)
+  })
+})
+
+describe('focusHistoryRange', () => {
+  it('spans the target minus lookback up to just before the oldest loaded bar', () => {
+    expect(focusHistoryRange(1000, 5000, 60, { lookbackBars: 10 })).toEqual({
+      startTime: 400,
+      endTime: 4999,
+      limit: IMPORT_FOCUS_MAX_BARS
+    })
+  })
+
+  it('defaults to no lookback and the focus ceiling', () => {
+    expect(focusHistoryRange(1000, 5000, 60)).toEqual({
+      startTime: 1000,
+      endTime: 4999,
+      limit: IMPORT_FOCUS_MAX_BARS
+    })
+  })
+
+  it('never asks for a negative start time', () => {
+    expect(focusHistoryRange(60, 5000, 60, { lookbackBars: 100 }).startTime).toBe(0)
+  })
+
+  it('honours an explicit limit', () => {
+    expect(focusHistoryRange(1000, 5000, 60, { limit: 50 }).limit).toBe(50)
   })
 })
 

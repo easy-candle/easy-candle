@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Crosshair } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import {
   formatExitReason,
@@ -225,11 +225,13 @@ function HistoricOrderRow({
 function ClosedPositionRow({
   trade,
   symbol,
-  pricePrecision
+  pricePrecision,
+  onLocate
 }: {
   trade: ClosedTrade
   symbol: string
   pricePrecision: number
+  onLocate: () => void
 }) {
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 tabular-nums text-zinc-400">
@@ -248,6 +250,16 @@ function ClosedPositionRow({
       <span className="text-zinc-600">
         {formatUtcCandleTime(trade.entryTime)} → {formatUtcCandleTime(trade.exitTime)}
       </span>
+      <Tooltip text="Scroll the chart to the entry time" side="top">
+        <button
+          type="button"
+          aria-label={`Scroll the chart to ${formatUtcCandleTime(trade.entryTime)}`}
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+          onClick={onLocate}
+        >
+          <Crosshair className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </Tooltip>
       <span
         className={`ml-auto font-medium ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
       >
@@ -269,6 +281,7 @@ export default function TradePanel() {
   const paperClose = useReplayStore((s) => s.paperClose)
   const cancelPending = useReplayStore((s) => s.cancelPending)
   const closedTrades = useReplayStore((s) => s.closedTrades)
+  const focusChartTime = useReplayStore((s) => s.focusChartTime)
   const orderHistory = useReplayStore((s) => s.orderHistory)
   const currentCandle = useReplayStore(selectPriceFollowCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
@@ -377,6 +390,7 @@ export default function TradePanel() {
               trade={trade}
               symbol={symbol}
               pricePrecision={pricePrecision}
+              onLocate={() => void focusChartTime(trade.entryTime)}
             />
           ))}
         </HistoryList>
