@@ -289,7 +289,10 @@ export default function SessionDropdown(): ReactElement {
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-2">
-                          <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-200">
+                          {/* No flex-1: the name sizes to content so the
+                              timestamp sits beside it, and min-w-0 lets a long
+                              name truncate instead of clipping the timestamp. */}
+                          <span className="min-w-0 truncate text-xs font-medium text-zinc-200">
                             {session.name}
                           </span>
                           <span className="shrink-0 text-[10px] tabular-nums text-zinc-600">
