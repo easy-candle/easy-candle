@@ -19,10 +19,13 @@ export const IPC_CHANNELS = {
 
   IMPORT_OPEN_DIALOG: 'import:openDialog',
   IMPORT_READ_FILE: 'import:readFile',
+  IMPORT_PARSE_FILE: 'import:parseFile',
+  IMPORT_DISCARD_PARSE: 'import:discardParse',
   IMPORT_SAVE: 'import:save',
   IMPORT_LIST: 'import:list',
   IMPORT_LOAD: 'import:load',
   IMPORT_DELETE: 'import:delete',
+  IMPORT_JOB_PROGRESS: 'import:jobProgress',
 
   MT_BRIDGE_START: 'mtbridge:start',
   MT_BRIDGE_STOP: 'mtbridge:stop',

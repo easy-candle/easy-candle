@@ -1,12 +1,15 @@
 import { randomUUID } from 'crypto'
-import { app, dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { promises as fs } from 'fs'
 import { basename, join } from 'path'
 import { mergeCandlesByTime, type Candle } from '@shared/candleUtils'
 import { buildImportTimeframes, IMPORT_STORED_TIMEFRAMES } from '@shared/candleAggregate'
+import { buildImportedDatasetMeta } from '@shared/importMeta'
+import { IMPORT_BUILD_UI_PERCENT, type ImportJobProgress } from '@shared/importJobProgress'
+import { clientParseResult } from '@shared/importWorkerJob'
 import { IPC_CHANNELS } from '@shared/ipc/channels'
-import { DEFAULT_TIMEFRAME } from '@shared/timeframes'
 import { mtDatasetId } from '@shared/mtBridgeProtocol'
+import { parseCsvInWorker, buildTimeframesInWorker } from './importWorkerHost'
 import {
   applyMtPreviewState,
   summarizeMtPreview,
@@ -23,8 +26,7 @@ import type {
   ImportSaveParams,
   ImportSaveResult,
   ImportedDatasetMeta,
-  ImportedTimeframeStats,
-  ImportOrigin
+  ImportParseResult
 } from '@shared/importTypes'
 import { isMetatraderImport } from '@shared/importTypes'
 import { sliceCandleRange } from '@shared/importRange'
@@ -59,7 +61,9 @@ let mtPreview: MtPreviewState | null = null
 
 function rememberSavedMtDataset(meta: ImportedDatasetMeta): void {
   if (!isMetatraderImport(meta)) return
-  const symbol = String(meta.symbol || '').trim().toUpperCase()
+  const symbol = String(meta.symbol || '')
+    .trim()
+    .toUpperCase()
   if (symbol) savedMtBySymbol.set(symbol, meta.id)
 }
 
@@ -71,7 +75,10 @@ export function getMtPreviewCandles(): MtPreviewState | null {
   return mtPreview
 }
 
-export function applyIncomingMtPreview(symbol: string, incoming: Candle[]): MtPreviewSummary | null {
+export function applyIncomingMtPreview(
+  symbol: string,
+  incoming: Candle[]
+): MtPreviewSummary | null {
   mtPreview = applyMtPreviewState(mtPreview, symbol, incoming)
   return summarizeMtPreview(mtPreview)
 }
@@ -94,57 +101,22 @@ async function writeMeta(meta: ImportedDatasetMeta): Promise<void> {
   await fs.writeFile(metaPath(meta.id), JSON.stringify(meta, null, 2), 'utf8')
 }
 
-function statsFor(candles: Candle[]): ImportedTimeframeStats {
-  const first = candles[0]
-  const last = candles[candles.length - 1]
-  return {
-    candleCount: candles.length,
-    firstTime: first?.time ?? 0,
-    lastTime: last?.time ?? 0
+const pendingParses = new Map<
+  string,
+  { token: string; content: string; candles: Candle[]; fileName: string }
+>()
+
+function sendImportProgress(event: IpcMainInvokeEvent, progress: ImportJobProgress): void {
+  if (!event.sender.isDestroyed()) {
+    event.sender.send(IPC_CHANNELS.IMPORT_JOB_PROGRESS, progress)
   }
 }
 
-function buildMeta(params: {
-  id: string
-  originalFileName: string
-  symbol: string
-  candlesByTimeframe: Record<string, Candle[]>
-  activeTimeframe?: string
-  createdAt?: string
-  origin?: ImportOrigin
-}): ImportedDatasetMeta {
-  const now = new Date().toISOString()
-  const candles1m = params.candlesByTimeframe['1m'] || []
-  const timeframes: Record<string, ImportedTimeframeStats> = {}
-
-  for (const tf of IMPORT_STORED_TIMEFRAMES) {
-    const series = params.candlesByTimeframe[tf]
-    if (series?.length) timeframes[tf] = statsFor(series)
-  }
-
-  const preferred =
-    params.activeTimeframe && timeframes[params.activeTimeframe]
-      ? params.activeTimeframe
-      : timeframes[DEFAULT_TIMEFRAME]
-        ? DEFAULT_TIMEFRAME
-        : '1m'
-
-  const primary = statsFor(candles1m)
-
-  return {
-    id: params.id,
-    symbol: params.symbol,
-    sourceTimeframe: '1m',
-    timeframe: preferred,
-    originalFileName: params.originalFileName,
-    candleCount: primary.candleCount,
-    firstTime: primary.firstTime,
-    lastTime: primary.lastTime,
-    timeframes,
-    createdAt: params.createdAt ?? now,
-    updatedAt: now,
-    ...(params.origin ? { origin: params.origin } : {})
-  }
+function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength
+  ) as ArrayBuffer
 }
 
 async function writeCandles(
@@ -200,14 +172,75 @@ async function readCsvFile(filePath: string): Promise<ImportReadResult> {
   }
 }
 
-async function saveImport(params: ImportSaveParams): Promise<ImportSaveResult> {
+async function parseImportFile(
+  filePath: string,
+  onProgress?: (progress: ImportJobProgress) => void
+): Promise<ImportParseResult> {
+  try {
+    const buffer = await fs.readFile(filePath)
+    const bytes = bufferToArrayBuffer(buffer)
+    const fileName = basename(filePath)
+    const { result, content } = await parseCsvInWorker(bytes, fileName, onProgress)
+    if (!result.ok) return result
+    const token = randomUUID()
+    pendingParses.set(token, {
+      token,
+      content,
+      candles: result.candles,
+      fileName
+    })
+    return clientParseResult(result, token)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to read file'
+    return { ok: false, error: message }
+  }
+}
+
+function discardPendingParse(token: string): void {
+  pendingParses.delete(token)
+}
+
+async function saveImport(
+  params: ImportSaveParams,
+  onProgress?: (progress: ImportJobProgress) => void
+): Promise<ImportSaveResult> {
   try {
     await ensureImportsRoot()
 
-    const candles1m = params.candlesByTimeframe?.['1m']
-    if (!candles1m?.length) {
+    let content = params.content ?? ''
+    let candlesByTimeframe = params.candlesByTimeframe
+    let candles1m = candlesByTimeframe?.['1m'] ?? params.candles1m
+
+    if (params.parseToken) {
+      const pending = pendingParses.get(params.parseToken)
+      if (!pending) {
+        return { ok: false, error: 'Import parse expired. Select the CSV again.' }
+      }
+      content = pending.content
+      candles1m = pending.candles
+    }
+
+    if (!candles1m?.length && params.origin === 'metatrader') {
+      const preview = getMtPreviewCandles()
+      if (preview?.candles.length) {
+        candles1m = preview.candles
+        if (!content) content = `MetaTrader ${params.symbol}`
+      }
+    }
+
+    if (!candlesByTimeframe?.['1m'] && candles1m?.length) {
+      candlesByTimeframe = await buildTimeframesInWorker(candles1m, onProgress)
+    }
+
+    if (!candlesByTimeframe?.['1m']?.length) {
       return { ok: false, error: 'Missing 1-minute candles for import.' }
     }
+
+    onProgress?.({
+      job: 'save',
+      phase: 'Saving…',
+      percent: IMPORT_BUILD_UI_PERCENT.saving
+    })
 
     let id = params.replaceId
     let createdAt: string | undefined
@@ -232,20 +265,21 @@ async function saveImport(params: ImportSaveParams): Promise<ImportSaveResult> {
     }
 
     const origin = params.origin ?? 'csv'
-    const meta = buildMeta({
+    const meta = buildImportedDatasetMeta({
       id,
       originalFileName: params.originalFileName,
       symbol: params.symbol,
-      candlesByTimeframe: params.candlesByTimeframe,
+      candlesByTimeframe,
       createdAt,
       origin
     })
 
     await fs.mkdir(datasetDir(id), { recursive: true })
-    await fs.writeFile(sourcePath(id), params.content, 'utf8')
-    await writeCandles(id, params.candlesByTimeframe)
+    await fs.writeFile(sourcePath(id), content, 'utf8')
+    await writeCandles(id, candlesByTimeframe)
     await writeMeta(meta)
     rememberSavedMtDataset(meta)
+    if (params.parseToken) pendingParses.delete(params.parseToken)
 
     return { ok: true, meta, updated }
   } catch (err) {
@@ -385,7 +419,7 @@ async function persistMtMemory(id: string): Promise<ImportedDatasetMeta | null> 
   if (!memory || !memory.candles1m.length) return memory?.meta ?? null
 
   const candlesByTimeframe = buildImportTimeframes(memory.candles1m)
-  const meta = buildMeta({
+  const meta = buildImportedDatasetMeta({
     id,
     symbol: memory.meta.symbol,
     originalFileName: `MetaTrader ${memory.meta.symbol}`,
@@ -419,7 +453,9 @@ export async function upsertMtCandles(params: {
   incoming: Candle[]
   flush: boolean
 }): Promise<MtUpsertResult> {
-  const symbol = String(params.symbol || '').trim().toUpperCase()
+  const symbol = String(params.symbol || '')
+    .trim()
+    .toUpperCase()
   if (!symbol) return { ok: false, error: 'Missing MetaTrader symbol.' }
   if (!params.incoming?.length) return { ok: false, error: 'No MetaTrader bars to store.' }
 
@@ -472,8 +508,21 @@ export function registerImportIpc(): void {
       readCsvFile(String(filePath || ''))
   )
   ipcMain.handle(
+    IPC_CHANNELS.IMPORT_PARSE_FILE,
+    async (event, filePath: string): Promise<ImportParseResult> =>
+      parseImportFile(String(filePath || ''), (progress) => sendImportProgress(event, progress))
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_DISCARD_PARSE,
+    async (_event, token: string): Promise<{ ok: true }> => {
+      discardPendingParse(String(token || ''))
+      return { ok: true }
+    }
+  )
+  ipcMain.handle(
     IPC_CHANNELS.IMPORT_SAVE,
-    async (_event, params: ImportSaveParams): Promise<ImportSaveResult> => saveImport(params)
+    async (event, params: ImportSaveParams): Promise<ImportSaveResult> =>
+      saveImport(params, (progress) => sendImportProgress(event, progress))
   )
   ipcMain.handle(IPC_CHANNELS.IMPORT_LIST, async (): Promise<ImportListResult> => listImports())
   ipcMain.handle(

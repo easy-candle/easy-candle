@@ -4,8 +4,16 @@ import {
   MIN_1M_CANDLES_FOR_IMPORT,
   minImportCandlesMessage
 } from './importConstants'
-import type { ImportParseResult } from './importTypes'
+import { IMPORT_WORKER_PROGRESS_EVERY } from './importJobProgress'
+import type { ImportParseFailure, ImportParseResult } from './importTypes'
 import { TIMEFRAMES, type TimeframeConfig } from './timeframes'
+
+export type CsvParseProgress = {
+  phase: 'preparing' | 'parsing' | 'finalizing'
+  percent: number
+  processedRows: number
+  totalRows: number
+}
 
 /** MetaTrader period codes → app timeframe ids. */
 const MT_PERIOD_TO_TIMEFRAME: Record<string, string> = {
@@ -41,8 +49,7 @@ const COMPACT_MINUTES_TO_TIMEFRAME: Record<string, string> = {
 
 const UNSUPPORTED_PERIODS = new Set(['M30', 'H12', 'W1', 'MN1', '30', '10080', '43200'])
 
-const QUOTE_SUFFIX =
-  /(?:USDT|USDC|USD|EUR|GBP|JPY|AUD|CAD|CHF|NZD|BTC|ETH|XAU|XAG)$/
+const QUOTE_SUFFIX = /(?:USDT|USDC|USD|EUR|GBP|JPY|AUD|CAD|CHF|NZD|BTC|ETH|XAU|XAG)$/
 
 function looksLikeMarketSymbol(symbol: string): boolean {
   if (!/^[A-Z][A-Z0-9]{2,14}$/.test(symbol)) return false
@@ -125,10 +132,7 @@ export function parseMtFilename(fileName: string): FilenameMeta {
 type FieldDelimiter = ',' | ';' | '\t' | 'whitespace'
 
 function splitCsvLine(line: string, delimiter: FieldDelimiter): string[] {
-  const parts =
-    delimiter === 'whitespace'
-      ? line.trim().split(/\s+/)
-      : line.split(delimiter)
+  const parts = delimiter === 'whitespace' ? line.trim().split(/\s+/) : line.split(delimiter)
   return parts.map((part) => part.trim().replace(/^<|>$/g, '')).filter((part) => part.length > 0)
 }
 
@@ -329,10 +333,7 @@ export function matchTimeframeBySeconds(seconds: number): TimeframeConfig | null
   return null
 }
 
-export function parseMtCsv(content: string, fileName: string): ImportParseResult {
-  const warnings: string[] = []
-  const fileMeta = parseMtFilename(fileName)
-
+function filenameReject(fileMeta: FilenameMeta): ImportParseFailure | null {
   if (fileMeta.unsupportedPeriod) {
     return {
       ok: false,
@@ -347,39 +348,55 @@ export function parseMtCsv(content: string, fileName: string): ImportParseResult
     }
   }
 
-  const text = String(content || '')
+  return null
+}
+
+function normalizeCsvText(content: string): string {
+  return String(content || '')
     .replace(/^\uFEFF/, '')
     .replace(/\u0000/g, '')
     .replace(/\u00a0/g, ' ')
+}
 
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
+/** Split this many characters at a time so huge files can paint a progress bar. */
+const SPLIT_CHUNK_CHARS = 1_000_000
 
-  if (lines.length === 0) {
-    return { ok: false, error: 'CSV file is empty.' }
+function appendTrimmedLines(target: string[], chunk: string): void {
+  const raw = chunk.split(/\r?\n/)
+  for (let i = 0; i < raw.length; i += 1) {
+    const line = raw[i].trim()
+    if (line.length > 0) target.push(line)
   }
+}
 
-  const delimiter = detectDelimiter(lines)
-  let startIndex = 0
-  const firstCells = splitCsvLine(lines[0], delimiter)
-  if (looksLikeHeader(firstCells)) {
-    startIndex = 1
-  }
+function splitNonEmptyLinesWithProgress(
+  text: string,
+  onProgress?: (percent: number) => void
+): string[] {
+  const lines: string[] = []
+  const len = text.length
+  if (len === 0) return lines
 
-  if (startIndex >= lines.length) {
-    return { ok: false, error: 'CSV has a header but no candle rows.' }
+  let start = 0
+  while (start < len) {
+    let end = Math.min(len, start + SPLIT_CHUNK_CHARS)
+    if (end < len) {
+      const nl = text.indexOf('\n', end)
+      end = nl === -1 ? len : nl + 1
+    }
+    appendTrimmedLines(lines, text.slice(start, end))
+    start = end
+    onProgress?.(Math.round((start / len) * 100))
   }
+  return lines
+}
 
-  const raw: Candle[] = []
-  let skipped = 0
-  for (let i = startIndex; i < lines.length; i += 1) {
-    const cells = splitCsvLine(lines[i], delimiter)
-    const candle = mapRowToCandle(cells)
-    if (candle) raw.push(candle)
-    else skipped += 1
-  }
+function finalizeParsedRows(
+  raw: Candle[],
+  skipped: number,
+  fileMeta: FilenameMeta
+): ImportParseResult {
+  const warnings: string[] = []
 
   if (!raw.length) {
     return {
@@ -392,6 +409,9 @@ export function parseMtCsv(content: string, fileName: string): ImportParseResult
   if (candles.length < 2) {
     return { ok: false, error: 'Need at least 2 valid candles to verify the timeframe.' }
   }
+
+  const firstTime = candles[0]?.time ?? 0
+  const lastTime = candles[candles.length - 1]?.time ?? 0
 
   if (skipped > 0) {
     warnings.push(`Skipped ${skipped} invalid or incomplete row(s).`)
@@ -425,7 +445,7 @@ export function parseMtCsv(content: string, fileName: string): ImportParseResult
     warnings.push('Symbol not found in file name — enter it before confirming.')
   }
 
-  const spanDays = (candles[candles.length - 1].time - candles[0].time) / 86400
+  const spanDays = (lastTime - firstTime) / 86400
   warnings.push(
     `Will build 5m, 15m, 1h, 4h, and 1d from this 1m series (~${spanDays.toFixed(1)} days, ${candles.length.toLocaleString()} bars).`
   )
@@ -433,6 +453,9 @@ export function parseMtCsv(content: string, fileName: string): ImportParseResult
   return {
     ok: true,
     candles,
+    candleCount: candles.length,
+    firstTime,
+    lastTime,
     symbol: fileMeta.symbol,
     timeframe: IMPORT_SOURCE_TIMEFRAME,
     inferredTimeframe: IMPORT_SOURCE_TIMEFRAME,
@@ -440,4 +463,95 @@ export function parseMtCsv(content: string, fileName: string): ImportParseResult
     timeframeFromFilename: Boolean(fileMeta.timeframe),
     warnings
   }
+}
+
+function layoutCsvLines(
+  lines: string[]
+): ImportParseFailure | { lines: string[]; startIndex: number; delimiter: FieldDelimiter } {
+  if (lines.length === 0) {
+    return { ok: false, error: 'CSV file is empty.' }
+  }
+
+  const delimiter = detectDelimiter(lines)
+  let startIndex = 0
+  const firstCells = splitCsvLine(lines[0], delimiter)
+  if (looksLikeHeader(firstCells)) {
+    startIndex = 1
+  }
+
+  if (startIndex >= lines.length) {
+    return { ok: false, error: 'CSV has a header but no candle rows.' }
+  }
+
+  return { lines, startIndex, delimiter }
+}
+
+export function parseMtCsv(content: string, fileName: string): ImportParseResult {
+  return parseMtCsvWithProgress(content, fileName)
+}
+
+/**
+ * Parse a 1-minute MT CSV in a single linear pass. Safe to call from a worker:
+ * progress is reported every `IMPORT_WORKER_PROGRESS_EVERY` rows with no yielding.
+ */
+export function parseMtCsvWithProgress(
+  content: string,
+  fileName: string,
+  onProgress?: (progress: CsvParseProgress) => void
+): ImportParseResult {
+  const fileMeta = parseMtFilename(fileName)
+  const rejected = filenameReject(fileMeta)
+  if (rejected) return rejected
+
+  onProgress?.({ phase: 'preparing', percent: 2, processedRows: 0, totalRows: 0 })
+
+  const text = normalizeCsvText(content)
+  const lines = splitNonEmptyLinesWithProgress(text, (splitPercent) => {
+    onProgress?.({
+      phase: 'preparing',
+      percent: 2 + Math.round(splitPercent * 0.06),
+      processedRows: 0,
+      totalRows: 0
+    })
+  })
+  const prepared = layoutCsvLines(lines)
+  if ('ok' in prepared) return prepared
+
+  const { startIndex, delimiter } = prepared
+  const totalRows = lines.length - startIndex
+  const raw: Candle[] = []
+  let skipped = 0
+
+  onProgress?.({ phase: 'parsing', percent: 8, processedRows: 0, totalRows })
+
+  for (let i = startIndex; i < lines.length; i += 1) {
+    const cells = splitCsvLine(lines[i], delimiter)
+    const candle = mapRowToCandle(cells)
+    if (candle) raw.push(candle)
+    else skipped += 1
+
+    const processed = i - startIndex + 1
+    if (processed % IMPORT_WORKER_PROGRESS_EVERY === 0 || processed === totalRows) {
+      const percent = 8 + Math.round((processed / Math.max(totalRows, 1)) * 82)
+      onProgress?.({ phase: 'parsing', percent, processedRows: processed, totalRows })
+    }
+  }
+
+  onProgress?.({ phase: 'finalizing', percent: 94, processedRows: totalRows, totalRows })
+  const result = finalizeParsedRows(raw, skipped, fileMeta)
+  onProgress?.({
+    phase: 'finalizing',
+    percent: 100,
+    processedRows: totalRows,
+    totalRows
+  })
+  return result
+}
+
+export async function parseMtCsvAsync(
+  content: string,
+  fileName: string,
+  onProgress?: (progress: CsvParseProgress) => void
+): Promise<ImportParseResult> {
+  return parseMtCsvWithProgress(content, fileName, onProgress)
 }

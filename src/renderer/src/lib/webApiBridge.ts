@@ -1,7 +1,8 @@
 import { BinanceUpstreamError, fetchBinanceKlines } from '@shared/binanceFetch'
 import { clampKlineLimit, type Candle } from '@shared/candleUtils'
 import { IMPORT_STORED_TIMEFRAMES } from '@shared/candleAggregate'
-import { DEFAULT_TIMEFRAME, isAllowedInterval } from '@shared/timeframes'
+import { buildImportedDatasetMeta } from '@shared/importMeta'
+import { isAllowedInterval } from '@shared/timeframes'
 import { isAllowedSymbol } from '@shared/symbols'
 import { decodeMtTextBuffer } from '@shared/mtTextDecode'
 import type { EasyCandleApi } from '../../../preload'
@@ -11,12 +12,13 @@ import type {
   ImportListResult,
   ImportLoadRange,
   ImportLoadResult,
+  ImportParseResult,
   ImportReadResult,
   ImportSaveParams,
   ImportSaveResult,
-  ImportedDatasetMeta,
-  ImportedTimeframeStats
+  ImportedDatasetMeta
 } from '@shared/importTypes'
+import type { ImportJobProgress } from '@shared/importJobProgress'
 import { sliceCandleRange } from '@shared/importRange'
 import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
 import {
@@ -31,44 +33,25 @@ import type {
   UpdateErrorInfo,
   UpdateProgressInfo
 } from '@shared/updaterTypes'
+import { webAuthGoogleStart, webAuthLogout, webAuthRefresh, webAuthSession } from './webAuth'
 import {
-  webAuthGoogleStart,
-  webAuthLogout,
-  webAuthRefresh,
-  webAuthSession
-} from './webAuth'
+  idbDeleteImportDataset,
+  idbGet,
+  idbGetAll,
+  idbPut,
+  idbWriteImportDataset
+} from './importIdb'
+import {
+  discardWebImportParse,
+  onWebImportProgress,
+  parseCsvInWebWorker,
+  saveImportInWebWorker
+} from './importWorkerClient'
 
 const MT_WEB_DISABLED = 'MetaTrader EA import is only available in the desktop app.'
 
 function webMtStatus(ok = true): MtBridgeStatusResult {
   return { ...DEFAULT_MT_BRIDGE_STATUS, ok }
-}
-
-// --- In-Memory & IndexedDB Storage for Imported CSVs ---
-const DB_NAME = 'easycandle_db'
-const DB_VERSION = 1
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      return reject(new Error('IndexedDB not supported'))
-    }
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onupgradeneeded = () => {
-      const db = request.result
-      if (!db.objectStoreNames.contains('metas')) {
-        db.createObjectStore('metas', { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains('candles')) {
-        db.createObjectStore('candles', { keyPath: 'key' })
-      }
-      if (!db.objectStoreNames.contains('sources')) {
-        db.createObjectStore('sources', { keyPath: 'id' })
-      }
-    }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
 }
 
 // Fallback in-memory store
@@ -77,7 +60,7 @@ const memoryCandles = new Map<string, Candle[]>()
 const memorySources = new Map<string, string>()
 
 // In-flight selected files cache for import modal
-const pendingFileCache = new Map<string, { content: string; fileName: string }>()
+const pendingFileCache = new Map<string, { content?: string; file?: File; fileName: string }>()
 
 function generateId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -86,123 +69,55 @@ function generateId(): string {
   return 'imp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9)
 }
 
-function statsFor(candles: Candle[]): ImportedTimeframeStats {
-  const first = candles[0]
-  const last = candles[candles.length - 1]
-  return {
-    candleCount: candles.length,
-    firstTime: first?.time ?? 0,
-    lastTime: last?.time ?? 0
-  }
-}
-
-function buildMeta(params: {
-  id: string
-  originalFileName: string
-  symbol: string
-  candlesByTimeframe: Record<string, Candle[]>
-  activeTimeframe?: string
-  createdAt?: string
-}): ImportedDatasetMeta {
-  const now = new Date().toISOString()
-  const candles1m = params.candlesByTimeframe['1m'] || []
-  const timeframes: Record<string, ImportedTimeframeStats> = {}
-
+function rememberDataset(
+  meta: ImportedDatasetMeta,
+  content: string,
+  candlesByTimeframe?: Record<string, Candle[]>
+): void {
+  memoryMetas.set(meta.id, meta)
+  memorySources.set(meta.id, content)
+  if (!candlesByTimeframe) return
   for (const tf of IMPORT_STORED_TIMEFRAMES) {
-    const series = params.candlesByTimeframe[tf]
-    if (series?.length) timeframes[tf] = statsFor(series)
-  }
-
-  const preferred =
-    params.activeTimeframe && timeframes[params.activeTimeframe]
-      ? params.activeTimeframe
-      : timeframes[DEFAULT_TIMEFRAME]
-        ? DEFAULT_TIMEFRAME
-        : '1m'
-
-  const primary = statsFor(candles1m)
-
-  return {
-    id: params.id,
-    symbol: params.symbol,
-    sourceTimeframe: '1m',
-    timeframe: preferred,
-    originalFileName: params.originalFileName,
-    candleCount: primary.candleCount,
-    firstTime: primary.firstTime,
-    lastTime: primary.lastTime,
-    timeframes,
-    createdAt: params.createdAt ?? now,
-    updatedAt: now
+    const series = candlesByTimeframe[tf]
+    if (series) memoryCandles.set(`${meta.id}:${tf}`, series)
   }
 }
 
-async function idbGet<T>(storeName: string, key: string): Promise<T | null> {
+async function parseImportFile(path: string): Promise<ImportParseResult> {
+  const cached = pendingFileCache.get(path)
+  if (!cached?.file && !cached?.content) {
+    return { ok: false, error: 'File content not found' }
+  }
+
   try {
-    const db = await openDb()
-    return new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readonly')
-      const store = tx.objectStore(storeName)
-      const req = store.get(key)
-      req.onsuccess = () => resolve(req.result ?? null)
-      req.onerror = () => resolve(null)
-    })
-  } catch {
-    return null
+    let bytes: ArrayBuffer
+    if (cached.file) {
+      bytes = await cached.file.arrayBuffer()
+    } else {
+      bytes = new TextEncoder().encode(cached.content || '').buffer as ArrayBuffer
+    }
+    const parsed = await parseCsvInWebWorker(bytes, cached.fileName)
+    if (parsed.ok) cached.file = undefined
+    return parsed
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to read selected file'
+    return { ok: false, error: message }
   }
 }
-
-async function idbPut(storeName: string, value: unknown): Promise<boolean> {
-  try {
-    const db = await openDb()
-    return new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readwrite')
-      const store = tx.objectStore(storeName)
-      const req = store.put(value)
-      req.onsuccess = () => resolve(true)
-      req.onerror = () => resolve(false)
-    })
-  } catch {
-    return false
-  }
-}
-
-async function idbGetAll<T>(storeName: string): Promise<T[]> {
-  try {
-    const db = await openDb()
-    return new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readonly')
-      const store = tx.objectStore(storeName)
-      const req = store.getAll()
-      req.onsuccess = () => resolve(req.result || [])
-      req.onerror = () => resolve([])
-    })
-  } catch {
-    return []
-  }
-}
-
-async function idbDelete(storeName: string, key: string): Promise<boolean> {
-  try {
-    const db = await openDb()
-    return new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readwrite')
-      const store = tx.objectStore(storeName)
-      const req = store.delete(key)
-      req.onsuccess = () => resolve(true)
-      req.onerror = () => resolve(false)
-    })
-  } catch {
-    return false
-  }
-}
-
-// --- Import Operations ---
 
 async function saveImportDataset(params: ImportSaveParams): Promise<ImportSaveResult> {
   try {
-    const candles1m = params.candlesByTimeframe?.['1m']
-    if (!candles1m?.length) {
+    if (params.parseToken) {
+      const saved = await saveImportInWebWorker({ ...params, parseToken: params.parseToken })
+      if (saved.ok) {
+        memoryMetas.set(saved.meta.id, saved.meta)
+      }
+      return saved
+    }
+
+    const candlesByTimeframe = params.candlesByTimeframe
+    const candles1m = candlesByTimeframe?.['1m'] ?? params.candles1m
+    if (!candles1m?.length || !candlesByTimeframe) {
       return { ok: false, error: 'Missing 1-minute candles for import.' }
     }
 
@@ -221,29 +136,20 @@ async function saveImportDataset(params: ImportSaveParams): Promise<ImportSaveRe
       id = generateId()
     }
 
-    const meta = buildMeta({
+    const meta = buildImportedDatasetMeta({
       id,
       originalFileName: params.originalFileName,
       symbol: params.symbol,
-      candlesByTimeframe: params.candlesByTimeframe,
-      createdAt
+      candlesByTimeframe,
+      createdAt,
+      origin: params.origin
     })
 
-    // Store in memory
-    memoryMetas.set(id, meta)
-    memorySources.set(id, params.content)
-
-    // Store in IDB
-    await idbPut('metas', meta)
-    await idbPut('sources', { id, content: params.content })
-
-    for (const tf of IMPORT_STORED_TIMEFRAMES) {
-      const series = params.candlesByTimeframe[tf]
-      if (series) {
-        const key = `${id}:${tf}`
-        memoryCandles.set(key, series)
-        await idbPut('candles', { key, candles: series })
-      }
+    const content = params.content ?? ''
+    rememberDataset(meta, content, candlesByTimeframe)
+    const wrote = await idbWriteImportDataset({ meta, content, candlesByTimeframe })
+    if (!wrote) {
+      return { ok: false, error: 'Failed to save import to IndexedDB.' }
     }
 
     return { ok: true, meta, updated }
@@ -315,15 +221,10 @@ async function deleteImportDataset(id: string): Promise<ImportDeleteResult> {
   try {
     memoryMetas.delete(id)
     memorySources.delete(id)
-    await idbDelete('metas', id)
-    await idbDelete('sources', id)
-
     for (const tf of IMPORT_STORED_TIMEFRAMES) {
-      const key = `${id}:${tf}`
-      memoryCandles.delete(key)
-      await idbDelete('candles', key)
+      memoryCandles.delete(`${id}:${tf}`)
     }
-
+    await idbDeleteImportDataset(id)
     return { ok: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to delete import'
@@ -451,12 +352,8 @@ function promptCsvFileInput(): Promise<ImportDialogResult> {
       }
 
       try {
-        const buffer = await file.arrayBuffer()
-        const content = typeof Buffer !== 'undefined'
-          ? decodeMtTextBuffer(Buffer.from(buffer))
-          : new TextDecoder('utf-8').decode(buffer)
         const tempId = 'file-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7)
-        pendingFileCache.set(tempId, { content, fileName: file.name })
+        pendingFileCache.set(tempId, { file, fileName: file.name })
         resolve({ ok: true, path: tempId, fileName: file.name })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to read selected file'
@@ -499,7 +396,9 @@ export const webApi = {
     ok: false,
     error: MT_WEB_DISABLED
   }),
-  onMtBridgeEvent: (_callback: (payload: MtBridgeIpcEvent) => void): (() => void) => () => {},
+  onMtBridgeEvent:
+    (_callback: (payload: MtBridgeIpcEvent) => void): (() => void) =>
+    () => {},
   getAppVersion: async (): Promise<string> => __APP_VERSION__,
   minimizeWindow: (): void => {
     // Web fallback: no-op
@@ -528,10 +427,32 @@ export const webApi = {
     // Web has no splash window.
   },
   openImportDialog: promptCsvFileInput,
+  parseImportFile,
+  discardImportParse: async (token: string): Promise<{ ok: true }> => {
+    await discardWebImportParse(token)
+    return { ok: true }
+  },
+  onImportJobProgress: (callback: (progress: ImportJobProgress) => void): (() => void) =>
+    onWebImportProgress(callback),
   readImportFile: async (path: string): Promise<ImportReadResult> => {
     const cached = pendingFileCache.get(path)
-    if (cached) {
+    if (cached?.content) {
       return { ok: true, content: cached.content, fileName: cached.fileName }
+    }
+    if (cached?.file) {
+      try {
+        const buffer = await cached.file.arrayBuffer()
+        const content =
+          typeof Buffer !== 'undefined'
+            ? decodeMtTextBuffer(Buffer.from(buffer))
+            : new TextDecoder('utf-8').decode(buffer)
+        cached.content = content
+        cached.file = undefined
+        return { ok: true, content, fileName: cached.fileName }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to read selected file'
+        return { ok: false, error: message }
+      }
     }
     const sourceRecord = await idbGet<{ id: string; content: string }>('sources', path)
     if (sourceRecord) {

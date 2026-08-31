@@ -1,22 +1,23 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Cable, Database, ExternalLink, FileUp, Trash2, X } from 'lucide-react'
+import { Cable, Database, ExternalLink, FileUp, Replace, Trash2, X } from 'lucide-react'
 import IconButton from '@/components/IconButton'
 import ImportConfirmModal, { type ImportConfirmDetails } from '@/components/ImportConfirmModal'
-import { buildImportTimeframes } from '@shared/candleAggregate'
 import {
   hasNewerCandles,
   isMetatraderImport,
   type ImportOrigin,
   type ImportedDatasetMeta
 } from '@shared/importTypes'
+import { IMPORT_BUILD_UI_PERCENT, type ImportJobProgress } from '@shared/importJobProgress'
 import { MIN_1M_CANDLES_FOR_IMPORT, minImportCandlesMessage } from '@shared/importConstants'
-import { parseMtCsv } from '@shared/mtCsvImport'
+import { yieldToEventLoop } from '@shared/yieldToEventLoop'
 import { MT_BRIDGE_WS_URL } from '@shared/mtBridgeProtocol'
 import type { Candle } from '@shared/candleUtils'
 import { useReplayStore } from '@/store/replayStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { isDesktopRuntime } from '@/lib/runtime'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import ImportProgressBar, { type ImportProgress } from '@/components/ImportProgressBar'
 
 const EA_DOWNLOAD_URL =
   'https://github.com/easy-candle/easy-candle-ea/releases/latest/download/EasyCandleBridge.ex5'
@@ -29,6 +30,7 @@ export type ImportFeedback = {
 type PendingImport = ImportConfirmDetails & {
   content: string
   origin: ImportOrigin
+  skipMessage?: string
 }
 
 type ImportDataDialogProps = {
@@ -44,6 +46,33 @@ function normalizeSymbol(value: string): string {
     .replace(/[^A-Z0-9]/g, '')
 }
 
+function parseProgressLabel(progress: ImportJobProgress): string {
+  if (progress.job === 'parse') {
+    if (progress.phase === 'preparing') return 'Preparing file…'
+    if (progress.phase === 'parsing') {
+      if (progress.totalRows && progress.totalRows > 0) {
+        return `Parsing candles… ${(progress.processedRows ?? 0).toLocaleString()} / ${progress.totalRows.toLocaleString()}`
+      }
+      return 'Parsing candles…'
+    }
+    return 'Validating candles…'
+  }
+  if (progress.job === 'save') return 'Saving…'
+  return progress.phase
+}
+
+function statsFromCandles(candles: Candle[]): {
+  candleCount: number
+  firstTime: number
+  lastTime: number
+} {
+  return {
+    candleCount: candles.length,
+    firstTime: candles[0]?.time ?? 0,
+    lastTime: candles[candles.length - 1]?.time ?? 0
+  }
+}
+
 export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps): ReactNode {
   const mode = useReplayStore((s) => s.mode)
   const status = useReplayStore((s) => s.status)
@@ -51,7 +80,6 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
   const importMeta = useReplayStore((s) => s.importMeta)
   const importedList = useReplayStore((s) => s.importedList)
   const replayLoading = useReplayStore((s) => s.replayLoading)
-  const activateImportedDataset = useReplayStore((s) => s.activateImportedDataset)
   const clearImportedDataset = useReplayStore((s) => s.clearImportedDataset)
   const refreshImportedList = useReplayStore((s) => s.refreshImportedList)
   const selectImportedDataset = useReplayStore((s) => s.selectImportedDataset)
@@ -64,8 +92,11 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
 
   const [busy, setBusy] = useState(false)
   const [confirmBusy, setConfirmBusy] = useState(false)
+  const [loadProgress, setLoadProgress] = useState<ImportProgress | null>(null)
+  const [confirmProgress, setConfirmProgress] = useState<ImportProgress | null>(null)
   const [modalError, setModalError] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingImport | null>(null)
+  const [staleOffer, setStaleOffer] = useState<PendingImport | null>(null)
   const [message, setMessage] = useState<InlineMessage>(null)
   const [previewFresh, setPreviewFresh] = useState(false)
 
@@ -88,10 +119,16 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
 
   const closeDialog = useCallback((): void => {
     if (disabled) return
+    const staleToken = staleOffer?.parseToken
+    if (staleToken) {
+      void window.api.discardImportParse(staleToken)
+    }
     setMessage(null)
     setModalError(null)
+    setStaleOffer(null)
+    setPending(null)
     setOpen(false)
-  }, [disabled, setOpen])
+  }, [disabled, setOpen, staleOffer])
 
   useEffect(() => {
     if (!open) return
@@ -118,84 +155,101 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
 
   async function findReplaceTarget(
     symbolHint: string,
-    incoming: Candle[]
+    incomingLastTime: number
   ): Promise<{ replaceId?: string; existingSymbol?: string; skip?: string }> {
     const listed = await window.api.listImports()
     if (!listed.ok) return {}
     const existing = listed.imports.find((entry) => normalizeSymbol(entry.symbol) === symbolHint)
     if (!existing) return {}
-    // Only the newest stored bar matters for the "has newer candles" check.
-    const loaded = await window.api.loadImport(existing.id, '1m', { limit: 1 })
-    if (loaded.ok && !hasNewerCandles(loaded.candles, incoming)) {
+    const target = { replaceId: existing.id, existingSymbol: existing.symbol }
+    const incoming = [{ time: incomingLastTime, open: 0, high: 0, low: 0, close: 0 }]
+    const existingLast = [{ time: existing.lastTime, open: 0, high: 0, low: 0, close: 0 }]
+    if (!hasNewerCandles(existingLast, incoming)) {
       return {
+        ...target,
         skip: `${existing.symbol} is already imported through ${formatUtcCandleTime(existing.lastTime)}. This has no newer candles — nothing was updated.`
       }
     }
-    return { replaceId: existing.id, existingSymbol: existing.symbol }
+    return target
   }
 
   function openConfirm(params: PendingImport): void {
     setMessage(null)
     setModalError(null)
+    setStaleOffer(null)
     setPending(params)
+  }
+
+  function offerStaleReplace(params: PendingImport, skipMessage: string): void {
+    setStaleOffer({ ...params, noNewer: true, skipMessage })
+    showInline('info', skipMessage)
   }
 
   async function prepareFromPath(path: string, fileName: string): Promise<void> {
     setBusy(true)
     setMessage(null)
     setModalError(null)
+    setLoadProgress({ label: 'Reading file…', percent: 2 })
+    await yieldToEventLoop()
+
+    const unsub = window.api.onImportJobProgress((progress) => {
+      if (progress.job !== 'parse') return
+      setLoadProgress({ label: parseProgressLabel(progress), percent: progress.percent })
+    })
 
     try {
-      const read = await window.api.readImportFile(path)
-      if (!read.ok) {
-        showInline('error', read.error)
-        return
-      }
-
-      const parsed = parseMtCsv(read.content, fileName || read.fileName)
+      const parsed = await window.api.parseImportFile(path)
       if (!parsed.ok) {
         showInline('error', parsed.error)
         return
       }
 
+      setLoadProgress({ label: 'Checking existing imports…', percent: 98 })
       const symbolHint = parsed.symbol ? normalizeSymbol(parsed.symbol) : null
-      let replaceId: string | undefined
-      let existingSymbol: string | undefined
-
-      if (symbolHint) {
-        const match = await findReplaceTarget(symbolHint, parsed.candles)
-        if (match.skip) {
-          showInline('info', match.skip)
-          return
-        }
-        replaceId = match.replaceId
-        existingSymbol = match.existingSymbol
-      }
-
-      openConfirm({
-        content: read.content,
-        fileName: fileName || read.fileName,
+      const next: PendingImport = {
+        content: '',
+        fileName: fileName || path,
         candles: parsed.candles,
+        candleCount: parsed.candleCount,
+        firstTime: parsed.firstTime,
+        lastTime: parsed.lastTime,
+        parseToken: parsed.parseToken,
         symbol: parsed.symbol,
         symbolFromFilename: parsed.symbolFromFilename,
         warnings: parsed.warnings,
-        replaceId,
-        existingSymbol,
         origin: 'csv'
-      })
+      }
+
+      if (symbolHint) {
+        const match = await findReplaceTarget(symbolHint, parsed.lastTime)
+        next.replaceId = match.replaceId
+        next.existingSymbol = match.existingSymbol
+        if (match.skip && match.replaceId) {
+          offerStaleReplace(next, match.skip)
+          return
+        }
+      }
+
+      openConfirm(next)
     } finally {
+      unsub()
       setBusy(false)
+      setLoadProgress(null)
     }
   }
 
   async function onImportNew(): Promise<void> {
-    setMessage(null)
-    setModalError(null)
     const dialog = await window.api.openImportDialog()
     if (!dialog.ok) {
-      if (!dialog.canceled && dialog.error) showInline('error', dialog.error)
+      if (!dialog.canceled && dialog.error) {
+        setStaleOffer(null)
+        showInline('error', dialog.error)
+      }
       return
     }
+    setMessage(null)
+    setModalError(null)
+    setStaleOffer(null)
     await prepareFromPath(dialog.path, dialog.fileName)
   }
 
@@ -203,6 +257,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     setBusy(true)
     setMessage(null)
     setModalError(null)
+    setStaleOffer(null)
     try {
       const preview = await window.api.mtBridgePreview()
       if (!preview.ok) {
@@ -214,23 +269,31 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
         return
       }
 
-      const match = await findReplaceTarget(preview.symbol, preview.candles)
-      if (match.skip) {
-        showInline('info', match.skip)
-        return
-      }
-
-      openConfirm({
+      const match = await findReplaceTarget(
+        preview.symbol,
+        preview.candles[preview.candles.length - 1]?.time ?? 0
+      )
+      const stats = statsFromCandles(preview.candles)
+      const next: PendingImport = {
         content: `MetaTrader ${preview.symbol}`,
         fileName: `MetaTrader ${preview.symbol}`,
         candles: preview.candles,
+        candleCount: stats.candleCount,
+        firstTime: stats.firstTime,
+        lastTime: stats.lastTime,
         symbol: preview.symbol,
         symbolFromFilename: true,
         warnings: [],
         replaceId: match.replaceId,
         existingSymbol: match.existingSymbol,
         origin: 'metatrader'
-      })
+      }
+      if (match.skip && match.replaceId) {
+        offerStaleReplace(next, match.skip)
+        return
+      }
+
+      openConfirm(next)
     } finally {
       setBusy(false)
     }
@@ -241,26 +304,40 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
     setConfirmBusy(true)
     setModalError(null)
     setMessage(null)
+    setConfirmProgress({ label: 'Building timeframes…', percent: 4 })
+    await yieldToEventLoop()
+
+    const unsub = window.api.onImportJobProgress((progress) => {
+      if (progress.job === 'parse') return
+      setConfirmProgress({ label: parseProgressLabel(progress), percent: progress.percent })
+    })
 
     try {
       const symbol = normalizeSymbol(values.symbol)
       let replaceId = pending.replaceId
 
       if (!replaceId) {
-        const match = await findReplaceTarget(symbol, pending.candles)
-        if (match.skip) {
-          setModalError(match.skip)
+        const match = await findReplaceTarget(symbol, pending.lastTime)
+        if (match.skip && match.replaceId) {
+          setPending({
+            ...pending,
+            symbol,
+            replaceId: match.replaceId,
+            existingSymbol: match.existingSymbol,
+            noNewer: true,
+            skipMessage: match.skip
+          })
           return
         }
         replaceId = match.replaceId
       }
 
-      const candlesByTimeframe = buildImportTimeframes(pending.candles)
       const savedResult = await window.api.saveImport({
         content: pending.content,
         originalFileName: pending.fileName,
         symbol,
-        candlesByTimeframe,
+        parseToken: pending.parseToken,
+        candles1m: pending.parseToken ? undefined : pending.candles,
         replaceId,
         origin: pending.origin
       })
@@ -270,16 +347,23 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
         return
       }
 
-      const activateTf = savedResult.meta.timeframe
-      const series = candlesByTimeframe[activateTf] || pending.candles
-      activateImportedDataset(series, { ...savedResult.meta, timeframe: activateTf })
+      setConfirmProgress({
+        label: 'Loading chart…',
+        percent: IMPORT_BUILD_UI_PERCENT.loadingChart
+      })
+      await selectImportedDataset(savedResult.meta.id, savedResult.meta.timeframe)
       setPending(null)
       setModalError(null)
       setOpen(false)
 
       const last = formatUtcCandleTime(savedResult.meta.lastTime)
       const source = pending.origin === 'metatrader' ? 'MetaTrader' : 'CSV'
-      if (savedResult.updated) {
+      if (pending.noNewer) {
+        showBanner(
+          'info',
+          `Replaced ${savedResult.meta.symbol} from ${source} (${savedResult.meta.candleCount.toLocaleString()} × 1m). Built 5m · 15m · 1h · 4h · 1d.`
+        )
+      } else if (savedResult.updated) {
         showBanner(
           'info',
           `Updated ${savedResult.meta.symbol} from ${source}: new candles through ${last}. Built 5m · 15m · 1h · 4h · 1d.`
@@ -293,7 +377,9 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
 
       await refreshImportedList()
     } finally {
+      unsub()
       setConfirmBusy(false)
+      setConfirmProgress(null)
     }
   }
 
@@ -361,6 +447,7 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
         onClick={() => {
           setMessage(null)
           setModalError(null)
+          setStaleOffer(null)
           setOpen(true)
         }}
       >
@@ -413,7 +500,9 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
                   onClick={() => void onImportNew()}
                   className="mt-1.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-medium text-amber-300 hover:border-amber-400/70 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {busy ? (
+                  {loadProgress ? (
+                    <span>Importing…</span>
+                  ) : busy ? (
                     <span>Reading…</span>
                   ) : (
                     <>
@@ -422,6 +511,11 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
                     </>
                   )}
                 </button>
+                {loadProgress && (
+                  <div className="mt-2">
+                    <ImportProgressBar progress={loadProgress} />
+                  </div>
+                )}
               </section>
 
               {desktop && (
@@ -500,6 +594,31 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
                     Import from MetaTrader
                   </button>
                 </section>
+              )}
+
+              {message && (
+                <div
+                  className={`space-y-2 rounded border px-3 py-2.5 ${
+                    message.tone === 'error'
+                      ? 'border-red-900/60 bg-red-950/20'
+                      : message.tone === 'success'
+                        ? 'border-emerald-900/60 bg-emerald-950/20'
+                        : 'border-amber-900/60 bg-amber-950/20'
+                  }`}
+                >
+                  <p className={`text-[11px] leading-relaxed ${messageClass}`}>{message.message}</p>
+                  {staleOffer && (
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => openConfirm(staleOffer)}
+                      className="inline-flex h-8 items-center gap-1.5 rounded border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-medium text-amber-300 hover:border-amber-400/70 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Replace className="h-3.5 w-3.5" aria-hidden />
+                      Replace existing import
+                    </button>
+                  )}
+                </div>
               )}
 
               {dataSource === 'imported' && importMeta && (
@@ -591,10 +710,6 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
                   </ul>
                 )}
               </section>
-
-              {message && (
-                <p className={`text-[11px] leading-relaxed ${messageClass}`}>{message.message}</p>
-              )}
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-800 px-4 py-3">
@@ -614,11 +729,22 @@ export default function ImportDataDialog({ onFeedback }: ImportDataDialogProps):
       <ImportConfirmModal
         details={pending}
         busy={confirmBusy}
+        progress={confirmProgress}
         serverError={modalError}
         onCancel={() => {
           if (!confirmBusy) {
+            const cancelled = pending
             setPending(null)
             setModalError(null)
+            if (cancelled?.noNewer) {
+              offerStaleReplace(
+                cancelled,
+                cancelled.skipMessage ||
+                  `${cancelled.existingSymbol || cancelled.symbol || 'This symbol'} is already imported. This has no newer candles — nothing was updated.`
+              )
+            } else if (cancelled?.parseToken) {
+              void window.api.discardImportParse(cancelled.parseToken)
+            }
           }
         }}
         onConfirm={(values) => void onConfirmImport(values)}

@@ -8,10 +8,12 @@ import type {
   ImportListResult,
   ImportLoadRange,
   ImportLoadResult,
+  ImportParseResult,
   ImportReadResult,
   ImportSaveParams,
   ImportSaveResult
 } from '@shared/importTypes'
+import type { ImportJobProgress } from '@shared/importJobProgress'
 import type { KlinesFetchParams, KlinesFetchResult } from '@shared/klinesTypes'
 import type {
   MtBridgeIpcEvent,
@@ -63,6 +65,10 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_OPEN_DIALOG),
   readImportFile: (path: string): Promise<ImportReadResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_READ_FILE, path),
+  parseImportFile: (path: string): Promise<ImportParseResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_PARSE_FILE, path),
+  discardImportParse: (token: string): Promise<{ ok: true }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DISCARD_PARSE, token),
   saveImport: (params: ImportSaveParams): Promise<ImportSaveResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SAVE, params),
   listImports: (): Promise<ImportListResult> => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LIST),
@@ -74,6 +80,8 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_LOAD, id, timeframe, range),
   deleteImport: (id: string): Promise<ImportDeleteResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DELETE, id),
+  onImportJobProgress: (callback: (progress: ImportJobProgress) => void): (() => void) =>
+    subscribe(IPC_CHANNELS.IMPORT_JOB_PROGRESS, callback),
   checkForUpdates: (): Promise<{
     ok: boolean
     skipped?: boolean

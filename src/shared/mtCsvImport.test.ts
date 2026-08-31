@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MIN_1M_CANDLES_FOR_IMPORT } from './importConstants'
-import { inferTimeframeSeconds, parseMtCsv, parseMtFilename } from './mtCsvImport'
+import { inferTimeframeSeconds, parseMtCsv, parseMtCsvAsync, parseMtFilename } from './mtCsvImport'
 
 function mt4Series(count: number, stepSec: number, start = Date.UTC(2024, 0, 2, 0, 0, 0) / 1000): string {
   const lines = ['Date,Time,Open,High,Low,Close,Volume']
@@ -175,5 +175,19 @@ describe('parseMtCsv', () => {
     expect(result.symbolFromFilename).toBe(false)
     expect(result.inferredTimeframe).toBe('1m')
     expect(result.timeframeFromFilename).toBe(false)
+  })
+
+  it('parseMtCsvAsync matches parseMtCsv and reports progress', async () => {
+    const content = mt4Series(MIN_1M_CANDLES_FOR_IMPORT, 60)
+    const percents: number[] = []
+    const asyncResult = await parseMtCsvAsync(content, 'EURUSD_M1.csv', (progress) => {
+      percents.push(progress.percent)
+    })
+    const syncResult = parseMtCsv(content, 'EURUSD_M1.csv')
+    expect(asyncResult).toEqual(syncResult)
+    expect(percents.length).toBeGreaterThan(1)
+    expect(percents[0]).toBeGreaterThanOrEqual(0)
+    expect(percents[percents.length - 1]).toBe(100)
+    expect(Math.max(...percents)).toBe(100)
   })
 })

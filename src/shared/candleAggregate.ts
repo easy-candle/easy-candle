@@ -1,4 +1,9 @@
 import type { Candle } from './candleUtils'
+import {
+  IMPORT_BUILD_STAGE_PERCENT,
+  IMPORT_BUILD_UI_PERCENT,
+  IMPORT_WORKER_PROGRESS_EVERY
+} from './importJobProgress'
 import { TIMEFRAMES } from './timeframes'
 
 /** Timeframes derived from an imported 1m series (excludes source 1m). */
@@ -9,14 +14,24 @@ export const IMPORT_STORED_TIMEFRAMES = ['1m', ...IMPORT_DERIVED_TIMEFRAMES] as 
 
 export type ImportStoredTimeframe = (typeof IMPORT_STORED_TIMEFRAMES)[number]
 
+export type ImportBuildProgress = {
+  phase: string
+  percent: number
+}
+
 /**
- * Aggregate lower-timeframe candles into a higher interval.
+ * Aggregate lower-timeframe candles into a higher interval in one linear pass.
  * Open time is floored to `intervalSeconds` (UTC). Incomplete final buckets are kept.
  */
-export function aggregateCandles(candles: Candle[], intervalSeconds: number): Candle[] {
+export function aggregateCandles(
+  candles: Candle[],
+  intervalSeconds: number,
+  onChunk?: (processed: number, total: number) => void
+): Candle[] {
   const step = Math.max(1, Math.floor(intervalSeconds) || 1)
   if (!Array.isArray(candles) || candles.length === 0) return []
 
+  const total = candles.length
   const out: Candle[] = []
   let bucketOpen = Number.NaN
   let open = 0
@@ -33,7 +48,8 @@ export function aggregateCandles(candles: Candle[], intervalSeconds: number): Ca
     out.push(candle)
   }
 
-  for (const candle of candles) {
+  for (let i = 0; i < total; i += 1) {
+    const candle = candles[i]
     const t = Math.floor(Number(candle.time))
     if (!Number.isFinite(t)) continue
     const openTime = Math.floor(t / step) * step
@@ -47,15 +63,19 @@ export function aggregateCandles(candles: Candle[], intervalSeconds: number): Ca
       close = candle.close
       volume = candle.volume ?? 0
       hasVolume = candle.volume != null
-      continue
+    } else {
+      high = Math.max(high, candle.high)
+      low = Math.min(low, candle.low)
+      close = candle.close
+      if (candle.volume != null) {
+        volume += candle.volume
+        hasVolume = true
+      }
     }
 
-    high = Math.max(high, candle.high)
-    low = Math.min(low, candle.low)
-    close = candle.close
-    if (candle.volume != null) {
-      volume += candle.volume
-      hasVolume = true
+    const processed = i + 1
+    if (onChunk && (processed % IMPORT_WORKER_PROGRESS_EVERY === 0 || processed === total)) {
+      onChunk(processed, total)
     }
   }
 
@@ -127,17 +147,73 @@ export function overlayFormingHigherTf(
   return [...series.slice(0, idx), forming]
 }
 
-/** Build 1m + derived TF maps from a validated 1-minute series. */
-export function buildImportTimeframes(candles1m: Candle[]): Record<string, Candle[]> {
+/**
+ * Nested intervals: each derived TF is built from the previous one
+ * (5m←1m, 15m←5m, 1h←15m, …) instead of scanning 1m five times.
+ */
+function cascadeSourceId(derivedIndex: number): string {
+  return derivedIndex <= 0 ? '1m' : IMPORT_DERIVED_TIMEFRAMES[derivedIndex - 1]
+}
+
+function buildDerivedTimeframes(
+  candles1m: Candle[],
+  onProgress?: (progress: ImportBuildProgress) => void
+): Record<string, Candle[]> {
   const result: Record<string, Candle[]> = {
     '1m': candles1m
   }
 
-  for (const id of IMPORT_DERIVED_TIMEFRAMES) {
+  for (let i = 0; i < IMPORT_DERIVED_TIMEFRAMES.length; i += 1) {
+    const id = IMPORT_DERIVED_TIMEFRAMES[i]
     const tf = TIMEFRAMES[id]
     if (!tf) continue
-    result[id] = aggregateCandles(candles1m, tf.seconds)
+
+    const source = result[cascadeSourceId(i)] || candles1m
+    const stageEnd = IMPORT_BUILD_STAGE_PERCENT[id] ?? IMPORT_BUILD_UI_PERCENT.ready
+    const stageStart = i === 0 ? IMPORT_BUILD_UI_PERCENT.tf5mStart : stageEnd
+    onProgress?.({ phase: `Building ${id}…`, percent: stageStart })
+
+    result[id] = aggregateCandles(
+      source,
+      tf.seconds,
+      i === 0
+        ? (processed, count) => {
+            onProgress?.({
+              phase: `Building ${id}…`,
+              percent:
+                IMPORT_BUILD_UI_PERCENT.tf5mStart +
+                Math.round((processed / Math.max(count, 1)) * IMPORT_BUILD_UI_PERCENT.tf5mEnd)
+            })
+          }
+        : undefined
+    )
+
+    if (i > 0) {
+      onProgress?.({ phase: `Building ${id}…`, percent: stageEnd })
+    }
   }
 
+  onProgress?.({ phase: 'Timeframes ready', percent: IMPORT_BUILD_UI_PERCENT.ready })
   return result
+}
+
+/** Build 1m + derived TF maps from a validated 1-minute series. */
+export function buildImportTimeframes(candles1m: Candle[]): Record<string, Candle[]> {
+  return buildDerivedTimeframes(candles1m)
+}
+
+/** Same as `buildImportTimeframes`, with UI-mapped progress (0–63). */
+export function buildImportTimeframesWithProgress(
+  candles1m: Candle[],
+  onProgress?: (progress: ImportBuildProgress) => void
+): Record<string, Candle[]> {
+  return buildDerivedTimeframes(candles1m, onProgress)
+}
+
+/** Async alias so existing callers/tests can await the same linear builder. */
+export async function buildImportTimeframesAsync(
+  candles1m: Candle[],
+  onProgress?: (progress: ImportBuildProgress) => void
+): Promise<Record<string, Candle[]>> {
+  return buildImportTimeframesWithProgress(candles1m, onProgress)
 }

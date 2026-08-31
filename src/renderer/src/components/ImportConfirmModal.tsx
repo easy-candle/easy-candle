@@ -8,21 +8,29 @@ import {
   formatContractSize,
   normalizeSymbolKey
 } from '@shared/pricePrecision'
+import ImportProgressBar, { type ImportProgress } from '@/components/ImportProgressBar'
 
 export type ImportConfirmDetails = {
   fileName: string
   symbol: string | null
   symbolFromFilename: boolean
   candles: Candle[]
+  candleCount: number
+  firstTime: number
+  lastTime: number
+  parseToken?: string
   warnings: string[]
-  /** When set, confirm will update this existing import. */
+  /** When set, confirm will update or replace this existing import. */
   replaceId?: string
   existingSymbol?: string
+  /** True when the incoming file has no newer candles than the stored series. */
+  noNewer?: boolean
 }
 
 type ImportConfirmModalProps = {
   details: ImportConfirmDetails | null
   busy?: boolean
+  progress?: ImportProgress | null
   serverError?: string | null
   onConfirm: (values: { symbol: string }) => void
   onCancel: () => void
@@ -35,6 +43,7 @@ function normalizeSymbol(value: string): string {
 export default function ImportConfirmModal({
   details,
   busy = false,
+  progress = null,
   serverError = null,
   onConfirm,
   onCancel
@@ -61,12 +70,13 @@ export default function ImportConfirmModal({
 
   if (!details) return null
 
-  const first = details.candles[0]
-  const last = details.candles[details.candles.length - 1]
+  const firstTime = details.firstTime || details.candles[0]?.time
+  const lastTime = details.lastTime || details.candles[details.candles.length - 1]?.time
+  const candleCount = details.candleCount || details.candles.length
   const needSymbol = !details.symbolFromFilename
-  const spanDays =
-    first && last ? ((last.time - first.time) / 86400).toFixed(1) : '—'
-  const isUpdate = Boolean(details.replaceId)
+  const spanDays = firstTime && lastTime ? ((lastTime - firstTime) / 86400).toFixed(1) : '—'
+  const isReplace = Boolean(details.replaceId && details.noNewer)
+  const isUpdate = Boolean(details.replaceId) && !isReplace
   const resolvedSymbol = normalizeSymbol(needSymbol ? symbol : (details.symbol ?? ''))
   const contractInfo = resolvedSymbol ? contractSizeInfoForSymbol(resolvedSymbol) : null
 
@@ -104,7 +114,7 @@ export default function ImportConfirmModal({
         <div className="flex items-start justify-between gap-3 border-b border-zinc-800 px-4 py-3">
           <div>
             <h2 id="import-confirm-title" className="text-sm font-semibold text-amber-400">
-              {isUpdate ? 'Update import' : 'Confirm import'}
+              {isReplace ? 'Replace import' : isUpdate ? 'Update import' : 'Confirm import'}
             </h2>
             <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={details.fileName}>
               {details.fileName}
@@ -147,7 +157,9 @@ export default function ImportConfirmModal({
               <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
                 Source TF
               </span>
-              <span className="mt-1 block font-medium text-zinc-100">{IMPORT_SOURCE_TIMEFRAME}</span>
+              <span className="mt-1 block font-medium text-zinc-100">
+                {IMPORT_SOURCE_TIMEFRAME}
+              </span>
             </div>
 
             <div className="col-span-2">
@@ -176,22 +188,22 @@ export default function ImportConfirmModal({
                 Start (UTC)
               </span>
               <p className="mt-0.5 tabular-nums text-zinc-200">
-                {formatUtcCandleTime(first?.time) || '—'}
+                {formatUtcCandleTime(firstTime) || '—'}
               </p>
             </div>
             <div className="col-span-2">
-              <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">End (UTC)</span>
+              <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                End (UTC)
+              </span>
               <p className="mt-0.5 tabular-nums text-zinc-200">
-                {formatUtcCandleTime(last?.time) || '—'}
+                {formatUtcCandleTime(lastTime) || '—'}
               </p>
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
                 1m candles
               </span>
-              <p className="mt-0.5 tabular-nums text-zinc-200">
-                {details.candles.length.toLocaleString()}
-              </p>
+              <p className="mt-0.5 tabular-nums text-zinc-200">{candleCount.toLocaleString()}</p>
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
@@ -209,6 +221,14 @@ export default function ImportConfirmModal({
             </p>
           )}
 
+          {isReplace && (
+            <p className="text-[11px] leading-relaxed text-amber-400/90">
+              {details.existingSymbol ? `${details.existingSymbol} is` : 'This symbol is'} already
+              imported through the same or a later time. Replacing will overwrite the stored series
+              with this file.
+            </p>
+          )}
+
           {details.warnings.length > 0 && (
             <p className="text-[11px] leading-relaxed text-amber-400/90">
               {details.warnings.join(' ')}
@@ -217,6 +237,7 @@ export default function ImportConfirmModal({
           {(formError || serverError) && (
             <p className="text-[11px] leading-relaxed text-red-400">{formError || serverError}</p>
           )}
+          {busy && progress && <ImportProgressBar progress={progress} />}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-800 px-4 py-3">
@@ -234,7 +255,13 @@ export default function ImportConfirmModal({
             onClick={submit}
             className="inline-flex h-8 items-center rounded border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-medium text-amber-300 hover:border-amber-400/70 hover:text-amber-200 disabled:opacity-40"
           >
-            {busy ? 'Saving…' : isUpdate ? 'Update & load' : 'Confirm & load'}
+            {busy
+              ? 'Saving…'
+              : isReplace
+                ? 'Replace & load'
+                : isUpdate
+                  ? 'Update & load'
+                  : 'Confirm & load'}
           </button>
         </div>
       </div>

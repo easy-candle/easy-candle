@@ -42,6 +42,11 @@ export function isMetatraderImport(meta: ImportedDatasetMeta | null | undefined)
 export type ImportParseSuccess = {
   ok: true
   candles: Candle[]
+  candleCount: number
+  firstTime: number
+  lastTime: number
+  /** Present when the 1m series is held off-thread (worker / main process). */
+  parseToken?: string
   /** Null when the file name did not contain a usable symbol. */
   symbol: string | null
   /** Always 1m on success. */
@@ -66,26 +71,28 @@ export type ImportDialogResult =
   | { ok: false; canceled?: false; error: string }
 
 export type ImportReadResult =
-  | { ok: true; content: string; fileName: string }
-  | { ok: false; error: string }
+  { ok: true; content: string; fileName: string } | { ok: false; error: string }
 
 export type ImportSaveParams = {
-  content: string
   originalFileName: string
   symbol: string
-  /** All stored timeframes keyed by id (must include 1m). */
-  candlesByTimeframe: Record<string, Candle[]>
+  /** Raw CSV text stored as source. Optional when `parseToken` is set. */
+  content?: string
+  /** All stored timeframes keyed by id (must include 1m). Optional when `parseToken` is set. */
+  candlesByTimeframe?: Record<string, Candle[]>
+  /** 1m series to aggregate when the caller already has it (MetaTrader). */
+  candles1m?: Candle[]
+  /** Token from `parseImportFile`; the 1m series stays off the UI thread. */
+  parseToken?: string
   replaceId?: string
   origin?: ImportOrigin
 }
 
 export type ImportSaveResult =
-  | { ok: true; meta: ImportedDatasetMeta; updated: boolean }
-  | { ok: false; error: string }
+  { ok: true; meta: ImportedDatasetMeta; updated: boolean } | { ok: false; error: string }
 
 export type ImportListResult =
-  | { ok: true; imports: ImportedDatasetMeta[] }
-  | { ok: false; error: string }
+  { ok: true; imports: ImportedDatasetMeta[] } | { ok: false; error: string }
 
 /**
  * Range request for a stored import series. All fields optional: an empty range

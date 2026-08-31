@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   aggregateCandles,
   buildImportTimeframes,
+  buildImportTimeframesAsync,
   formingHigherTfCandle,
-  overlayFormingHigherTf
+  overlayFormingHigherTf,
+  IMPORT_DERIVED_TIMEFRAMES
 } from './candleAggregate'
 import type { Candle } from './candleUtils'
 import { hasNewerCandles } from './importTypes'
+import { TIMEFRAMES } from './timeframes'
 
 function series(count: number, stepSec: number, start = 1_700_000_000): Candle[] {
   const out: Candle[] = []
@@ -61,6 +64,42 @@ describe('buildImportTimeframes', () => {
     expect(map['1h']?.length).toBe(24)
     expect(map['4h']?.length).toBe(6)
     expect(map['1d']?.length).toBe(1)
+  })
+
+  it('buildImportTimeframesAsync matches the sync builder', async () => {
+    const candles1m = series(60 * 24, 60, 0)
+    const phases: string[] = []
+    const asyncMap = await buildImportTimeframesAsync(candles1m, (progress) => {
+      phases.push(progress.phase)
+    })
+    expect(asyncMap).toEqual(buildImportTimeframes(candles1m))
+    expect(phases.length).toBeGreaterThan(0)
+    expect(phases[phases.length - 1]).toBe('Timeframes ready')
+  })
+
+  it('reports UI-mapped percents ending at 63', async () => {
+    const candles1m = series(60 * 24, 60, 0)
+    const percents: number[] = []
+    await buildImportTimeframesAsync(candles1m, (progress) => {
+      percents.push(progress.percent)
+    })
+    expect(percents[0]).toBe(0)
+    expect(percents).toContain(55)
+    expect(percents).toContain(57)
+    expect(percents).toContain(59)
+    expect(percents).toContain(61)
+    expect(percents[percents.length - 1]).toBe(63)
+  })
+
+  it('cascade matches aggregating every TF from 1m, including gaps', () => {
+    const start = 1_700_000_100
+    expect(start % 300).toBe(0)
+    const candles1m = [...series(7, 60, start), ...series(23, 60, start + 3600)]
+    const cascaded = buildImportTimeframes(candles1m)
+    for (const id of IMPORT_DERIVED_TIMEFRAMES) {
+      const direct = aggregateCandles(candles1m, TIMEFRAMES[id].seconds)
+      expect(cascaded[id]).toEqual(direct)
+    }
   })
 })
 
