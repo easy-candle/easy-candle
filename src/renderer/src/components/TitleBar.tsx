@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useState, type CSSProperties } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import AccountMenu from '@/components/AccountMenu'
 import GiveFeedback from '@/components/GiveFeedback'
@@ -12,7 +12,7 @@ const MAJOR_VERSION = parseSemverMajor(__APP_VERSION__)
 const DRAG_REGION = { WebkitAppRegion: 'drag' } as CSSProperties
 const NO_DRAG_REGION = { WebkitAppRegion: 'no-drag' } as CSSProperties
 
-export default function TitleBar() {
+export default memo(function TitleBar() {
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
@@ -83,4 +83,4 @@ export default function TitleBar() {
       </div>
     </div>
   )
-}
+})

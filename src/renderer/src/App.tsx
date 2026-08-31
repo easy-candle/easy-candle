@@ -1,33 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import AppShell from '@/components/AppShell'
 import CandleChart from '@/components/CandleChart'
 import PaneChrome from '@/components/PaneChrome'
-import { buildOverlays, ungatedIndicatorIds } from '@/lib/indicators'
-import { alignTimeToInterval, TIMEFRAMES } from '@shared/timeframes'
+import { ungatedIndicatorIds } from '@/lib/indicators'
 import { runAppStartup } from '@/lib/appStartup'
 import { isDesktopRuntime } from '@/lib/runtime'
 import { useAccountStore } from '@/store/accountStore'
 import { useReplayStore } from '@/store/replayStore'
 
 export default function App() {
-  const candles = useReplayStore((s) => s.candles)
   const mode = useReplayStore((s) => s.mode)
-  const symbol = useReplayStore((s) => s.symbol)
   const timeframe = useReplayStore((s) => s.timeframe)
-  const visibleCandles = useReplayStore((s) => s.visibleCandles)
-  const currentCandle = useReplayStore((s) => s.currentCandle)
-  const chartSync = useReplayStore((s) => s.chartSync)
-  const activeIndicators = useReplayStore((s) => s.activeIndicators)
   const signedIn = useAccountStore((s) => s.signedIn)
-  const chartType = useReplayStore((s) => s.chartType)
-  const tradeMarkers = useReplayStore((s) => s.tradeMarkers)
   const chartSplit = useReplayStore((s) => s.chartSplit)
   const secondaryTimeframe = useReplayStore((s) => s.secondaryTimeframe)
   const driverPane = useReplayStore((s) => s.driverPane)
-  const secondaryCandles = useReplayStore((s) => s.secondaryCandles)
-  const secondaryVisibleCandles = useReplayStore((s) => s.secondaryVisibleCandles)
-  const secondaryCurrentCandle = useReplayStore((s) => s.secondaryCurrentCandle)
-  const secondaryChartSync = useReplayStore((s) => s.secondaryChartSync)
   const secondaryLoading = useReplayStore((s) => s.secondaryLoading)
   const secondaryError = useReplayStore((s) => s.secondaryError)
   const dataSource = useReplayStore((s) => s.dataSource)
@@ -61,14 +48,6 @@ export default function App() {
     })
   }, [])
 
-  const overlaySource = mode === 'replay' ? (visibleCandles ?? []) : (candles ?? [])
-  const secondaryOverlaySource =
-    mode === 'replay' ? (secondaryVisibleCandles ?? []) : (secondaryCandles ?? [])
-  const overlayIds = useMemo(
-    () => ungatedIndicatorIds(activeIndicators, signedIn),
-    [activeIndicators, signedIn]
-  )
-
   useEffect(() => {
     if (signedIn) return
     const current = useReplayStore.getState().activeIndicators
@@ -76,55 +55,6 @@ export default function App() {
     if (next.length === current.length) return
     useReplayStore.setState({ activeIndicators: next })
   }, [signedIn])
-
-  const overlays = useMemo(
-    () => buildOverlays(overlaySource, overlayIds),
-    [overlaySource, overlayIds]
-  )
-
-  const secondaryOverlays = useMemo(
-    () => buildOverlays(secondaryOverlaySource, overlayIds),
-    [secondaryOverlaySource, overlayIds]
-  )
-
-  const secondaryMarkers = useMemo(() => {
-    const interval = TIMEFRAMES[secondaryTimeframe]?.seconds ?? 60
-    return (tradeMarkers ?? []).map((marker) => ({
-      ...marker,
-      time: alignTimeToInterval(marker.time, interval)
-    }))
-  }, [tradeMarkers, secondaryTimeframe])
-
-  const primaryProps = {
-    mode,
-    symbol,
-    timeframe,
-    chartType,
-    candles,
-    visibleCandles,
-    currentCandle,
-    chartSync,
-    overlays,
-    tradeMarkers,
-    onPriceScaleWidthChange: setPrimaryPriceScaleWidth,
-    onReachHistoryEdge: handleReachHistoryEdge,
-    isPrimary: true
-  }
-
-  const secondaryProps = {
-    mode,
-    symbol,
-    timeframe: secondaryTimeframe,
-    chartType,
-    candles: secondaryCandles,
-    visibleCandles: secondaryVisibleCandles,
-    currentCandle: secondaryCurrentCandle,
-    chartSync: secondaryChartSync,
-    overlays: secondaryOverlays,
-    tradeMarkers: secondaryMarkers,
-    onPriceScaleWidthChange: setSecondaryPriceScaleWidth,
-    isPrimary: false
-  }
 
   const showDriver = mode === 'replay' && chartSplit
   const secondaryTfDisabled = secondaryLoading || replayLoading
@@ -147,7 +77,11 @@ export default function App() {
             />
           )}
           <div className={chartSplit ? 'absolute inset-0 top-9' : 'absolute inset-0'}>
-            <CandleChart {...primaryProps} />
+            <CandleChart
+              isPrimary
+              onPriceScaleWidthChange={setPrimaryPriceScaleWidth}
+              onReachHistoryEdge={handleReachHistoryEdge}
+            />
           </div>
         </div>
         {chartSplit && (
@@ -169,7 +103,10 @@ export default function App() {
               driverDisabled={replayLoading || secondaryLoading}
             />
             <div className="absolute inset-0 top-9">
-              <CandleChart {...secondaryProps} />
+              <CandleChart
+                isPrimary={false}
+                onPriceScaleWidthChange={setSecondaryPriceScaleWidth}
+              />
             </div>
             {(secondaryLoading || secondaryError) && (
               <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center bg-zinc-950/50 px-3 text-center text-xs text-zinc-400">

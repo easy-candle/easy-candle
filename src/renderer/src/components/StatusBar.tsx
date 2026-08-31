@@ -52,7 +52,7 @@ function StatusDot({ isPlaying, ended }: { isPlaying: boolean; ended: boolean })
 function LiveStatus() {
   const status = useReplayStore((s) => s.status)
   const error = useReplayStore((s) => s.error)
-  const candles = useReplayStore((s) => s.candles)
+  const candleCount = useReplayStore((s) => s.candles.length)
   const dataSource = useReplayStore((s) => s.dataSource)
   const replayMessage = useReplayStore((s) => s.replayMessage)
   const importMeta = useReplayStore((s) => s.importMeta)
@@ -62,7 +62,7 @@ function LiveStatus() {
 
   const candlesLabel =
     replayMessage ??
-    `${imported ? (mtFeed ? 'MetaTrader' : 'Imported') + SEPARATOR : ''}${candles.length.toLocaleString()} candles`
+    `${imported ? (mtFeed ? 'MetaTrader' : 'Imported') + SEPARATOR : ''}${candleCount.toLocaleString()} candles`
 
   return (
     <div className="ml-auto inline-flex items-center gap-1.5 text-[11px] tabular-nums text-zinc-500">
@@ -72,10 +72,10 @@ function LiveStatus() {
           <span>Loading…</span>
         </>
       )}
-      {status === 'ready' && candles.length === 0 && !mtbridge && (
+      {status === 'ready' && candleCount === 0 && !mtbridge && (
         <span className="text-zinc-400">No candles returned</span>
       )}
-      {status === 'ready' && candles.length > 0 && (
+      {status === 'ready' && candleCount > 0 && (
         <span className={imported || mtbridge ? 'text-amber-400/90' : undefined}>{candlesLabel}</span>
       )}
       {status === 'idle' && mtbridge && <span className="max-w-[28rem] truncate">{replayMessage}</span>}

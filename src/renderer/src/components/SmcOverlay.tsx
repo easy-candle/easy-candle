@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { IChartApi, ISeriesApi, Logical, SeriesType, Time } from 'lightweight-charts'
 import { drawingDashArray } from '@/components/DrawingShapes'
 import { plotRightX } from '@/lib/chart/drawingPlotBounds'
@@ -7,6 +7,7 @@ import {
   logicalToX,
   unixTimeToLogical
 } from '@/lib/chart/drawingTimeScale'
+import { readOverlayViewport, sameOverlayViewport } from '@/lib/chart/overlayViewport'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
 import type { SmcBox, SmcLabel, SmcScene, SmcSegment } from '@/lib/smc/types'
 import { alignTimeToInterval, DEFAULT_TIMEFRAME, TIMEFRAMES } from '@shared/timeframes'
@@ -20,7 +21,16 @@ type SmcOverlayProps = {
   scene: SmcScene
 }
 
-export default function SmcOverlay({
+function smcOverlayPropsEqual(prev: SmcOverlayProps, next: SmcOverlayProps): boolean {
+  return (
+    prev.chart === next.chart &&
+    prev.series === next.series &&
+    prev.paneTimeframe === next.paneTimeframe &&
+    prev.scene === next.scene
+  )
+}
+
+export default memo(function SmcOverlay({
   chart,
   series,
   paneTimeframe,
@@ -28,6 +38,9 @@ export default function SmcOverlay({
   scene
 }: SmcOverlayProps) {
   const [, setVersion] = useState(0)
+  const paneCandlesRef = useRef(paneCandles)
+  paneCandlesRef.current = paneCandles
+  const viewportRef = useRef<ReturnType<typeof readOverlayViewport> | null>(null)
   const intervalSeconds =
     TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
 
@@ -36,11 +49,16 @@ export default function SmcOverlay({
   useEffect(() => {
     if (!chart || !series) return undefined
 
+    // Coalesce LWC paints into at most one overlay reconcile per frame, and skip
+    // when only the crosshair moved (plot size + visible ranges unchanged).
     let raf = 0
     const scheduleBump = (): void => {
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
+        const next = readOverlayViewport(chart)
+        if (sameOverlayViewport(viewportRef.current, next)) return
+        viewportRef.current = next
         bump()
       })
     }
@@ -63,6 +81,7 @@ export default function SmcOverlay({
   }
 
   function timeToX(time: number): number | null {
+    const paneCandles = paneCandlesRef.current
     const exact = chart.timeScale().timeToCoordinate(time as Time)
     if (exact != null) return exact
     if (isTimeInSeriesRange(time, paneCandles, intervalSeconds)) {
@@ -120,7 +139,7 @@ export default function SmcOverlay({
       ))}
     </svg>
   )
-}
+}, smcOverlayPropsEqual)
 
 function barHalfWidth(chart: IChartApi): number {
   const spacing = chart.timeScale().options().barSpacing

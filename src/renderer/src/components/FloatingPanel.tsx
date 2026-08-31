@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -27,7 +28,7 @@ type FloatingPanelProps = {
   children: ReactNode
 }
 
-export default function FloatingPanel({
+export default memo(function FloatingPanel({
   title,
   minimized = false,
   minimizedLabel,
@@ -42,7 +43,9 @@ export default function FloatingPanel({
 }: FloatingPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const dragOffset = useRef<{ x: number; y: number } | null>(null)
+  const dragPosRef = useRef<PanelPos | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [dragPos, setDragPos] = useState<PanelPos | null>(null)
 
   const resolveDefaultPos = useCallback(
     (container: DOMRect, panel: DOMRect): PanelPos => {
@@ -144,12 +147,19 @@ export default function FloatingPanel({
         y: event.clientY - parentRect.top - dragOffset.current.y
       }
       const clamped = clampToParent(raw)
-      if (clamped) onPosChange(clamped)
+      if (clamped) {
+        dragPosRef.current = clamped
+        setDragPos(clamped)
+      }
     }
 
     function onPointerUp(): void {
+      const final = dragPosRef.current
       dragOffset.current = null
+      dragPosRef.current = null
+      setDragPos(null)
       setDragging(false)
+      if (final) onPosChange(final)
     }
 
     window.addEventListener('pointermove', onPointerMove)
@@ -184,9 +194,10 @@ export default function FloatingPanel({
     event.preventDefault()
   }
 
+  const displayPos = dragPos ?? pos
   const style =
-    pos != null
-      ? { left: pos.x, top: pos.y }
+    displayPos != null
+      ? { left: displayPos.x, top: displayPos.y }
       : defaultPlacement === 'bottom-center'
         ? { left: '50%', bottom: 16, top: 'auto', transform: 'translateX(-50%)' }
         : defaultPlacement === 'top-right'
@@ -265,4 +276,4 @@ export default function FloatingPanel({
       <div className="px-2 py-2">{children}</div>
     </div>
   )
-}
+})

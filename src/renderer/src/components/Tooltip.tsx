@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import Kbd from '@/components/Kbd'
 
@@ -16,7 +16,7 @@ const VIEWPORT_MARGIN = 8
 const OPEN_DELAY = 150
 const CLOSE_DELAY = 80
 
-export default function Tooltip({
+export default memo(function Tooltip({
   text,
   kbds = [],
   children,
@@ -139,4 +139,4 @@ export default function Tooltip({
         )}
     </>
   )
-}
+})

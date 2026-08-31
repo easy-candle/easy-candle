@@ -20,6 +20,7 @@ import DrawingOverlay from '@/components/DrawingOverlay'
 import ActiveIndicatorsLegend from '@/components/ActiveIndicatorsLegend'
 import OhlcLegend from '@/components/OhlcLegend'
 import SmcOverlay from '@/components/SmcOverlay'
+import { useChartPaneModel } from '@/hooks/useChartPaneModel'
 import { themedWordmarkUrl } from '@/lib/chartWordmark'
 import type { ChartOverlay } from '@/lib/indicators'
 import {
@@ -41,7 +42,6 @@ import { type ChartPalette } from '@/lib/theme'
 import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
-import type { ChartSync, TradeMarker, ViewMode } from '@/store/replayStore'
 
 const DEFAULT_VISIBLE_BARS = 50
 
@@ -119,16 +119,6 @@ function addSeries(
 }
 
 type CandleChartProps = {
-  mode?: ViewMode
-  symbol?: string
-  timeframe?: string
-  chartType?: ChartType
-  candles?: Candle[] | null
-  visibleCandles?: Candle[] | null
-  currentCandle?: Candle | null
-  chartSync?: ChartSync | null
-  overlays?: ChartOverlay[] | null
-  tradeMarkers?: TradeMarker[] | null
   onPriceScaleWidthChange?: (width: number) => void
   /**
    * Fires once per loaded series when the viewport reaches the oldest loaded
@@ -142,21 +132,23 @@ type CandleChartProps = {
 }
 
 export default function CandleChart({
-  mode = 'live',
-  symbol = '',
-  timeframe = '',
-  chartType = 'candlestick',
-  candles = null,
-  visibleCandles = null,
-  currentCandle = null,
-  chartSync = null,
-  overlays = null,
-  tradeMarkers = null,
   onPriceScaleWidthChange,
   onReachHistoryEdge,
   edgeThreshold = DEFAULT_EDGE_THRESHOLD,
   isPrimary = false
 }: CandleChartProps) {
+  const {
+    mode,
+    symbol,
+    timeframe,
+    chartType,
+    candles,
+    visibleCandles,
+    currentCandle,
+    chartSync,
+    overlays,
+    tradeMarkers
+  } = useChartPaneModel(isPrimary)
   const theme = useThemeStore((s) => s.theme)
   const chartSettings = useChartSettingsStore()
   const colorOverrides = useChartSettingsStore((s) => s.colors)
