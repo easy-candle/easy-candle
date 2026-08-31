@@ -74,12 +74,16 @@ describe("buildOverlays / getIndicator", () => {
   });
 
   it("builds an smc overlay when the indicator is active", () => {
-    const candles = candlesFromCloses(Array.from({ length: 60 }, (_, i) => 100 + i));
-    candles[0] = { ...candles[0], high: 200, low: 99, close: 100 };
+    const candles = candlesFromCloses(Array.from({ length: 110 }, () => 100));
+    candles[0] = { ...candles[0], high: 101, low: 90, close: 100 };
     for (let i = 1; i <= 50; i += 1) {
       candles[i] = { ...candles[i], high: 101, low: 99.5, close: 100 };
     }
-    candles[51] = { ...candles[51], high: 210, low: 100, close: 205 };
+    candles[51] = { ...candles[51], high: 120, low: 99, close: 110 };
+    for (let i = 52; i <= 101; i += 1) {
+      candles[i] = { ...candles[i], high: 111, low: 109, close: 110 };
+    }
+    candles[102] = { ...candles[102], high: 125, low: 110, close: 122 };
     const overlays = buildOverlays(candles, ["smc"]);
     expect(overlays).toHaveLength(1);
     expect(overlays[0]?.type).toBe("smc");

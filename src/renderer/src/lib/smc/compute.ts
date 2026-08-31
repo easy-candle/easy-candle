@@ -12,8 +12,18 @@ import type {
   SmcTag
 } from './types'
 
+type TrailingExtremes = {
+  top: number | null
+  bottom: number | null
+  lastTopTime: number
+  lastBottomTime: number
+}
+
 const BULLISH = 1
 const BEARISH = -1
+/** LuxAlgo `BEARISH_LEG` / `BULLISH_LEG` — not the same as structure bias. */
+const BEARISH_LEG = 0
+const BULLISH_LEG = 1
 
 type Pivot = {
   level: number | null
@@ -51,6 +61,22 @@ function emptyPivot(): Pivot {
   return { level: null, crossed: false, barIndex: -1, barTime: 0 }
 }
 
+function emptyTrailing(): TrailingExtremes {
+  return { top: null, bottom: null, lastTopTime: 0, lastBottomTime: 0 }
+}
+
+/** LuxAlgo `updateTrailingExtremes`: running max high / min low after the last swing pivot. */
+function updateTrailingExtremes(bar: Candle, trailing: TrailingExtremes): void {
+  if (trailing.top != null && bar.high >= trailing.top) {
+    trailing.top = bar.high
+    trailing.lastTopTime = bar.time
+  }
+  if (trailing.bottom != null && bar.low <= trailing.bottom) {
+    trailing.bottom = bar.low
+    trailing.lastBottomTime = bar.time
+  }
+}
+
 function pushCapped<T>(list: T[], item: T, cap: number): void {
   list.push(item)
   if (list.length > cap) list.shift()
@@ -73,8 +99,8 @@ function clampCount(value: number, fallback: number): number {
 }
 
 /**
- * Bar `pivotIdx` is a pivot high once `size` later bars have all printed a
- * lower high (same confirmation window LuxAlgo uses for internal/swing legs).
+ * LuxAlgo `high[size] > ta.highest(size)`: bar `pivotIdx` is a candidate
+ * bearish-leg high once `size` later bars have all printed a lower high.
  */
 function isPivotHigh(candles: Candle[], pivotIdx: number, size: number): boolean {
   const pivot = candles[pivotIdx]
@@ -167,6 +193,11 @@ function biasOf(value: number): SmcBias {
 /**
  * Smart Money Concepts overlay for the given candle window.
  *
+ * Swing points follow LuxAlgo `leg()`: highs and lows must alternate, using
+ * the same `size`-bar confirmation as `high[size] > ta.highest(size)`.
+ * Trailing Strong/Weak high/low levels reset only on those alternating
+ * swing pivots, then track the running max high / min low.
+ *
  * Order blocks follow LuxAlgo: ATR-parsed extremes, wick mitigation, and
  * only the newest internal OBs (default 5) are drawn — not every zone from
  * the start of the loaded series.
@@ -203,29 +234,65 @@ export function computeSmc(
   const swingLow = emptyPivot()
   const internalHigh = emptyPivot()
   const internalLow = emptyPivot()
+  const trailing = emptyTrailing()
+  let swingLeg = BEARISH_LEG
+  let internalLeg = BEARISH_LEG
   let swingBias = 0
   let internalBias = 0
+  const showHighLowSwings = settings.showHighLowSwings !== false
 
   const hits: StructureHit[] = []
   const internalOrderBlocks: OrderBlock[] = []
   const swingOrderBlocks: OrderBlock[] = []
   const gaps: FairValueGap[] = []
 
-  function confirmPivots(index: number, size: number, high: Pivot, low: Pivot): void {
+  /**
+   * LuxAlgo `getCurrentStructure` / `leg()`: a new swing point is stored only
+   * when the leg *changes*. Consecutive local highs (or lows) do not replace
+   * the current swing, so trailing Strong/Weak levels stay on the last
+   * alternating pivot instead of walking forward through the trend.
+   */
+  function confirmPivots(
+    index: number,
+    size: number,
+    high: Pivot,
+    low: Pivot,
+    layer: 'swing' | 'internal'
+  ): void {
     const pivotIdx = index - size
     if (pivotIdx < 0) return
     const bar = candles[pivotIdx]
     if (!bar) return
-    if (isPivotHigh(candles, pivotIdx, size)) {
-      high.level = bar.high
-      high.crossed = false
-      high.barIndex = pivotIdx
-      high.barTime = bar.time
-    } else if (isPivotLow(candles, pivotIdx, size)) {
+
+    const newLegHigh = isPivotHigh(candles, pivotIdx, size)
+    const newLegLow = isPivotLow(candles, pivotIdx, size)
+    const prevLeg = layer === 'swing' ? swingLeg : internalLeg
+    let nextLeg = prevLeg
+    if (newLegHigh) nextLeg = BEARISH_LEG
+    else if (newLegLow) nextLeg = BULLISH_LEG
+    if (layer === 'swing') swingLeg = nextLeg
+    else internalLeg = nextLeg
+    if (nextLeg === prevLeg) return
+
+    const trackTrailing = layer === 'swing' && showHighLowSwings
+    if (nextLeg === BULLISH_LEG) {
       low.level = bar.low
       low.crossed = false
       low.barIndex = pivotIdx
       low.barTime = bar.time
+      if (trackTrailing) {
+        trailing.bottom = bar.low
+        trailing.lastBottomTime = bar.time
+      }
+    } else {
+      high.level = bar.high
+      high.crossed = false
+      high.barIndex = pivotIdx
+      high.barTime = bar.time
+      if (trackTrailing) {
+        trailing.top = bar.high
+        trailing.lastTopTime = bar.time
+      }
     }
   }
 
@@ -361,8 +428,9 @@ export function computeSmc(
   for (let i = 0; i < candles.length; i += 1) {
     const bar = candles[i]
     if (!bar) continue
-    confirmPivots(i, swingSize, swingHigh, swingLow)
-    confirmPivots(i, internalSize, internalHigh, internalLow)
+    if (showHighLowSwings) updateTrailingExtremes(bar, trailing)
+    confirmPivots(i, swingSize, swingHigh, swingLow, 'swing')
+    confirmPivots(i, internalSize, internalHigh, internalLow, 'internal')
     tryBreak(i, swingHigh, swingLow, 'swing', null, null)
     tryBreak(i, internalHigh, internalLow, 'internal', swingHigh.level, swingLow.level)
     mitigateOrderBlocks(bar)
@@ -385,7 +453,9 @@ export function computeSmc(
       bullFvgBorder: settings.bullFvgBorder || DEFAULT_SMC_SETTINGS.bullFvgBorder,
       bearFvgBorder: settings.bearFvgBorder || DEFAULT_SMC_SETTINGS.bearFvgBorder
     },
-    cap
+    cap,
+    showHighLowSwings ? trailing : emptyTrailing(),
+    swingBias
   )
 }
 
@@ -408,7 +478,9 @@ function sceneFromState(
   gaps: FairValueGap[],
   lastTime: number,
   palette: Palette,
-  cap: number
+  cap: number,
+  trailing: TrailingExtremes,
+  swingBias: number
 ): SmcScene {
   const scene: SmcScene = { segments: [], boxes: [], labels: [] }
 
@@ -473,5 +545,68 @@ function sceneFromState(
     pushCapped(scene.boxes, box, cap)
   }
 
+  appendHighLowSwings(scene, trailing, swingBias, lastTime, palette)
+
   return scene
+}
+
+/** LuxAlgo `drawHighLowSwings`: most recent trailing swing high/low, tagged by swing bias. */
+function appendHighLowSwings(
+  scene: SmcScene,
+  trailing: TrailingExtremes,
+  swingBias: number,
+  lastTime: number,
+  palette: Palette
+): void {
+  if (trailing.top != null) {
+    const tag: SmcTag = swingBias === BEARISH ? 'Strong High' : 'Weak High'
+    scene.segments.push({
+      kind: 'segment',
+      t1: trailing.lastTopTime,
+      p1: trailing.top,
+      t2: lastTime,
+      p2: trailing.top,
+      color: palette.bearColor,
+      style: 'solid',
+      tag,
+      layer: 'swing',
+      bias: 'bear',
+      extendRight: true
+    })
+    scene.labels.push({
+      kind: 'label',
+      t: lastTime,
+      price: trailing.top,
+      text: tag,
+      color: palette.bearColor,
+      align: 'down',
+      atRight: true
+    })
+  }
+
+  if (trailing.bottom != null) {
+    const tag: SmcTag = swingBias === BULLISH ? 'Strong Low' : 'Weak Low'
+    scene.segments.push({
+      kind: 'segment',
+      t1: trailing.lastBottomTime,
+      p1: trailing.bottom,
+      t2: lastTime,
+      p2: trailing.bottom,
+      color: palette.bullColor,
+      style: 'solid',
+      tag,
+      layer: 'swing',
+      bias: 'bull',
+      extendRight: true
+    })
+    scene.labels.push({
+      kind: 'label',
+      t: lastTime,
+      price: trailing.bottom,
+      text: tag,
+      color: palette.bullColor,
+      align: 'up',
+      atRight: true
+    })
+  }
 }

@@ -31,6 +31,22 @@ const compact: SmcSettings = {
   swingOrderBlockCount: 5
 }
 
+/**
+ * LuxAlgo legs start bearish, so the first stored swing is a low.
+ * Size-2 path: low 7 (bar 0) → high 12 (bar 3) → close through 12 (bar 6).
+ */
+function lowHighBreak(dipLow = 10.8, breakHigh = 13, breakClose = 12.5): Candle[] {
+  return [
+    bar(0, 8, 8.5, 7, 7.8),
+    bar(1, 8, 9.5, 7.6, 9),
+    bar(2, 9, 9.8, 8.5, 9.4),
+    bar(3, 10, 12, 9.6, 11.5),
+    bar(4, 11.2, 11.6, dipLow, 11.1),
+    bar(5, 11, 11.5, 10.7, 11),
+    bar(6, 11.2, breakHigh, 11, breakClose)
+  ]
+}
+
 describe('computeSmc', () => {
   it('returns an empty scene for too few candles', () => {
     expect(computeSmc([])).toEqual({ segments: [], boxes: [], labels: [] })
@@ -42,39 +58,20 @@ describe('computeSmc', () => {
   })
 
   it('emits a bullish BOS after a confirmed pivot high is crossed', () => {
-    // Pivot high at bar 0 (high=10) confirmed at bar 2. Close 11 crosses it.
-    const candles = [
-      bar(0, 9, 10, 8.5, 9),
-      bar(1, 8.5, 8.8, 8, 8.4),
-      bar(2, 8.4, 8.7, 8, 8.3),
-      bar(3, 8.5, 12, 8.5, 11)
-    ]
-    const scene = computeSmc(candles, compact)
+    const scene = computeSmc(lowHighBreak(), compact)
     const bos = scene.segments.filter((s) => s.tag === 'BOS' && s.bias === 'bull')
-    // Internal and swing share size 2, so internal is skipped as a duplicate level.
     expect(bos).toHaveLength(1)
     expect(bos[0]?.layer).toBe('swing')
     expect(bos[0]?.style).toBe('solid')
-    expect(bos[0]?.p1).toBe(10)
-    expect(bos[0]?.t1).toBe(BASE)
-    expect(bos[0]?.t2).toBe(BASE + 3 * 60)
+    expect(bos[0]?.p1).toBe(12)
+    expect(bos[0]?.t1).toBe(BASE + 3 * 60)
+    expect(bos[0]?.t2).toBe(BASE + 6 * 60)
     expect(scene.labels.some((l) => l.text === 'BOS')).toBe(true)
     expect(scene.boxes.some((b) => b.tag === 'ob' && b.bias === 'bull')).toBe(true)
   })
 
   it('emits a CHoCH when price breaks against the current swing bias', () => {
-    const candles = [
-      bar(0, 9, 10, 8.5, 9),
-      bar(1, 8.5, 8.8, 8, 8.4),
-      bar(2, 8.4, 8.7, 8, 8.3),
-      bar(3, 8.5, 12, 8.5, 11),
-      // Pivot low at bar 4 (low=7) confirmed at bar 6 — high stays below later bars
-      // so this bar is not also a pivot high.
-      bar(4, 8, 8.5, 7, 7.5),
-      bar(5, 7.8, 9, 7.6, 8.5),
-      bar(6, 8.5, 9.2, 8.2, 8.8),
-      bar(7, 8, 8.2, 6, 6.5)
-    ]
+    const candles = [...lowHighBreak(), bar(7, 10, 11, 6, 6.5)]
     const scene = computeSmc(candles, compact)
     const choch = scene.segments.filter((s) => s.tag === 'CHoCH' && s.bias === 'bear')
     expect(choch.length).toBeGreaterThanOrEqual(1)
@@ -89,16 +86,19 @@ describe('computeSmc', () => {
       swingPivotSize: 4
     }
     const seq: Candle[] = [
-      bar(0, 19, 20, 18, 19),
-      bar(1, 12, 12.4, 11.6, 12),
-      bar(2, 12, 12.3, 11.6, 12),
-      bar(3, 12, 12.2, 11.6, 12),
-      bar(4, 12, 12.1, 11.6, 12),
-      bar(5, 12, 13, 11.8, 12.5),
-      bar(6, 12.4, 12.6, 12.2, 12.4),
-      bar(7, 12.4, 12.5, 12.2, 12.3),
-      bar(8, 12.5, 14, 12.5, 13.5),
-      bar(9, 14, 22, 14, 21)
+      bar(0, 11, 12, 10, 11),
+      bar(1, 11.2, 12.2, 10.8, 11.4),
+      bar(2, 11.4, 12.4, 11, 11.6),
+      bar(3, 12, 14, 11.8, 13.5),
+      bar(4, 13, 13.5, 12.8, 13),
+      bar(5, 13, 13.4, 12.9, 13.1),
+      bar(6, 13.2, 15, 13, 14.5),
+      bar(7, 15, 20, 14.8, 18),
+      bar(8, 18, 18.5, 17, 18),
+      bar(9, 18, 18.4, 17.2, 18),
+      bar(10, 18, 18.3, 17.4, 18),
+      bar(11, 18, 18.2, 17.5, 18),
+      bar(12, 19, 22, 19, 21)
     ]
     const scene = computeSmc(seq, settings)
     const internalBos = scene.segments.filter((s) => s.layer === 'internal' && s.tag === 'BOS')
@@ -111,28 +111,16 @@ describe('computeSmc', () => {
   })
 
   it('places a demand OB on the lowest bar of a bullish impulse', () => {
-    const candles = [
-      bar(0, 9, 10, 8.5, 9),
-      bar(1, 8.5, 8.8, 7, 8.4),
-      bar(2, 8.4, 8.7, 8, 8.3),
-      bar(3, 8.5, 12, 8.5, 11)
-    ]
-    const scene = computeSmc(candles, compact)
+    const scene = computeSmc(lowHighBreak(8), compact)
     const ob = scene.boxes.find((b) => b.tag === 'ob' && b.bias === 'bull')
     expect(ob).toBeDefined()
-    expect(ob?.p2).toBe(7)
-    expect(ob?.t1).toBe(BASE + 60)
+    expect(ob?.p2).toBe(8)
+    expect(ob?.t1).toBe(BASE + 4 * 60)
     expect(ob?.extendRight).toBe(true)
   })
 
   it('drops a demand OB once a wick trades through it', () => {
-    const candles = [
-      bar(0, 9, 10, 8.5, 9),
-      bar(1, 8.5, 8.8, 7, 8.4),
-      bar(2, 8.4, 8.7, 8, 8.3),
-      bar(3, 8.5, 12, 8.5, 11),
-      bar(4, 8, 8.2, 6, 6.5)
-    ]
+    const candles = [...lowHighBreak(8), bar(7, 10, 11, 6, 6.5)]
     const scene = computeSmc(candles, compact)
     expect(scene.boxes.some((b) => b.tag === 'ob' && b.bias === 'bull')).toBe(false)
   })
@@ -166,14 +154,18 @@ describe('computeSmc', () => {
   })
 
   it('uses LuxAlgo default lookbacks when settings are omitted', () => {
-    const candles = flats(0, 60, 100)
-    candles[0] = bar(0, 100, 120, 99, 100)
+    const candles = flats(0, 110, 100)
+    candles[0] = bar(0, 100, 101, 90, 100)
     for (let i = 1; i <= 50; i += 1) {
       candles[i] = bar(i, 100, 101, 99.5, 100)
     }
-    candles[51] = bar(51, 100, 125, 100, 122)
+    candles[51] = bar(51, 100, 120, 99, 110)
+    for (let i = 52; i <= 101; i += 1) {
+      candles[i] = bar(i, 110, 111, 109, 110)
+    }
+    candles[102] = bar(102, 110, 125, 110, 122)
     const scene = computeSmc(candles)
-    const swing = scene.segments.find((s) => s.layer === 'swing')
+    const swing = scene.segments.find((s) => s.layer === 'swing' && s.tag === 'BOS')
     expect(swing).toBeDefined()
     expect(swing?.p1).toBe(120)
   })
@@ -185,16 +177,18 @@ describe('computeSmc', () => {
       obFilterMult: 2
     }
     const candles = [
-      bar(0, 9.8, 10, 9.6, 9.8),
-      bar(1, 9.6, 9.7, 9.5, 9.6),
-      bar(2, 9.4, 9.6, 5, 9.4),
-      bar(3, 9.8, 12, 9.6, 11)
+      bar(0, 9.65, 9.72, 9.5, 9.66),
+      bar(1, 9.66, 9.74, 9.6, 9.7),
+      bar(2, 9.7, 9.76, 9.62, 9.72),
+      bar(3, 9.72, 10, 9.7, 9.9),
+      bar(4, 9.8, 9.85, 5, 9.7),
+      bar(5, 9.7, 9.82, 9.68, 9.75),
+      bar(6, 9.8, 12, 9.75, 11)
     ]
     const scene = computeSmc(candles, settings)
     const ob = scene.boxes.find((b) => b.tag === 'ob' && b.bias === 'bull')
     expect(ob).toBeDefined()
     expect(ob?.p2).not.toBe(5)
-    expect(ob?.t1).toBe(BASE + 60)
   })
 
   it('draws only the newest internal order blocks', () => {
@@ -219,5 +213,67 @@ describe('computeSmc', () => {
     const scene = computeSmc(candles, settings)
     const obs = scene.boxes.filter((b) => b.tag === 'ob')
     expect(obs).toHaveLength(2)
+  })
+
+  it('does not walk the trailing low up through later higher lows', () => {
+    const candles = [
+      bar(0, 8, 8.5, 7, 7.8),
+      bar(1, 8, 9.5, 7.6, 9),
+      bar(2, 9, 9.8, 8.5, 9.4),
+      // Later local lows that would confirm as size-2 pivots, but the leg is
+      // already bullish so LuxAlgo must keep the original swing low at 7.
+      bar(3, 9.5, 10, 8, 9.6),
+      bar(4, 9.6, 10.1, 8.2, 9.7),
+      bar(5, 9.7, 10.2, 8.4, 9.8),
+      bar(6, 10, 12, 9.6, 11.5),
+      bar(7, 11.2, 11.6, 10.8, 11.1),
+      bar(8, 11, 11.5, 10.7, 11),
+      bar(9, 11.2, 13, 11, 12.5)
+    ]
+    const scene = computeSmc(candles, compact)
+    const low = scene.segments.find((s) => s.tag === 'Strong Low' || s.tag === 'Weak Low')
+    expect(low?.p1).toBe(7)
+    expect(low?.tag).toBe('Strong Low')
+  })
+
+  it('tags a Weak High after a bullish BOS and tracks the running max', () => {
+    const scene = computeSmc(lowHighBreak(), compact)
+    const high = scene.segments.find((s) => s.tag === 'Weak High')
+    expect(high).toBeDefined()
+    expect(high?.p1).toBe(13)
+    expect(high?.t1).toBe(BASE + 6 * 60)
+    expect(high?.extendRight).toBe(true)
+    expect(high?.bias).toBe('bear')
+    expect(scene.labels.some((l) => l.text === 'Weak High' && l.atRight)).toBe(true)
+    expect(scene.segments.some((s) => s.tag === 'Strong High')).toBe(false)
+  })
+
+  it('tags Strong High and Weak Low after a bearish CHoCH', () => {
+    const candles = [...lowHighBreak(), bar(7, 10, 11, 6, 6.5)]
+    const scene = computeSmc(candles, compact)
+    const high = scene.segments.find((s) => s.tag === 'Strong High')
+    const low = scene.segments.find((s) => s.tag === 'Weak Low')
+    expect(high?.p1).toBe(13)
+    expect(high?.extendRight).toBe(true)
+    expect(low?.p1).toBe(6)
+    expect(low?.t1).toBe(BASE + 7 * 60)
+    expect(low?.extendRight).toBe(true)
+    expect(scene.labels.some((l) => l.text === 'Strong High' && l.atRight)).toBe(true)
+    expect(scene.labels.some((l) => l.text === 'Weak Low' && l.atRight)).toBe(true)
+  })
+
+  it('tags Strong Low after a bullish break when a swing low is confirmed', () => {
+    const scene = computeSmc(lowHighBreak(), compact)
+    const low = scene.segments.find((s) => s.tag === 'Strong Low')
+    expect(low).toBeDefined()
+    expect(low?.p1).toBe(7)
+    expect(low?.bias).toBe('bull')
+    expect(scene.labels.some((l) => l.text === 'Strong Low')).toBe(true)
+  })
+
+  it('omits strong/weak high/low when the setting is off', () => {
+    const scene = computeSmc(lowHighBreak(), { ...compact, showHighLowSwings: false })
+    expect(scene.labels.some((l) => l.atRight)).toBe(false)
+    expect(scene.segments.some((s) => s.tag === 'Weak High' || s.tag === 'Strong High')).toBe(false)
   })
 })

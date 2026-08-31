@@ -1,6 +1,6 @@
 export type SmcLayer = 'internal' | 'swing'
 export type SmcBias = 'bull' | 'bear'
-export type SmcTag = 'BOS' | 'CHoCH'
+export type SmcTag = 'BOS' | 'CHoCH' | 'Strong High' | 'Weak High' | 'Strong Low' | 'Weak Low'
 export type SmcBoxTag = 'ob' | 'fvg'
 export type SmcLineStyle = 'solid' | 'dashed'
 export type SmcLabelAlign = 'up' | 'down'
@@ -16,6 +16,8 @@ export type SmcSegment = {
   tag: SmcTag
   layer: SmcLayer
   bias: SmcBias
+  /** Draw through to the right plot edge (LuxAlgo trailing high/low). */
+  extendRight?: boolean
 }
 
 export type SmcBox = {
@@ -42,6 +44,8 @@ export type SmcLabel = {
   text: string
   color: string
   align: SmcLabelAlign
+  /** Anchor at the right plot edge instead of `t` (trailing high/low tags). */
+  atRight?: boolean
 }
 
 export type SmcScene = {
@@ -65,6 +69,8 @@ export type SmcSettings = {
   internalOrderBlockCount: number
   /** How many unmitigated swing OBs to draw (LuxAlgo default 0 / off). */
   swingOrderBlockCount: number
+  /** Highlight the most recent strong/weak high and low (LuxAlgo default on). */
+  showHighLowSwings: boolean
   bullColor: string
   bearColor: string
   bullObFill: string
