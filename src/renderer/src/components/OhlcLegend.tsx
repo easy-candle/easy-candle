@@ -1,22 +1,20 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import type {
   BarData,
   IChartApi,
   ISeriesApi,
-  LineData,
   MouseEventParams,
   SeriesDataItemTypeMap,
   SeriesType,
   Time
 } from 'lightweight-charts'
 import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import { isLineData, sameBar, type LegendBar } from '@/lib/ohlcLegendBar'
 import type { Candle } from '@shared/candleUtils'
 import { formatAssetPrice } from '@shared/pricePrecision'
 
 const UP_COLOR = '#22c55e'
 const DOWN_COLOR = '#ef4444'
-
-type LegendBar = BarData<Time> | LineData<Time>
 
 function toBar(candle: Candle): BarData<Time> {
   return {
@@ -28,12 +26,22 @@ function toBar(candle: Candle): BarData<Time> {
   }
 }
 
-function isLineData(bar: LegendBar): bar is LineData<Time> {
-  return 'value' in bar
-}
-
 function ohlcFrom(bar: BarData<Time>): Pick<BarData<Time>, 'open' | 'high' | 'low' | 'close'> {
   return { open: bar.open, high: bar.high, low: bar.low, close: bar.close }
+}
+
+function sameLastBarOhlc(a: Candle[], b: Candle[]): boolean {
+  const la = a[a.length - 1]
+  const lb = b[b.length - 1]
+  if (la === lb) return true
+  if (!la || !lb) return false
+  return (
+    la.time === lb.time &&
+    la.open === lb.open &&
+    la.high === lb.high &&
+    la.low === lb.low &&
+    la.close === lb.close
+  )
 }
 
 type OhlcLegendProps = {
@@ -44,7 +52,16 @@ type OhlcLegendProps = {
   pricePrecision: number
 }
 
-export default function OhlcLegend({
+function ohlcLegendPropsEqual(prev: OhlcLegendProps, next: OhlcLegendProps): boolean {
+  return (
+    prev.chart === next.chart &&
+    prev.series === next.series &&
+    prev.pricePrecision === next.pricePrecision &&
+    sameLastBarOhlc(prev.candles, next.candles)
+  )
+}
+
+export default memo(function OhlcLegend({
   chart,
   series,
   candles,
@@ -52,6 +69,15 @@ export default function OhlcLegend({
 }: OhlcLegendProps): ReactNode {
   const [bar, setBar] = useState<LegendBar | null>(null)
   const pinnedTimeRef = useRef<number | null>(null)
+  const candlesRef = useRef(candles)
+  candlesRef.current = candles
+
+  const last = candles[candles.length - 1]
+  const lastTime = last?.time
+  const lastOpen = last?.open
+  const lastHigh = last?.high
+  const lastLow = last?.low
+  const lastClose = last?.close
 
   useEffect(() => {
     const handler = (param: MouseEventParams<Time>): void => {
@@ -59,7 +85,7 @@ export default function OhlcLegend({
         SeriesDataItemTypeMap<Time>[SeriesType] | undefined
       if (next) {
         pinnedTimeRef.current = next.time as number
-        setBar(next as LegendBar)
+        setBar((prev) => (sameBar(prev, next as LegendBar) ? prev : (next as LegendBar)))
       }
     }
     chart.subscribeCrosshairMove(handler)
@@ -69,6 +95,7 @@ export default function OhlcLegend({
   }, [chart, series])
 
   useEffect(() => {
+    const candles = candlesRef.current
     const last = candles[candles.length - 1]
     if (!last) return
 
@@ -76,14 +103,16 @@ export default function OhlcLegend({
     if (pinned != null && pinned !== last.time) {
       const pinnedCandle = candles.find((c) => c.time === pinned)
       if (pinnedCandle) {
-        setBar(toBar(pinnedCandle))
+        const next = toBar(pinnedCandle)
+        setBar((prev) => (sameBar(prev, next) ? prev : next))
         return
       }
       pinnedTimeRef.current = null
     }
 
-    setBar(toBar(last))
-  }, [candles])
+    const next = toBar(last)
+    setBar((prev) => (sameBar(prev, next) ? prev : next))
+  }, [lastTime, lastOpen, lastHigh, lastLow, lastClose])
 
   if (!bar) return null
 
@@ -127,4 +156,4 @@ export default function OhlcLegend({
       )}
     </div>
   )
-}
+}, ohlcLegendPropsEqual)

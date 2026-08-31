@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { MousePointer2, Settings2, Trash2 } from 'lucide-react'
 import DrawingToolIcon from '@/components/DrawingToolIcon'
 import IconButton from '@/components/IconButton'
@@ -11,11 +12,11 @@ import rectangleIcon from '@/assets/drawings/rectangle.svg?raw'
 import shortIcon from '@/assets/drawings/short.svg?raw'
 import trendlineIcon from '@/assets/drawings/trendline.svg?raw'
 
-export default function DrawingToolbar() {
+export default memo(function DrawingToolbar() {
   const mode = useReplayStore((s) => s.mode)
   const replayStatus = useReplayStore((s) => s.replayStatus)
   const drawTool = useReplayStore((s) => s.drawTool)
-  const drawings = useReplayStore((s) => s.drawings)
+  const drawingsEmpty = useReplayStore((s) => s.drawings.length === 0)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const clearDrawings = useReplayStore((s) => s.clearDrawings)
   const setDrawingDialogOpen = useDrawingSettingsStore((s) => s.setDrawingDialogOpen)
@@ -116,7 +117,7 @@ export default function DrawingToolbar() {
         variant="ghost"
         tooltip="Clear drawings"
         tooltipSide="right"
-        disabled={disabled || drawings.length === 0}
+        disabled={disabled || drawingsEmpty}
         onClick={clearDrawings}
         tone="danger"
       >
@@ -134,4 +135,4 @@ export default function DrawingToolbar() {
       </IconButton>
     </div>
   )
-}
+})

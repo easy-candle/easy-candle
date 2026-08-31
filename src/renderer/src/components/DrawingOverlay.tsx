@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type RefObject
+} from 'react'
 import {
   CrosshairMode,
   LineStyle,
@@ -8,6 +17,7 @@ import {
   type Time
 } from 'lightweight-charts'
 import { ViewportBumpPrimitive } from '@/lib/chart/viewportBumpPrimitive'
+import { readOverlayViewport, sameOverlayViewport } from '@/lib/chart/overlayViewport'
 import DrawingStyleWidget from '@/components/DrawingStyleWidget'
 import Tooltip from '@/components/Tooltip'
 import {
@@ -24,6 +34,12 @@ import {
   positionLimitPlacementBlock,
   positionLimitPlacementHint,
   positionPendingChipLabel,
+  POSITION_SPAN_MAX,
+  POSITION_SPAN_MIN,
+  translateDrawing,
+  updateFibChannelHandle as updateFibChannelHandleGeom,
+  updateRectHandle as updateRectHandleGeom,
+  updateTwoPointEndpoint as updateTwoPointEndpointGeom,
   type Drawing,
   type DrawingStyle,
   type Endpoint,
@@ -234,6 +250,152 @@ type DrawingOverlayProps = {
   pricePrecision?: number
 }
 
+type DrawingOverlayInnerProps = {
+  chart: IChartApi | null
+  series: ISeriesApi<SeriesType> | null
+  paneTimeframe?: string
+  pricePrecision?: number
+  paneCandlesRef: RefObject<Candle[]>
+  paneCurrentCandleRef: RefObject<Candle | null>
+}
+
+const EMPTY_CANDLES: Candle[] = []
+
+type OverlayPaneRefs = {
+  candles: { current: Candle[] }
+  current: { current: Candle | null }
+}
+
+const overlayPaneRefs = new WeakMap<IChartApi, OverlayPaneRefs>()
+
+function selectMarkClose(
+  s: Parameters<typeof selectPriceFollowCandle>[0]
+): number | null {
+  return selectPriceFollowCandle(s)?.close ?? null
+}
+
+function overlayHasViewportContent(): boolean {
+  const s = useReplayStore.getState()
+  return (
+    s.drawings.length > 0 ||
+    s.pendingTrend != null ||
+    s.positions.length > 0 ||
+    s.pendingOrders.length > 0 ||
+    s.closedTrades.length > 0 ||
+    s.ticketTakeProfit != null ||
+    s.ticketStopLoss != null ||
+    s.ticketLimitPrice != null ||
+    s.pricePick != null
+  )
+}
+
+function MarkCloseSubscriber({
+  children
+}: {
+  children: (markClose: number | null) => ReactNode
+}) {
+  const markClose = useReplayStore(selectMarkClose)
+  return <>{children(markClose)}</>
+}
+
+function LivePnlText({
+  working,
+  symbol,
+  x,
+  y
+}: {
+  working: Position
+  symbol: string
+  x: number
+  y: number
+}) {
+  const markClose = useReplayStore(selectMarkClose)
+  const pnl = unrealizedPnl(working, markClose, pnlScaleForSymbol(symbol, working.lots))
+  const color =
+    pnl == null
+      ? TRADE_OVERLAY.handleTextMuted
+      : pnl >= 0
+        ? TRADE_OVERLAY.pnlProfit
+        : TRADE_OVERLAY.pnlLoss
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor="middle"
+      fill={color}
+      fontSize={10}
+      fontFamily={TRADE_OVERLAY.font}
+      fontWeight={600}
+      className="pointer-events-none select-none"
+    >
+      {formatPnlUsd(pnl)}
+    </text>
+  )
+}
+
+function PositionLimitChip({
+  drawing,
+  origin,
+  visibleRange
+}: {
+  drawing: PositionDrawing
+  origin: { x: number; y: number }
+  visibleRange: { from: number; to: number } | null
+}) {
+  const mark = useReplayStore(selectMarkClose)
+  const pendingKind =
+    mark != null ? pendingKindForEntry(drawing.type, mark, drawing.entry) : null
+  const block = positionLimitPlacementBlock(drawing, {
+    hasMark: mark != null,
+    markPrice: mark,
+    visibleRange
+  })
+  const hint = positionLimitPlacementHint(block, drawing.type, pendingKind)
+  const label = positionPendingChipLabel(drawing.type, pendingKind)
+  const levels = resolvedPositionLevels(drawing, visibleRange)
+
+  return (
+    <div
+      className="absolute z-[30]"
+      style={{
+        left: origin.x,
+        top: origin.y,
+        width: PLACE_LIMIT_CHIP_W,
+        height: PLACE_LIMIT_CHIP_H
+      }}
+    >
+      <Tooltip side="top" className="h-full w-full" text={hint}>
+        <button
+          type="button"
+          disabled={block != null}
+          onClick={() => {
+            if (block != null || pendingKind == null) return
+            const target = levels.target
+            const stop = levels.stop
+            if (target == null || stop == null) return
+            const store = useReplayStore.getState()
+            store.placeLimit(drawing.type, drawing.entry, pendingKind)
+            const created = useReplayStore.getState().pendingOrders.at(-1)
+            if (created) {
+              store.setTakeProfit(target, { linkRr: false, id: created.id })
+              store.setStopLoss(stop, { linkRr: false, id: created.id })
+            }
+            store.selectDrawing(null)
+          }}
+          className="flex h-full w-full items-center justify-center rounded-sm border px-2 text-[10px] font-bold text-white transition-colors enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            borderColor: block != null ? '#52525b' : '#f59e0b',
+            background:
+              block != null ? 'rgba(39, 39, 42, 0.92)' : 'rgba(180, 83, 9, 0.95)'
+          }}
+        >
+          {label}
+        </button>
+      </Tooltip>
+    </div>
+  )
+}
+
 function linkedLevelForDrag(
   kind: 'tp' | 'sl',
   price: number,
@@ -321,14 +483,14 @@ function CloseGlyph({ cx, cy, color }: { cx: number; cy: number; color: string }
 }
 
 /** SVG drawing layer synced to lightweight-charts pan/zoom. */
-export default function DrawingOverlay({
+const DrawingOverlayInner = memo(function DrawingOverlayInner({
   chart,
   series,
   paneTimeframe,
-  paneCurrentCandle = null,
-  paneCandles = [],
-  pricePrecision = DEFAULT_PRICE_PRECISION
-}: DrawingOverlayProps) {
+  pricePrecision = DEFAULT_PRICE_PRECISION,
+  paneCandlesRef,
+  paneCurrentCandleRef
+}: DrawingOverlayInnerProps) {
   const drawings = useReplayStore((s) => s.drawings)
   const drawTool = useReplayStore((s) => s.drawTool)
   const pendingTrend = useReplayStore((s) => s.pendingTrend)
@@ -339,28 +501,20 @@ export default function DrawingOverlay({
   const pendingOrders = useReplayStore((s) => s.pendingOrders)
   const selectedWorkingId = useReplayStore((s) => s.selectedWorkingId)
   const selectWorking = useReplayStore((s) => s.selectWorking)
-  const markCandle = useReplayStore(selectPriceFollowCandle)
   const riskReward = useReplayStore((s) => s.riskReward)
   const addHorizontalLine = useReplayStore((s) => s.addHorizontalLine)
-  const updateHorizontalLine = useReplayStore((s) => s.updateHorizontalLine)
   const addTwoPoint = useReplayStore((s) => s.addTwoPoint)
-  const updateTwoPointEndpoint = useReplayStore((s) => s.updateTwoPointEndpoint)
   const addFibChannelPoint = useReplayStore((s) => s.addFibChannelPoint)
-  const updateFibChannelHandle = useReplayStore((s) => s.updateFibChannelHandle)
-  const updateRectHandle = useReplayStore((s) => s.updateRectHandle)
   const addPosition = useReplayStore((s) => s.addPosition)
   const updatePositionLevel = useReplayStore((s) => s.updatePositionLevel)
-  const updatePositionEntry = useReplayStore((s) => s.updatePositionEntry)
-  const updatePositionSpan = useReplayStore((s) => s.updatePositionSpan)
   const cloneDrawing = useReplayStore((s) => s.cloneDrawing)
-  const moveDrawing = useReplayStore((s) => s.moveDrawing)
+  const replaceDrawing = useReplayStore((s) => s.replaceDrawing)
   const updateDrawingStyle = useReplayStore((s) => s.updateDrawingStyle)
   const deleteDrawing = useReplayStore((s) => s.deleteDrawing)
   const setDrawTool = useReplayStore((s) => s.setDrawTool)
   const selectDrawing = useReplayStore((s) => s.selectDrawing)
   const setTakeProfit = useReplayStore((s) => s.setTakeProfit)
   const setStopLoss = useReplayStore((s) => s.setStopLoss)
-  const placeLimit = useReplayStore((s) => s.placeLimit)
   const paperClose = useReplayStore((s) => s.paperClose)
   const cancelPending = useReplayStore((s) => s.cancelPending)
   const setPendingPrice = useReplayStore((s) => s.setPendingPrice)
@@ -389,6 +543,41 @@ export default function DrawingOverlay({
   const widgetPos = useUiLayoutStore((s) => s.drawingWidgetPos)
   const setWidgetPos = useUiLayoutStore((s) => s.setDrawingWidgetPos)
 
+  const onSelectedStyleChange = useCallback(
+    (patch: Partial<DrawingStyle>) => {
+      const id = useReplayStore.getState().selectedDrawingId
+      if (!id) return
+      updateDrawingStyle(id, patch)
+    },
+    [updateDrawingStyle]
+  )
+
+  const onSelectedPreset = useCallback((presetId: string) => {
+    const drawing = useReplayStore.getState().drawings.find((d) => d.id === useReplayStore.getState().selectedDrawingId)
+    if (!drawing) return
+    const tool = drawingToolType(drawing)
+    const preset = useDrawingSettingsStore.getState().presets[tool].find((p) => p.id === presetId)
+    if (!preset) return
+    updateDrawingStyle(drawing.id, {
+      color: preset.color,
+      lineWidth: preset.lineWidth,
+      lineStyle: preset.lineStyle,
+      fillColor: preset.fillColor,
+      tpColor: preset.tpColor,
+      slColor: preset.slColor
+    })
+  }, [updateDrawingStyle])
+
+  const onOpenDrawingSettings = useCallback(() => {
+    setDrawingDialogOpen(true, 'widget')
+  }, [setDrawingDialogOpen])
+
+  const onDeleteSelectedDrawing = useCallback(() => {
+    const id = useReplayStore.getState().selectedDrawingId
+    if (!id) return
+    deleteDrawing(id)
+  }, [deleteDrawing])
+
   const intervalSeconds =
     TIMEFRAMES[paneTimeframe || '']?.seconds ?? TIMEFRAMES[DEFAULT_TIMEFRAME].seconds
 
@@ -413,30 +602,32 @@ export default function DrawingOverlay({
 
   function timeToX(time: number): number | null {
     if (!chart) return null
+    const candles = paneCandlesRef.current ?? EMPTY_CANDLES
     const exact = chart.timeScale().timeToCoordinate(time as Time)
     if (exact != null) return exact
     // Align only for times inside a visible bar (split-pane TF mapping).
     // The last bar covers `[open, open+interval)`; a 5m exit inside the
     // current 1h candle must snap onto that bar, not into empty space after it.
-    if (isTimeInSeriesRange(time, paneCandles, intervalSeconds)) {
+    if (isTimeInSeriesRange(time, candles, intervalSeconds)) {
       const aligned = mapTimeToPane(time)
       if (aligned !== time) {
         const alignedX = chart.timeScale().timeToCoordinate(aligned as Time)
         if (alignedX != null) return alignedX
       }
     }
-    const logical = unixTimeToLogical(time, paneCandles, intervalSeconds)
+    const logical = unixTimeToLogical(time, candles, intervalSeconds)
     if (logical == null) return null
     return logicalToX(chart, logical)
   }
 
   /** Last candle whose time is at or before `time` (or null if none). */
   function lastCandleAtOrBefore(time: number): Candle | null {
-    if (paneCandles.length === 0) return null
-    const logical = unixTimeToLogical(time, paneCandles, intervalSeconds)
+    const candles = paneCandlesRef.current ?? EMPTY_CANDLES
+    if (candles.length === 0) return null
+    const logical = unixTimeToLogical(time, candles, intervalSeconds)
     if (logical == null) return null
-    const idx = Math.min(Math.max(0, Math.floor(logical)), paneCandles.length - 1)
-    const candle = paneCandles[idx]
+    const idx = Math.min(Math.max(0, Math.floor(logical)), candles.length - 1)
+    const candle = candles[idx]
     if (!candle || candle.time > time) return null
     return candle
   }
@@ -448,27 +639,92 @@ export default function DrawingOverlay({
   const [levelPreview, setLevelPreview] = useState<LevelPreview | null>(null)
   const [posPreview, setPosPreview] = useState<PosPreview | null>(null)
   const [placeHint, setPlaceHint] = useState<'tp' | 'sl' | null>(null)
+  const [draftDrawing, setDraftDrawing] = useState<Drawing | null>(null)
+  const [pendingPreview, setPendingPreview] = useState<{ id: string; price: number } | null>(null)
+  const [ticketPreview, setTicketPreview] = useState<{
+    limit?: number
+    tp?: number
+    sl?: number
+  } | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const suppressClickRef = useRef(false)
   const levelPreviewRef = useRef(levelPreview)
   const posPreviewRef = useRef(posPreview)
-  const paneCandlesRef = useRef(paneCandles)
-  levelPreviewRef.current = levelPreview
-  posPreviewRef.current = posPreview
-  paneCandlesRef.current = paneCandles
+  const draftDrawingRef = useRef<Drawing | null>(null)
+  const pendingPreviewRef = useRef(pendingPreview)
+  const ticketPreviewRef = useRef(ticketPreview)
+  const viewportRef = useRef<ReturnType<typeof readOverlayViewport> | null>(null)
+  const hairHRef = useRef<SVGLineElement>(null)
+  const hairVRef = useRef<SVGLineElement>(null)
+  const hoverRef = useRef<Point | null>(null)
+  const draftRafRef = useRef(0)
+  const hoverRafRef = useRef(0)
+
+  useEffect(() => {
+    levelPreviewRef.current = levelPreview
+    posPreviewRef.current = posPreview
+    pendingPreviewRef.current = pendingPreview
+    ticketPreviewRef.current = ticketPreview
+  })
 
   const bump = useCallback(() => setVersion((v) => v + 1), [])
+
+  function publishDraft(next: Drawing | null): void {
+    draftDrawingRef.current = next
+    if (draftRafRef.current) return
+    draftRafRef.current = requestAnimationFrame(() => {
+      draftRafRef.current = 0
+      setDraftDrawing(draftDrawingRef.current)
+    })
+  }
+
+  function applyHaircross(point: Point | null): void {
+    hoverRef.current = point
+    const h = hairHRef.current
+    const v = hairVRef.current
+    if (!h || !v) return
+    if (!point) {
+      h.setAttribute('visibility', 'hidden')
+      v.setAttribute('visibility', 'hidden')
+      return
+    }
+    h.setAttribute('visibility', 'visible')
+    h.setAttribute('y1', String(point.y))
+    h.setAttribute('y2', String(point.y))
+    v.setAttribute('visibility', 'visible')
+    v.setAttribute('x1', String(point.x))
+    v.setAttribute('x2', String(point.x))
+  }
+
+  function publishHover(point: Point | null, forRubberBand: boolean): void {
+    applyHaircross(point)
+    if (!forRubberBand) return
+    if (hoverRafRef.current) return
+    hoverRafRef.current = requestAnimationFrame(() => {
+      hoverRafRef.current = 0
+      setHover(hoverRef.current)
+    })
+  }
+
+  function drawingById(id: string): Drawing | null {
+    if (draftDrawingRef.current?.id === id) return draftDrawingRef.current
+    return useReplayStore.getState().drawings.find((d) => d.id === id) ?? null
+  }
 
   useEffect(() => {
     if (!chart || !series) return undefined
 
-    // Coalesce LWC paints (price-scale drag fires many updateAllViews per frame)
-    // into one React remount of SVG coords.
+    // Coalesce LWC paints into at most one overlay reconcile per frame, and skip
+    // when only the crosshair moved (plot size + visible ranges unchanged).
     let raf = 0
     const scheduleBump = (): void => {
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
+        if (!overlayHasViewportContent()) return
+        const next = readOverlayViewport(chart)
+        if (sameOverlayViewport(viewportRef.current, next)) return
+        viewportRef.current = next
         bump()
       })
     }
@@ -482,6 +738,8 @@ export default function DrawingOverlay({
 
     return () => {
       cancelAnimationFrame(raf)
+      cancelAnimationFrame(draftRafRef.current)
+      cancelAnimationFrame(hoverRafRef.current)
       series.detachPrimitive(primitive)
       ro.disconnect()
     }
@@ -552,14 +810,14 @@ export default function DrawingOverlay({
       const x = event.clientX - rect.left
       const y = event.clientY - rect.top
       if (x < 0 || y < 0 || x > plotRight || y > el.clientHeight) {
-        setHover(null)
+        applyHaircross(null)
         setLevelPreview(null)
         pickChart.clearCrosshairPosition()
         return
       }
       const cx = clampXToPlot(x, plotRight)
-      setHover({ x: cx, y })
-      setDrawingCrosshair(pickChart, pickSeries, cx, y, paneCandlesRef.current, intervalSeconds)
+      applyHaircross({ x: cx, y })
+      setDrawingCrosshair(pickChart, pickSeries, cx, y, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
       const price = pickSeries.coordinateToPrice(y)
       if (price == null || !Number.isFinite(price)) return
       const state = useReplayStore.getState()
@@ -611,10 +869,10 @@ export default function DrawingOverlay({
       const plotRight = readPlotRight()
       const x = clampXToPlot(event.clientX - rect.left, plotRight)
       const y = event.clientY - rect.top
-      setDrawingCrosshair(chart, series, x, y, paneCandlesRef.current, intervalSeconds)
+      setDrawingCrosshair(chart, series, x, y, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
 
       if (drag.kind === 'place-two') {
-        setHover({ x, y })
+        publishHover({ x, y }, true)
         if (Math.hypot(x - drag.startX, y - drag.startY) >= 4) drag.moved = true
         return
       }
@@ -624,23 +882,29 @@ export default function DrawingOverlay({
 
       if (drag.kind === 'hline') {
         drag.moved = true
-        updateHorizontalLine(drag.id, price)
+        const current = drawingById(drag.id)
+        if (current?.type === 'hline') publishDraft({ ...current, price })
         return
       }
 
       if (drag.kind === 'pos') {
-        const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+        const timeSec = xToUnixTime(chart, x, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
         if (timeSec == null) return
         const origin = drag.origin
         if (!origin) return
         drag.moved = true
-        moveDrawing(drag.id, origin.drawing, timeSec - origin.time, price - origin.price)
+        publishDraft(translateDrawing(origin.drawing, timeSec - origin.time, price - origin.price))
         return
       }
 
       if (drag.kind === 'pos-level') {
+        const current = drawingById(drag.id)
+        if (!current || !isPositionDrawing(current)) return
+        if (!isValidPositionLevel(current.type, drag.level, current.entry, price)) return
         drag.moved = true
-        updatePositionLevel(drag.id, drag.level, price)
+        publishDraft(
+          drag.level === 'target' ? { ...current, target: price } : { ...current, stop: price }
+        )
         return
       }
 
@@ -654,16 +918,17 @@ export default function DrawingOverlay({
           drag.axis = Math.abs(dx) > Math.abs(dy) ? 'span' : 'entry'
           drag.moved = true
         }
+        const current = drawingById(drag.id)
+        if (!current || !isPositionDrawing(current)) return
         if (drag.axis === 'span') {
-          const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+          const timeSec = xToUnixTime(chart, x, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
           if (timeSec == null) return
-          const state = useReplayStore.getState()
-          const drawing = state.drawings.find((d) => d.id === drag.id)
-          if (!drawing || !isPositionDrawing(drawing)) return
-          updatePositionSpan(drag.id, (timeSec - drawing.t) / intervalSeconds)
+          const span = (timeSec - current.t) / intervalSeconds
+          const clamped = Math.max(POSITION_SPAN_MIN, Math.min(POSITION_SPAN_MAX, Math.round(span)))
+          publishDraft({ ...current, span: clamped })
           return
         }
-        updatePositionEntry(drag.id, price)
+        publishDraft({ ...current, entry: price })
         return
       }
 
@@ -678,14 +943,16 @@ export default function DrawingOverlay({
           drawing[opposite] == null
             ? mirrorPositionLevel(drawing.type, drawing.entry, drag.level, price)
             : null
-        setPosPreview({
+        const preview = {
           id: drag.id,
           level: drag.level,
           price,
           y,
           mirrorPrice: mirror,
           mirrorY: mirror == null ? null : (series.priceToCoordinate(mirror) ?? null)
-        })
+        }
+        posPreviewRef.current = preview
+        setPosPreview(preview)
         return
       }
 
@@ -697,7 +964,9 @@ export default function DrawingOverlay({
         if (!pending || mark == null) return
         if (isValidPendingPrice(resolvedPendingKind(pending.kind), pending.side, mark, price)) {
           selectWorking(pending.id)
-          setPendingPrice(price)
+          const preview = { id: pending.id, price }
+          pendingPreviewRef.current = preview
+          setPendingPreview(preview)
         }
         return
       }
@@ -705,8 +974,9 @@ export default function DrawingOverlay({
       if (drag.kind === 'draft') {
         drag.moved = true
         const state = useReplayStore.getState()
+        const prev = ticketPreviewRef.current ?? {}
         if (drag.level === 'limit') {
-          setTicketLimitPrice(price)
+          const next = { ...prev, limit: price }
           if (drag.linkRr && drag.rrSource === 'sl' && state.ticketStopLoss != null) {
             const linkedTp = linkedTicketOpposite(
               'sl',
@@ -714,7 +984,7 @@ export default function DrawingOverlay({
               price,
               state.riskReward
             )
-            if (linkedTp != null) setTicketTakeProfit(linkedTp)
+            if (linkedTp != null) next.tp = linkedTp
           } else if (drag.linkRr && drag.rrSource === 'tp' && state.ticketTakeProfit != null) {
             const linkedSl = linkedTicketOpposite(
               'tp',
@@ -722,26 +992,32 @@ export default function DrawingOverlay({
               price,
               state.riskReward
             )
-            if (linkedSl != null) setTicketStopLoss(linkedSl)
+            if (linkedSl != null) next.sl = linkedSl
           }
+          ticketPreviewRef.current = next
+          setTicketPreview(next)
           return
         }
         const entry = isPendingTicketType(state.ticketOrderType)
-          ? state.ticketLimitPrice
+          ? (prev.limit ?? state.ticketLimitPrice)
           : (state.currentCandle?.close ?? null)
         if (drag.level === 'tp') {
-          setTicketTakeProfit(price)
+          const next = { ...prev, tp: price }
           if (drag.linkRr && entry != null) {
             const linkedSl = linkedTicketOpposite('tp', price, entry, state.riskReward)
-            if (linkedSl != null) setTicketStopLoss(linkedSl)
+            if (linkedSl != null) next.sl = linkedSl
           }
+          ticketPreviewRef.current = next
+          setTicketPreview(next)
           return
         }
-        setTicketStopLoss(price)
+        const next = { ...prev, sl: price }
         if (drag.linkRr && entry != null) {
           const linkedTp = linkedTicketOpposite('sl', price, entry, state.riskReward)
-          if (linkedTp != null) setTicketTakeProfit(linkedTp)
+          if (linkedTp != null) next.tp = linkedTp
         }
+        ticketPreviewRef.current = next
+        setTicketPreview(next)
         return
       }
 
@@ -750,12 +1026,7 @@ export default function DrawingOverlay({
         const state = useReplayStore.getState()
         const item = lookupWorking(state.positions, state.pendingOrders, drag.workingId)
         const working = item?.working ?? null
-        const pending = item?.isPending
-          ? (state.pendingOrders.find((p) => p.id === drag.workingId) ?? null)
-          : null
-        const open = item && !item.isPending ? item.working : null
         selectWorking(drag.workingId)
-        // Guide preview only while placing the first level; later moves are free.
         const linked =
           drag.mode === 'place' && working != null
             ? linkedLevelForDrag(
@@ -767,30 +1038,15 @@ export default function DrawingOverlay({
                 series
               )
             : { linkedPrice: null, linkedY: null }
-        setLevelPreview({
+        const preview = {
           kind: drag.kind,
           price,
           y,
           linkedPrice: linked.linkedPrice,
           linkedY: linked.linkedY
-        })
-        if (drag.mode === 'move') {
-          if (!working) return
-          if (drag.kind === 'tp') {
-            if (isValidTakeProfit(working.side, working.entryPrice, price)) {
-              setTakeProfit(price, { id: drag.workingId })
-            }
-          } else if (pending && !open) {
-            if (isValidPendingStopLoss(pending.side, pending.price, price)) {
-              setStopLoss(price, { id: drag.workingId })
-            }
-          } else {
-            const mark = state.currentCandle?.close
-            if (mark != null && isValidStopLoss(working.side, mark, price)) {
-              setStopLoss(price, { id: drag.workingId })
-            }
-          }
         }
+        levelPreviewRef.current = preview
+        setLevelPreview(preview)
         return
       }
 
@@ -800,35 +1056,40 @@ export default function DrawingOverlay({
         drag.kind === 'fibchannel' ||
         drag.kind === 'rect'
       ) {
-        const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+        const timeSec = xToUnixTime(chart, x, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
         if (timeSec == null) return
         const point: TrendPoint = { time: timeSec, price }
+        const current = drawingById(drag.id)
+        if (!current) return
         drag.moved = true
 
         if (drag.kind === 'rect') {
           if (drag.handle === 'body') {
             const origin = drag.origin
             if (!origin) return
-            moveDrawing(drag.id, origin.drawing, timeSec - origin.time, price - origin.price)
+            publishDraft(translateDrawing(origin.drawing, timeSec - origin.time, price - origin.price))
             return
           }
-          updateRectHandle(drag.id, drag.handle, point)
+          if (current.type !== 'rect') return
+          publishDraft(updateRectHandleGeom(current, drag.handle, point))
           return
         }
 
         if (drag.end === 'body') {
           const origin = drag.origin
           if (!origin) return
-          moveDrawing(drag.id, origin.drawing, timeSec - origin.time, price - origin.price)
+          publishDraft(translateDrawing(origin.drawing, timeSec - origin.time, price - origin.price))
           return
         }
 
         if (drag.kind === 'fibchannel') {
-          updateFibChannelHandle(drag.id, drag.end, point)
+          if (current.type !== 'fibchannel') return
+          publishDraft(updateFibChannelHandleGeom(current, drag.end, point))
           return
         }
 
-        updateTwoPointEndpoint(drag.id, drag.end, point)
+        if (current.type !== 'trendline' && current.type !== 'fib') return
+        publishDraft(updateTwoPointEndpointGeom(current, drag.end, point))
       }
     }
 
@@ -846,7 +1107,7 @@ export default function DrawingOverlay({
             const x = clampXToPlot(event.clientX - box.left, plotRight)
             const y = event.clientY - box.top
             const price = series.coordinateToPrice(y)
-            const timeSec = xToUnixTime(chart, x, paneCandlesRef.current, intervalSeconds)
+            const timeSec = xToUnixTime(chart, x, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
             if (price != null && Number.isFinite(price) && timeSec != null) {
               if (drag.tool === 'fibchannel') {
                 addFibChannelPoint({ time: timeSec, price })
@@ -860,14 +1121,44 @@ export default function DrawingOverlay({
         } else if (!(drag.tool === 'fibchannel' && useReplayStore.getState().pendingTrend)) {
           setDrawTool(drag.tool)
         }
+        applyHaircross(null)
         setHover(null)
       }
 
-      if (drag && (drag.kind === 'tp' || drag.kind === 'sl') && drag.mode === 'place') {
+      if (drag && (drag.kind === 'tp' || drag.kind === 'sl') && drag.moved) {
         const preview = levelPreviewRef.current
         if (preview && preview.kind === drag.kind) {
-          if (drag.kind === 'tp') setTakeProfit(preview.price, { linkRr: true, id: drag.workingId })
-          else setStopLoss(preview.price, { linkRr: true, id: drag.workingId })
+          if (drag.mode === 'place') {
+            if (drag.kind === 'tp') {
+              setTakeProfit(preview.price, { linkRr: true, id: drag.workingId })
+            } else {
+              setStopLoss(preview.price, { linkRr: true, id: drag.workingId })
+            }
+          } else {
+            const state = useReplayStore.getState()
+            const item = lookupWorking(state.positions, state.pendingOrders, drag.workingId)
+            const working = item?.working ?? null
+            const pending = item?.isPending
+              ? (state.pendingOrders.find((p) => p.id === drag.workingId) ?? null)
+              : null
+            const open = item && !item.isPending ? item.working : null
+            if (working) {
+              if (drag.kind === 'tp') {
+                if (isValidTakeProfit(working.side, working.entryPrice, preview.price)) {
+                  setTakeProfit(preview.price, { id: drag.workingId })
+                }
+              } else if (pending && !open) {
+                if (isValidPendingStopLoss(pending.side, pending.price, preview.price)) {
+                  setStopLoss(preview.price, { id: drag.workingId })
+                }
+              } else {
+                const mark = state.currentCandle?.close
+                if (mark != null && isValidStopLoss(working.side, mark, preview.price)) {
+                  setStopLoss(preview.price, { id: drag.workingId })
+                }
+              }
+            }
+          }
         }
       }
 
@@ -886,6 +1177,42 @@ export default function DrawingOverlay({
         }
       }
 
+      if (drag?.kind === 'pending' && drag.moved) {
+        const preview = pendingPreviewRef.current
+        if (preview && preview.id === drag.workingId) setPendingPrice(preview.price)
+      }
+
+      if (drag?.kind === 'draft' && drag.moved) {
+        const preview = ticketPreviewRef.current
+        if (preview) {
+          if (preview.limit != null) setTicketLimitPrice(preview.limit)
+          if (preview.tp != null) setTicketTakeProfit(preview.tp)
+          if (preview.sl != null) setTicketStopLoss(preview.sl)
+        }
+      }
+
+      if (
+        drag &&
+        (drag.kind === 'hline' ||
+          drag.kind === 'trend' ||
+          drag.kind === 'fib' ||
+          drag.kind === 'fibchannel' ||
+          drag.kind === 'rect' ||
+          drag.kind === 'pos' ||
+          drag.kind === 'pos-level' ||
+          drag.kind === 'pos-entry') &&
+        drag.moved &&
+        draftDrawingRef.current
+      ) {
+        replaceDrawing(draftDrawingRef.current)
+      }
+
+      draftDrawingRef.current = null
+      setDraftDrawing(null)
+      pendingPreviewRef.current = null
+      ticketPreviewRef.current = null
+      setPendingPreview(null)
+      setTicketPreview(null)
       dragRef.current = null
       setDraggingKey(null)
       setLevelPreview(null)
@@ -902,14 +1229,7 @@ export default function DrawingOverlay({
     draggingKey,
     chart,
     series,
-    updateHorizontalLine,
-    updateTwoPointEndpoint,
-    updateFibChannelHandle,
-    updateRectHandle,
     updatePositionLevel,
-    updatePositionEntry,
-    updatePositionSpan,
-    moveDrawing,
     addTwoPoint,
     addFibChannelPoint,
     setDrawTool,
@@ -919,6 +1239,8 @@ export default function DrawingOverlay({
     setTicketLimitPrice,
     setTicketTakeProfit,
     setTicketStopLoss,
+    replaceDrawing,
+    selectWorking,
     intervalSeconds
   ])
 
@@ -943,7 +1265,7 @@ export default function DrawingOverlay({
 
     if (drawTool !== 'hline' && !isPositionTool(drawTool)) return
     if (isPositionTool(drawTool)) {
-      const timeSec = xToUnixTime(chart, x, paneCandles, intervalSeconds)
+      const timeSec = xToUnixTime(chart, x, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
       if (timeSec == null) return
       addPosition(
         { time: timeSec, price },
@@ -972,22 +1294,24 @@ export default function DrawingOverlay({
       addTwoPoint(point)
     }
     dragRef.current = { kind: 'place-two', tool: drawTool, startX: x, startY: y, moved: false }
-    setHover({ x, y })
-    setDrawingCrosshair(chart, series, x, y, paneCandles, intervalSeconds)
+    publishHover({ x, y }, true)
+    setDrawingCrosshair(chart, series, x, y, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
     setDraggingKey('place-two')
   }
 
   function onMove(event: ReactMouseEvent<SVGSVGElement>): void {
     if (!placing || !chart || !series) {
-      setHover(null)
+      applyHaircross(null)
       return
     }
     const rect = event.currentTarget.getBoundingClientRect()
     const plotRight = readPlotRight()
     const x = clampXToPlot(event.clientX - rect.left, plotRight)
     const y = event.clientY - rect.top
-    setHover({ x, y })
-    setDrawingCrosshair(chart, series, x, y, paneCandles, intervalSeconds)
+    const rubber =
+      Boolean(useReplayStore.getState().pendingTrend) || dragRef.current?.kind === 'place-two'
+    publishHover({ x, y }, rubber)
+    setDrawingCrosshair(chart, series, x, y, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
 
     if (!pricePick || (pricePick !== 'tp' && pricePick !== 'sl')) {
       if (pricePick === 'limit') setLevelPreview(null)
@@ -1024,7 +1348,7 @@ export default function DrawingOverlay({
     const plotRight = readPlotRight()
     if (!isInPlotX(x, plotRight)) return null
     const price = series.coordinateToPrice(y)
-    const time = xToUnixTime(chart, clampXToPlot(x, plotRight), paneCandles, intervalSeconds)
+    const time = xToUnixTime(chart, clampXToPlot(x, plotRight), paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
     if (price == null || !Number.isFinite(price) || time == null) return null
     return { time, price }
   }
@@ -1077,6 +1401,17 @@ export default function DrawingOverlay({
     }
 
     dragRef.current = drag
+    if (
+      'id' in drag &&
+      typeof drag.id === 'string' &&
+      drag.kind !== 'pos-place'
+    ) {
+      const seeded = useReplayStore.getState().drawings.find((d) => d.id === drag.id)
+      if (seeded) {
+        draftDrawingRef.current = seeded
+        setDraftDrawing(seeded)
+      }
+    }
     if (drag.kind === 'hline') {
       setDraggingKey(`hline:${drag.id}`)
     } else if (drag.kind === 'trend' || drag.kind === 'fib' || drag.kind === 'fibchannel') {
@@ -1165,6 +1500,13 @@ export default function DrawingOverlay({
   // Touch version so React doesn't drop redraw deps for lint.
   void version
 
+  const shownDrawings = draftDrawing
+    ? drawings.map((d) => (d.id === draftDrawing.id ? draftDrawing : d))
+    : drawings
+  const liveLimit = ticketPreview?.limit ?? ticketLimitPrice
+  const liveTp = ticketPreview?.tp ?? ticketTakeProfit
+  const liveSl = ticketPreview?.sl ?? ticketStopLoss
+
   const width = chart?.chartElement()?.clientWidth ?? 0
   const height = chart?.chartElement()?.clientHeight ?? 0
   const priceScaleW = chart?.priceScale('right').width() ?? 56
@@ -1200,7 +1542,7 @@ export default function DrawingOverlay({
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
   }
 
-  const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId) ?? null
+  const selectedDrawing = shownDrawings.find((d) => d.id === selectedDrawingId) ?? null
   const selectedAnchor = selectedDrawing ? drawingAnchor(selectedDrawing) : null
   const selectedStyle: DrawingStyle | null =
     selectedDrawing != null
@@ -1259,51 +1601,7 @@ export default function DrawingOverlay({
     }
   }
 
-  /** Place Limit / Stop Limit from a selected position drawing: auto-submits at
-   * the drawing's entry with its drawn TP/SL, then deselects so the button is
-   * not shown again. Entry vs mark picks Buy/Sell Limit or Stop Limit. A fresh
-   * drawing's painted 1:3 guide is used when the handles have not been dragged.
-   */
-  const limitAction =
-    selectedDrawing != null && isPositionDrawing(selectedDrawing) && canEditTrade
-      ? (() => {
-          const visibleRange = readVisiblePriceRange()
-          const levels = resolvedPositionLevels(selectedDrawing, visibleRange)
-          const mark = markCandle?.close ?? null
-          const pendingKind =
-            mark != null
-              ? pendingKindForEntry(selectedDrawing.type, mark, selectedDrawing.entry)
-              : null
-          const block = positionLimitPlacementBlock(selectedDrawing, {
-            hasMark: mark != null,
-            markPrice: mark,
-            visibleRange
-          })
-          return {
-            side: selectedDrawing.type,
-            kind: pendingKind,
-            disabled: block != null,
-            hint: positionLimitPlacementHint(block, selectedDrawing.type, pendingKind),
-            onPlace: () => {
-              if (block != null || pendingKind == null) return
-              const target = levels.target
-              const stop = levels.stop
-              if (target == null || stop == null) return
-              placeLimit(selectedDrawing.type, selectedDrawing.entry, pendingKind)
-              const created = useReplayStore.getState().pendingOrders.at(-1)
-              if (created) {
-                setTakeProfit(target, { linkRr: false, id: created.id })
-                setStopLoss(stop, { linkRr: false, id: created.id })
-              }
-              selectDrawing(null)
-            }
-          }
-        })()
-      : null
-
-  const pnlScale = pnlScaleForSymbol(symbol, working?.lots)
   const qtyLabel = formatTradeSizeForSymbol(working?.lots ?? 1, symbol)
-  const openPnl = working != null && !isPending ? unrealizedPnl(working, markCandle?.close, pnlScale) : null
 
   const draggingTradeLevel =
     draggingKey?.startsWith('tp:') === true || draggingKey?.startsWith('sl:') === true
@@ -1324,28 +1622,12 @@ export default function DrawingOverlay({
 
   const showTicketDraft =
     canEditTrade &&
-    (ticketTakeProfit != null ||
-      ticketStopLoss != null ||
-      (isPendingTicketType(ticketOrderType) && ticketLimitPrice != null))
-  const draftLevels = {
-    orderType: ticketOrderType,
-    markPrice: markCandle?.close,
-    limitPrice: ticketLimitPrice,
-    takeProfit: ticketTakeProfit,
-    stopLoss: ticketStopLoss
-  }
-  const draftSide = showTicketDraft ? inferTicketSide(draftLevels) : null
-  const draftEntryColor = draftSide === 'short' ? TRADE_OVERLAY.shortLine : TRADE_OVERLAY.longLine
-  const draftEntryPrice = isPendingTicketType(ticketOrderType)
-    ? ticketLimitPrice
-    : ticketTakeProfit != null || ticketStopLoss != null
-      ? (markCandle?.close ?? null)
-      : null
+    (liveTp != null || liveSl != null || (isPendingTicketType(ticketOrderType) && liveLimit != null))
   const draftEntryDraggable = isPendingTicketType(ticketOrderType)
 
   const pendingKindLabel =
     resolvedPendingKind(selectedItem?.pendingKind) === 'stopLimit' ? 'Stop Lim' : 'Limit'
-  const openPnlLabel = isPending ? pendingKindLabel : formatPnlUsd(openPnl)
+  const openPnlLabel = isPending ? pendingKindLabel : formatPnlUsd(0)
 
   // Sit labels in the blank pane after the last candle, left of the price scale.
   const paneRight = Math.max(0, plotRight - OVERLAY_LAYOUT.rightPad)
@@ -1359,7 +1641,8 @@ export default function DrawingOverlay({
   const entryPillW =
     estimateQtyWidth(qtyLabel) + estimatePnlWidth(openPnlLabel) + OVERLAY_LAYOUT.closeW
   const clusterNeedW = placeExtra + entryPillW
-  const playheadCandle = paneCurrentCandle ?? markCandle
+  const playheadCandle =
+    paneCurrentCandleRef.current ?? selectPriceFollowCandle(useReplayStore.getState())
   const lastCandleX = playheadCandle ? timeToX(playheadCandle.time) : null
   const afterLast =
     lastCandleX != null && Number.isFinite(lastCandleX)
@@ -1377,18 +1660,19 @@ export default function DrawingOverlay({
     price: number,
     color: string,
     label: string,
-    draggable = true
+    draggable = true,
+    markClose: number | null = null
   ) {
     const y = series?.priceToCoordinate(price)
     if (y == null) return null
     const hasEntry = isPendingTicketType(ticketOrderType)
-      ? ticketLimitPrice != null
-      : markCandle?.close != null
+      ? liveLimit != null
+      : markClose != null
     const rrSource: 'tp' | 'sl' | undefined =
       level === 'limit'
-        ? ticketStopLoss != null && ticketTakeProfit == null
+        ? liveSl != null && liveTp == null
           ? 'sl'
-          : ticketTakeProfit != null && ticketStopLoss == null
+          : liveTp != null && liveSl == null
             ? 'tp'
             : undefined
         : undefined
@@ -1396,16 +1680,9 @@ export default function DrawingOverlay({
       draggable &&
       (level === 'limit'
         ? rrSource != null
-        : hasEntry &&
-          ((level === 'tp' && ticketStopLoss == null) ||
-            (level === 'sl' && ticketTakeProfit == null)))
+        : hasEntry && ((level === 'tp' && liveSl == null) || (level === 'sl' && liveTp == null)))
     const badgeW = label === 'Entry' ? 44 : 28
     const badgeX = Math.max(8, plotRight - badgeW - 8)
-    const start = draggable
-      ? (event: ReactMouseEvent): void => {
-          startDrag(event, { kind: 'draft', level, moved: false, linkRr, rrSource })
-        }
-      : undefined
     return (
       <g key={`draft-${level}`}>
         <line
@@ -1426,12 +1703,19 @@ export default function DrawingOverlay({
             height={10}
             fill="transparent"
             className="pointer-events-auto cursor-ns-resize"
-            onMouseDown={start}
+            onMouseDown={(event) =>
+              startDrag(event, { kind: 'draft', level, moved: false, linkRr, rrSource })
+            }
           />
         )}
         <g
           className={draggable ? 'pointer-events-auto cursor-ns-resize' : 'pointer-events-none'}
-          onMouseDown={start}
+          onMouseDown={
+            draggable
+              ? (event) =>
+                  startDrag(event, { kind: 'draft', level, moved: false, linkRr, rrSource })
+              : undefined
+          }
         >
           <title>{draggable ? `Drag to move ${label}` : label}</title>
           <rect
@@ -1536,6 +1820,7 @@ export default function DrawingOverlay({
     qtyLabel?: string
     pnlLabel: string
     pnlColor: string
+    pnlLive?: Position
     closeColor: string
     onClose?: (e: ReactMouseEvent) => void
     onDragStart?: (e: ReactMouseEvent) => void
@@ -1550,6 +1835,7 @@ export default function DrawingOverlay({
       qtyLabel: sizeLabel = qtyLabel,
       pnlLabel,
       pnlColor,
+      pnlLive,
       closeColor,
       onClose,
       onDragStart,
@@ -1611,18 +1897,27 @@ export default function DrawingOverlay({
           strokeOpacity={0.55}
           strokeWidth={1}
         />
-        <text
-          x={x + qtyW + pnlW / 2}
-          y={y + 3.5}
-          textAnchor="middle"
-          fill={pnlColor}
-          fontSize={10}
-          fontFamily={TRADE_OVERLAY.font}
-          fontWeight={600}
-          className="pointer-events-none select-none"
-        >
-          {pnlLabel}
-        </text>
+        {pnlLive != null ? (
+          <LivePnlText
+            working={pnlLive}
+            symbol={symbol}
+            x={x + qtyW + pnlW / 2}
+            y={y + 3.5}
+          />
+        ) : (
+          <text
+            x={x + qtyW + pnlW / 2}
+            y={y + 3.5}
+            textAnchor="middle"
+            fill={pnlColor}
+            fontSize={10}
+            fontFamily={TRADE_OVERLAY.font}
+            fontWeight={600}
+            className="pointer-events-none select-none"
+          >
+            {pnlLabel}
+          </text>
+        )}
         <line
           x1={x + qtyW + pnlW}
           y1={top + 3}
@@ -1667,6 +1962,7 @@ export default function DrawingOverlay({
         }}
         onMouseLeave={() => {
           if (dragRef.current?.kind === 'place-two') return
+          applyHaircross(null)
           setHover(null)
           setPlaceHint(null)
           if (pricePick) setLevelPreview(null)
@@ -1707,20 +2003,42 @@ export default function DrawingOverlay({
         })}
 
         {showTicketDraft && (
-          <g key="ticket-draft">
-            {draftEntryPrice != null &&
-              renderDraftLevel(
-                'limit',
-                draftEntryPrice,
-                draftEntryColor,
-                'Entry',
-                draftEntryDraggable
-              )}
-            {ticketTakeProfit != null &&
-              renderDraftLevel('tp', ticketTakeProfit, TRADE_OVERLAY.tpLine, 'TP')}
-            {ticketStopLoss != null &&
-              renderDraftLevel('sl', ticketStopLoss, TRADE_OVERLAY.slLine, 'SL')}
-          </g>
+          <MarkCloseSubscriber>
+            {(markClose) => {
+              const draftLevels = {
+                orderType: ticketOrderType,
+                markPrice: markClose,
+                limitPrice: liveLimit,
+                takeProfit: liveTp,
+                stopLoss: liveSl
+              }
+              const draftSide = inferTicketSide(draftLevels)
+              const draftEntryColor =
+                draftSide === 'short' ? TRADE_OVERLAY.shortLine : TRADE_OVERLAY.longLine
+              const draftEntryPrice = isPendingTicketType(ticketOrderType)
+                ? liveLimit
+                : liveTp != null || liveSl != null
+                  ? markClose
+                  : null
+              return (
+                <g key="ticket-draft">
+                  {draftEntryPrice != null &&
+                    renderDraftLevel(
+                      'limit',
+                      draftEntryPrice,
+                      draftEntryColor,
+                      'Entry',
+                      draftEntryDraggable,
+                      markClose
+                    )}
+                  {liveTp != null &&
+                    renderDraftLevel('tp', liveTp, TRADE_OVERLAY.tpLine, 'TP', true, markClose)}
+                  {liveSl != null &&
+                    renderDraftLevel('sl', liveSl, TRADE_OVERLAY.slLine, 'SL', true, markClose)}
+                </g>
+              )
+            }}
+          </MarkCloseSubscriber>
         )}
 
         {workingOverlays.map((item) => {
@@ -1728,20 +2046,12 @@ export default function DrawingOverlay({
           const isPending = item.isPending
           const workingId = item.id
           const itemPnlScale = pnlScaleForSymbol(symbol, working.lots)
-          const itemOpenPnl =
-            isPending ? null : unrealizedPnl(working, markCandle?.close, itemPnlScale)
           const itemSideColor =
             working.side === 'long' ? TRADE_OVERLAY.longLine : TRADE_OVERLAY.shortLine
           const itemPendingLabel =
             resolvedPendingKind(item.pendingKind) === 'stopLimit' ? 'Stop Lim' : 'Limit'
-          const itemOpenPnlLabel = isPending ? itemPendingLabel : formatPnlUsd(itemOpenPnl)
-          const itemOpenPnlColor = isPending
-            ? TRADE_OVERLAY.handleTextMuted
-            : itemOpenPnl == null
-              ? TRADE_OVERLAY.handleTextMuted
-              : itemOpenPnl >= 0
-                ? TRADE_OVERLAY.pnlProfit
-                : TRADE_OVERLAY.pnlLoss
+          const itemOpenPnlLabel = isPending ? itemPendingLabel : formatPnlUsd(0)
+          const itemOpenPnlColor = TRADE_OVERLAY.handleTextMuted
           const previewHere =
             draggingKey === `tp:place:${workingId}` ||
             draggingKey === `tp:move:${workingId}` ||
@@ -1749,7 +2059,9 @@ export default function DrawingOverlay({
             draggingKey === `sl:move:${workingId}`
           const itemTpPrice = previewHere ? tpPrice : working.takeProfit
           const itemSlPrice = previewHere ? slPrice : working.stopLoss
-          const itemEntryY = series?.priceToCoordinate(working.entryPrice)
+          const liveEntryPrice =
+            pendingPreview?.id === workingId ? pendingPreview.price : working.entryPrice
+          const itemEntryY = series?.priceToCoordinate(liveEntryPrice)
           const itemTpY = itemTpPrice != null ? series?.priceToCoordinate(itemTpPrice) : null
           const itemSlY = itemSlPrice != null ? series?.priceToCoordinate(itemSlPrice) : null
           if (itemEntryY == null) return null
@@ -1929,6 +2241,7 @@ export default function DrawingOverlay({
                     qtyLabel: formatTradeSizeForSymbol(working.lots, symbol),
                     pnlLabel: openPnlLabel,
                     pnlColor: openPnlColor,
+                    pnlLive: isPending ? undefined : working,
                     closeColor: TRADE_OVERLAY.closeIcon,
                     dragCursor: canEditTrade && isPending ? 'cursor-ns-resize' : undefined,
                     onDragStart:
@@ -2032,7 +2345,7 @@ export default function DrawingOverlay({
           )
         })}
 
-        {drawings.map((drawing) => {
+        {shownDrawings.map((drawing) => {
           const selected = drawing.id === selectedDrawingId
           const hovered = drawing.id === hoveredDrawingId
           const dragging = draggingKey?.includes(drawing.id) ?? false
@@ -2269,6 +2582,7 @@ export default function DrawingOverlay({
             // placed on the last candle still inside the box (both x and y).
             let priceLine: { x1: number; y1: number; x2: number; y2: number } | null = null
             let priceLineTowardTp = true
+            const candles = paneCandlesRef.current ?? EMPTY_CANDLES
             if (playheadCandle && Number.isFinite(playheadCandle.close)) {
               if (playheadCandle.time >= drawing.t) {
                 const inBox = playheadCandle.time <= boxRightTime
@@ -2276,11 +2590,11 @@ export default function DrawingOverlay({
                 // range contains the entry line (low <= entry <= high).
                 let entryIdx = -1
                 let startX: number | null = null
-                const entryLogical = unixTimeToLogical(drawing.t, paneCandles, intervalSeconds)
+                const entryLogical = unixTimeToLogical(drawing.t, candles, intervalSeconds)
                 if (entryLogical != null) {
                   const fromIdx = Math.max(0, Math.floor(entryLogical))
-                  for (let i = fromIdx; i < paneCandles.length; i++) {
-                    const c = paneCandles[i]
+                  for (let i = fromIdx; i < candles.length; i++) {
+                    const c = candles[i]
                     if (c.time > boxRightTime) break
                     if (c.low <= drawing.entry && drawing.entry <= c.high) {
                       const cx = timeToX(c.time)
@@ -2300,13 +2614,13 @@ export default function DrawingOverlay({
                   const effectiveStop = stopY != null ? series.coordinateToPrice(stopY) : null
                   const endLogical = unixTimeToLogical(
                     Math.min(playheadCandle.time, boxRightTime),
-                    paneCandles,
+                    candles,
                     intervalSeconds
                   )
                   if (endLogical != null) {
-                    const endIdx = Math.min(Math.floor(endLogical), paneCandles.length - 1)
+                    const endIdx = Math.min(Math.floor(endLogical), candles.length - 1)
                     for (let i = entryIdx; i <= endIdx; i++) {
-                      const c = paneCandles[i]
+                      const c = candles[i]
                       if (!c) continue
                       const hitStop =
                         effectiveStop != null &&
@@ -2464,7 +2778,7 @@ export default function DrawingOverlay({
             }
 
             if (drawTool === 'fibchannel' && hover && chart) {
-              const hoverTime = xToUnixTime(chart, hover.x, paneCandles, intervalSeconds)
+              const hoverTime = xToUnixTime(chart, hover.x, paneCandlesRef.current ?? EMPTY_CANDLES, intervalSeconds)
               const hoverPrice = series?.coordinateToPrice(hover.y)
               if (pendingTrendEnd) {
                 const b = toXY(pendingTrendEnd.time, pendingTrendEnd.price)
@@ -2560,53 +2874,31 @@ export default function DrawingOverlay({
             )
           })()}
 
-        {placing && hover && (
+        {placing && (
           <g
             className="pointer-events-none"
             stroke={palette.crosshairColor}
             strokeWidth={crosshairSettings.lineWidth}
             strokeDasharray={crosshairDasharray(crosshairSettings.lineStyle)}
           >
-            <line x1={0} y1={hover.y} x2={plotRight} y2={hover.y} />
-            <line x1={hover.x} y1={0} x2={hover.x} y2={height} />
+            <line ref={hairHRef} visibility="hidden" x1={0} y1={0} x2={plotRight} y2={0} />
+            <line ref={hairVRef} visibility="hidden" x1={0} y1={0} x2={0} y2={height} />
           </g>
         )}
       </svg>
 
-      {limitAction != null &&
+      {canEditTrade &&
         selectedDrawing != null &&
         isPositionDrawing(selectedDrawing) &&
         (() => {
           const origin = positionChipOrigin(selectedDrawing)
           if (!origin) return null
-          const label = positionPendingChipLabel(limitAction.side, limitAction.kind)
           return (
-            <div
-              className="absolute z-[30]"
-              style={{
-                left: origin.x,
-                top: origin.y,
-                width: PLACE_LIMIT_CHIP_W,
-                height: PLACE_LIMIT_CHIP_H
-              }}
-            >
-              <Tooltip side="top" className="h-full w-full" text={limitAction.hint}>
-                <button
-                  type="button"
-                  disabled={limitAction.disabled}
-                  onClick={limitAction.onPlace}
-                  className="flex h-full w-full items-center justify-center rounded-sm border px-2 text-[10px] font-bold text-white transition-colors enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{
-                    borderColor: limitAction.disabled ? '#52525b' : '#f59e0b',
-                    background: limitAction.disabled
-                      ? 'rgba(39, 39, 42, 0.92)'
-                      : 'rgba(180, 83, 9, 0.95)'
-                  }}
-                >
-                  {label}
-                </button>
-              </Tooltip>
-            </div>
+            <PositionLimitChip
+              drawing={selectedDrawing}
+              origin={origin}
+              visibleRange={readVisiblePriceRange()}
+            />
           )
         })()}
 
@@ -2622,25 +2914,67 @@ export default function DrawingOverlay({
             fields={selectedFields}
             tool={drawingToolType(selectedDrawing)}
             showZoneColors={isPositionDrawing(selectedDrawing)}
-            onStyleChange={(patch) => updateDrawingStyle(selectedDrawing.id, patch)}
-            onApplyPreset={(presetId) => {
-              const preset = useDrawingSettingsStore
-                .getState()
-                .presets[drawingToolType(selectedDrawing)].find((p) => p.id === presetId)
-              if (!preset) return
-              updateDrawingStyle(selectedDrawing.id, {
-                color: preset.color,
-                lineWidth: preset.lineWidth,
-                lineStyle: preset.lineStyle,
-                fillColor: preset.fillColor,
-                tpColor: preset.tpColor,
-                slColor: preset.slColor
-              })
-            }}
-            onOpenSettings={() => setDrawingDialogOpen(true, 'widget')}
-            onDelete={() => deleteDrawing(selectedDrawing.id)}
+            onStyleChange={onSelectedStyleChange}
+            onApplyPreset={onSelectedPreset}
+            onOpenSettings={onOpenDrawingSettings}
+            onDelete={onDeleteSelectedDrawing}
           />
         )}
     </>
   )
+}, (prev, next) => {
+  return (
+    prev.chart === next.chart &&
+    prev.series === next.series &&
+    prev.paneTimeframe === next.paneTimeframe &&
+    prev.pricePrecision === next.pricePrecision &&
+    prev.paneCandlesRef === next.paneCandlesRef &&
+    prev.paneCurrentCandleRef === next.paneCurrentCandleRef
+  )
+})
+
+function DrawingOverlay({
+  chart,
+  series,
+  paneTimeframe,
+  paneCurrentCandle = null,
+  paneCandles = EMPTY_CANDLES,
+  pricePrecision = DEFAULT_PRICE_PRECISION
+}: DrawingOverlayProps) {
+  const paneCandlesRef = useRef(paneCandles)
+  const paneCurrentCandleRef = useRef(paneCurrentCandle)
+  paneCandlesRef.current = paneCandles
+  paneCurrentCandleRef.current = paneCurrentCandle
+  if (chart) {
+    overlayPaneRefs.set(chart, {
+      candles: paneCandlesRef,
+      current: paneCurrentCandleRef
+    })
+  }
+  return (
+    <DrawingOverlayInner
+      chart={chart}
+      series={series}
+      paneTimeframe={paneTimeframe}
+      pricePrecision={pricePrecision}
+      paneCandlesRef={paneCandlesRef}
+      paneCurrentCandleRef={paneCurrentCandleRef}
+    />
+  )
 }
+
+export default memo(DrawingOverlay, (prev, next) => {
+  if (next.chart) {
+    const live = overlayPaneRefs.get(next.chart)
+    if (live) {
+      live.candles.current = next.paneCandles ?? EMPTY_CANDLES
+      live.current.current = next.paneCurrentCandle ?? null
+    }
+  }
+  return (
+    prev.chart === next.chart &&
+    prev.series === next.series &&
+    prev.paneTimeframe === next.paneTimeframe &&
+    prev.pricePrecision === next.pricePrecision
+  )
+})

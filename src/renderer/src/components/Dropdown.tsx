@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 
 type DropdownProps = {
   trigger: (props: { open: boolean; toggle: () => void }) => ReactNode
@@ -7,7 +7,7 @@ type DropdownProps = {
   menuClassName?: string
 }
 
-export default function Dropdown({
+export default memo(function Dropdown({
   trigger,
   children,
   align = 'start',
@@ -56,4 +56,4 @@ export default function Dropdown({
       )}
     </div>
   )
-}
+})

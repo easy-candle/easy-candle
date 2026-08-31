@@ -29,6 +29,23 @@ export function useReplayHotkeys(): void {
   useEffect(() => {
     if (mode !== 'replay') return undefined
 
+    let pendingDir: 0 | 1 | -1 = 0
+    let raf = 0
+
+    function flushStep(): void {
+      raf = 0
+      const dir = pendingDir
+      pendingDir = 0
+      if (dir === 1) stepForward()
+      else if (dir === -1) stepBackward()
+    }
+
+    function scheduleStep(dir: 1 | -1): void {
+      pendingDir = dir
+      if (raf) return
+      raf = requestAnimationFrame(flushStep)
+    }
+
     function onKeyDown(event: KeyboardEvent): void {
       if (isEditableTarget(event.target)) return
 
@@ -51,7 +68,7 @@ export function useReplayHotkeys(): void {
         if (driverIndex <= 0) return
 
         event.preventDefault()
-        stepBackward()
+        scheduleStep(-1)
         return
       }
 
@@ -60,7 +77,7 @@ export function useReplayHotkeys(): void {
         if (state.replayStatus === 'ended') return
 
         event.preventDefault()
-        stepForward()
+        scheduleStep(1)
         return
       }
 
@@ -80,6 +97,9 @@ export function useReplayHotkeys(): void {
     }
 
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      if (raf) cancelAnimationFrame(raf)
+    }
   }, [mode, play, pause, stepForward, stepBackward, setDriverPane])
 }

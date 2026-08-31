@@ -1,36 +1,26 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import { Maximize2, Minimize2, Moon, Settings2, SquareSplitVertical, Sun, X } from 'lucide-react'
+import { useEffect, type ReactNode } from 'react'
+import { Minimize2 } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
 import AccountDialog from '@/components/AccountDialog'
 import AppTour from '@/components/AppTour'
 import ChartSettingsDialog from '@/components/ChartSettingsDialog'
-import ChartTypeSelect from '@/components/ChartTypeSelect'
-import ChartSnapshotDropdown from '@/components/ChartSnapshotDropdown'
-import ImportDataDialog, { type ImportFeedback } from '@/components/ImportDataDialog'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import DrawingSettingsDialog from '@/components/DrawingSettingsDialog'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
 import FloatingTradeBar from '@/components/FloatingTradeBar'
 import IconButton from '@/components/IconButton'
-import IndicatorsDropdown from '@/components/IndicatorsDropdown'
 import KeyboardShortcutsDialog from '@/components/KeyboardShortcutsDialog'
-import ReplayStartDialog from '@/components/ReplayStartDialog'
-import SessionDropdown from '@/components/SessionDropdown'
+import MainToolbar from '@/components/MainToolbar'
+import UpdateModal from '@/components/UpdateModal'
+import SymbolManagerDialog from '@/components/SymbolManagerDialog'
 import SessionManagerDialog from '@/components/SessionManagerDialog'
 import SessionReportDialog from '@/components/SessionReportDialog'
-import UpdateModal from '@/components/UpdateModal'
-import StatusBar from '@/components/StatusBar'
-import SymbolManagerDialog from '@/components/SymbolManagerDialog'
-import SymbolSelect from '@/components/SymbolSelect'
-import TimeframeSelect from '@/components/TimeframeSelect'
 import TitleBar from '@/components/TitleBar'
 import OrderTicket from '@/components/OrderTicket'
 import TradePanel from '@/components/TradePanel'
 import { useReplayHotkeys } from '@/hooks/useReplayHotkeys'
 import { useUiHotkeys } from '@/hooks/useUiHotkeys'
 import { useReplayStore } from '@/store/replayStore'
-import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 import { isMetatraderImport } from '@shared/importTypes'
 import { MT_BRIDGE_WS_URL } from '@shared/mtBridgeProtocol'
@@ -49,25 +39,16 @@ export default function AppShell({
   const importMeta = useReplayStore((s) => s.importMeta)
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const replayStatus = useReplayStore((s) => s.replayStatus)
-  const candles = useReplayStore((s) => s.candles)
+  const candlesEmpty = useReplayStore((s) => s.candles.length === 0)
   const pause = useReplayStore((s) => s.pause)
   const loadCandles = useReplayStore((s) => s.loadCandles)
   const chartSplit = useReplayStore((s) => s.chartSplit)
-  const setChartSplit = useReplayStore((s) => s.setChartSplit)
   const chartFullscreen = useUiLayoutStore((s) => s.chartFullscreen)
-  const toggleChartFullscreen = useUiLayoutStore((s) => s.toggleChartFullscreen)
   const setChartFullscreen = useUiLayoutStore((s) => s.setChartFullscreen)
-  const showMainToolbar = useUiLayoutStore((s) => s.showMainToolbar)
-  const showStatusBar = useUiLayoutStore((s) => s.showStatusBar)
   const showDrawingToolbar = useUiLayoutStore((s) => s.showDrawingToolbar)
   const showReplayControls = useUiLayoutStore((s) => s.showReplayControls)
   const showPaperTrade = useUiLayoutStore((s) => s.showPaperTrade)
   const tourPaperTradePreview = useUiLayoutStore((s) => s.tourPaperTradePreview)
-  const setChartSettingsDialogOpen = useUiLayoutStore((s) => s.setChartSettingsDialogOpen)
-  const theme = useThemeStore((s) => s.theme)
-  const toggleTheme = useThemeStore((s) => s.toggleTheme)
-  const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
-  const feedbackTimer = useRef<number | null>(null)
 
   const inReplay = mode === 'replay'
   const showOrderTicket = showPaperTrade && !chartFullscreen && (inReplay || tourPaperTradePreview)
@@ -75,23 +56,8 @@ export default function AppShell({
   const mtbridge = dataSource === 'mtbridge'
   const mtFeed = mtbridge || isMetatraderImport(importMeta)
   const showEmptyLive =
-    !inReplay && candles.length === 0 && (status === 'ready' || (mtbridge && status === 'idle'))
+    !inReplay && candlesEmpty && (status === 'ready' || (mtbridge && status === 'idle'))
   const showEndedBanner = inReplay && replayStatus === 'ended' && !chartFullscreen
-
-  useEffect(() => {
-    if (inReplay) setImportFeedback(null)
-  }, [inReplay])
-
-  useEffect(() => {
-    if (feedbackTimer.current != null) window.clearTimeout(feedbackTimer.current)
-    feedbackTimer.current = null
-    if (!importFeedback) return undefined
-
-    feedbackTimer.current = window.setTimeout(() => setImportFeedback(null), 5000)
-    return () => {
-      if (feedbackTimer.current != null) window.clearTimeout(feedbackTimer.current)
-    }
-  }, [importFeedback])
 
   useReplayHotkeys()
   useUiHotkeys()
@@ -114,77 +80,7 @@ export default function AppShell({
     <div className="flex h-full flex-col overflow-hidden bg-zinc-950">
       {!chartFullscreen && <TitleBar />}
 
-      {!chartFullscreen && showMainToolbar && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/90 bg-zinc-950/90 px-2 py-2 sm:px-2">
-          <SymbolSelect />
-          <TimeframeSelect />
-          <ChartTypeSelect />
-          <IndicatorsDropdown />
-          {!inReplay && <ImportDataDialog onFeedback={setImportFeedback} />}
-          {!inReplay && <ReplayStartDialog />}
-          <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
-            <IconButton
-              tooltip={chartSplit ? 'Single chart' : 'Split chart (side by side)'}
-              dataTour="split"
-              active={chartSplit}
-              onClick={() => setChartSplit(!chartSplit)}
-            >
-              <SquareSplitVertical className="h-4 w-4" />
-            </IconButton>
-            <IconButton
-              tooltip="Chart settings"
-              dataTour="chart-settings"
-              onClick={() => setChartSettingsDialogOpen(true)}
-            >
-              <Settings2 className="h-4 w-4" />
-            </IconButton>
-            <ChartSnapshotDropdown />
-            <SessionDropdown />
-            <IconButton
-              tooltip="Full-screen chart"
-              dataTour="fullscreen"
-              shortcut={['F']}
-              active={false}
-              onClick={toggleChartFullscreen}
-            >
-              <Maximize2 className="h-4 w-4" />
-            </IconButton>
-            <IconButton
-              tooltip={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-              dataTour="theme"
-              onClick={toggleTheme}
-            >
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </IconButton>
-          </div>
-          {showStatusBar && <StatusBar />}
-        </div>
-      )}
-
-      {importFeedback &&
-        createPortal(
-          <div className="pointer-events-none fixed bottom-4 right-4 z-[70] w-80 max-w-[calc(100vw-2rem)]">
-            <div
-              role="status"
-              className={`pointer-events-auto flex items-center justify-between gap-3 rounded border bg-zinc-950/95 px-3 py-2.5 text-xs leading-relaxed shadow-xl shadow-black/50 ${
-                importFeedback.tone === 'error'
-                  ? 'border-red-900/60 text-red-200'
-                  : 'border-zinc-800/50 text-amber-200/90'
-              }`}
-            >
-              <p className="min-w-0 flex-1 break-words">{importFeedback.message}</p>
-              <button
-                type="button"
-                aria-label="Dismiss message"
-                onClick={() => setImportFeedback(null)}
-                className="inline-flex h-6 w-6 shrink-0 text-gray-400 items-center justify-center rounded border border-transparent opacity-80 hover:opacity-100"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
+      <MainToolbar />
 
       {!chartFullscreen && status === 'error' && error && (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-red-900/50 bg-red-950/40 px-3 py-1.5 text-sm text-red-300 sm:px-4">

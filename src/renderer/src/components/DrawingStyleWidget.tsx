@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Palette, Settings2, Trash2 } from 'lucide-react'
 import FloatingPanel from '@/components/FloatingPanel'
 import { ColorPickerPopup } from '@/components/OpacityColorField'
@@ -67,7 +67,7 @@ function ColorField({
   )
 }
 
-export default function DrawingStyleWidget({
+export default memo(function DrawingStyleWidget({
   pos,
   onPosChange,
   style,
@@ -269,4 +269,4 @@ export default function DrawingStyleWidget({
       </div>
     </FloatingPanel>
   )
-}
+})

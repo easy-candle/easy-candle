@@ -535,6 +535,7 @@ type ReplayStore = {
   updatePositionSpan: (id: string, span: number) => void
   cloneDrawing: (id: string) => string | null
   moveDrawing: (id: string, origin: Drawing, dTime: number, dPrice: number) => void
+  replaceDrawing: (next: Drawing) => void
   updateDrawingStyle: (id: string, patch: Partial<DrawingStyle>) => void
   updateDrawingLevels: (id: string, levels: FibLevelConfig[]) => void
   selectDrawing: (id: string | null) => void
@@ -2686,6 +2687,14 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       const next = translateDrawing(origin, dTime, dPrice)
       set((s) => ({
         drawings: s.drawings.map((d) => (d.id === id ? next : d))
+      }))
+    },
+
+    replaceDrawing(next) {
+      if (get().mode === 'replay' && get().replayStatus === 'ended') return
+      if (!next?.id) return
+      set((s) => ({
+        drawings: s.drawings.map((d) => (d.id === next.id ? next : d))
       }))
     },
 

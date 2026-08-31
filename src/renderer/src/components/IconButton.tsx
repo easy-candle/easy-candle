@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from 'react'
+import { memo, type MouseEvent, type ReactNode } from 'react'
 import Tooltip from '@/components/Tooltip'
 
 type IconButtonProps = {
@@ -22,7 +22,7 @@ type IconButtonProps = {
   dataTour?: string
 }
 
-export default function IconButton({
+export default memo(function IconButton({
   tooltip,
   onClick,
   disabled = false,
@@ -90,4 +90,4 @@ export default function IconButton({
   ) : (
     button
   )
-}
+})
