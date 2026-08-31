@@ -5,6 +5,9 @@ import GiveFeedback from '@/components/GiveFeedback'
 import MenuBar from '@/components/MenuBar'
 import iconUrl from '@/assets/easycandle-icon.svg'
 import { APP_NAME } from '@shared/appName'
+import { parseSemverMajor } from '@shared/releaseCodenames'
+
+const MAJOR_VERSION = parseSemverMajor(__APP_VERSION__)
 
 const DRAG_REGION = { WebkitAppRegion: 'drag' } as CSSProperties
 const NO_DRAG_REGION = { WebkitAppRegion: 'no-drag' } as CSSProperties
@@ -32,7 +35,14 @@ export default function TitleBar() {
           className="h-[22px] w-[22px] rounded-sm"
           aria-hidden
         />
-        <span className="text-xs font-bold tracking-tight text-amber-400">{APP_NAME}</span>
+        <span className="text-xs font-bold tracking-tight text-amber-400">
+          {APP_NAME}
+          {MAJOR_VERSION != null ? (
+            <span className="ml-1.5 font-semibold tabular-nums text-amber-400/70">
+              {MAJOR_VERSION}
+            </span>
+          ) : null}
+        </span>
       </div>
 
       <div className="flex items-stretch" style={NO_DRAG_REGION}>
