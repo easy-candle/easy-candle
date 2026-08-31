@@ -9,6 +9,7 @@ export const DEFAULT_SMC_SETTINGS: SmcSettings = {
   obFilterMult: 2,
   internalOrderBlockCount: 5,
   swingOrderBlockCount: 0,
+  showHighLowSwings: true,
   bullColor: '#089981',
   bearColor: '#F23645',
   bullObFill: 'rgba(49, 121, 245, 0.2)',

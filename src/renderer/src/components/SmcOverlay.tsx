@@ -113,10 +113,16 @@ export default function SmcOverlay({
           key={`seg-${segment.layer}-${segment.t1}-${segment.t2}-${index}`}
           segment={segment}
           point={point}
+          plotRight={plotRight}
         />
       ))}
       {scene.labels.map((label, index) => (
-        <LabelShape key={`lbl-${label.text}-${label.t}-${index}`} label={label} point={point} />
+        <LabelShape
+          key={`lbl-${label.text}-${label.t}-${index}`}
+          label={label}
+          point={point}
+          plotRight={plotRight}
+        />
       ))}
     </svg>
   )
@@ -182,14 +188,31 @@ function BoxShape({
 
 function SegmentShape({
   segment,
-  point
+  point,
+  plotRight
 }: {
   segment: SmcSegment
   point: (time: number, price: number) => { x: number; y: number } | null
+  plotRight: number
 }) {
   const a = point(segment.t1, segment.p1)
+  if (!a) return null
+  if (segment.extendRight) {
+    if (!(plotRight > a.x)) return null
+    return (
+      <line
+        x1={a.x}
+        y1={a.y}
+        x2={plotRight}
+        y2={a.y}
+        stroke={segment.color}
+        strokeWidth={1.25}
+        strokeDasharray={drawingDashArray({ lineStyle: segment.style === 'dashed' ? 2 : 0 })}
+      />
+    )
+  }
   const b = point(segment.t2, segment.p2)
-  if (!a || !b) return null
+  if (!b) return null
   return (
     <line
       x1={a.x}
@@ -205,22 +228,25 @@ function SegmentShape({
 
 function LabelShape({
   label,
-  point
+  point,
+  plotRight
 }: {
   label: SmcLabel
   point: (time: number, price: number) => { x: number; y: number } | null
+  plotRight: number
 }) {
   const at = point(label.t, label.price)
   if (!at) return null
   const above = label.align === 'down'
+  const atRight = label.atRight === true && plotRight > 0
   return (
     <text
-      x={at.x}
+      x={atRight ? Math.max(0, plotRight - 6) : at.x}
       y={above ? at.y - 4 : at.y + 11}
       fill={label.color}
       fontSize={10}
       fontWeight={600}
-      textAnchor="middle"
+      textAnchor={atRight ? 'end' : 'middle'}
     >
       {label.text}
     </text>
