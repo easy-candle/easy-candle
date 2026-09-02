@@ -23,6 +23,7 @@ import type {
 import type { AccountSession, AuthResult, RedeemResult } from '@shared/accountTypes'
 import type {
   UpdateAvailableInfo,
+  UpdateCheckResult,
   UpdateDownloadedInfo,
   UpdateErrorInfo,
   UpdateProgressInfo
@@ -82,16 +83,15 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DELETE, id),
   onImportJobProgress: (callback: (progress: ImportJobProgress) => void): (() => void) =>
     subscribe(IPC_CHANNELS.IMPORT_JOB_PROGRESS, callback),
-  checkForUpdates: (): Promise<{
-    ok: boolean
-    skipped?: boolean
-    version?: string | null
-    error?: string
-  }> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+  checkForUpdates: (): Promise<UpdateCheckResult> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
   downloadUpdate: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.UPDATE_DOWNLOAD),
   installUpdate: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
+  openStore: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_OPEN_STORE),
+  openMicrosoftStore: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_OPEN_STORE),
   onUpdateAvailable: (callback: (info: UpdateAvailableInfo) => void): (() => void) =>
     subscribe(IPC_CHANNELS.UPDATE_AVAILABLE, callback),
   onUpdateProgress: (callback: (info: UpdateProgressInfo) => void): (() => void) =>

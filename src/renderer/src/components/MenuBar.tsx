@@ -238,16 +238,26 @@ export default function MenuBar() {
 
   async function checkForUpdates(): Promise<void> {
     try {
-      const result = await window.api.checkForUpdates()
+      // Task F: same check path runs status+catalog for Store too (electron-updater
+      // may still report skipped — that is not "updates disabled").
+      const result = (await window.api.checkForUpdates()) as {
+        ok: boolean
+        skipped?: boolean
+        version?: string | null
+        error?: string
+        channel?: 'github' | 'store' | 'dev'
+        force?: boolean
+        blockStore?: boolean
+      }
       if (!result.ok) {
         showNotice(result.error || 'Update check failed')
-      } else if (result.skipped) {
-        showNotice('Updates are disabled in this build')
-      } else if (result.version) {
-        showNotice(`Update available: v${result.version}`)
-      } else {
-        showNotice('You are up to date')
+        return
       }
+      if (result.version) {
+        showNotice(`Update available: v${result.version}`)
+        return
+      }
+      showNotice('You are up to date')
     } catch {
       showNotice('Update check failed')
     }

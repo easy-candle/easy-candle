@@ -8,8 +8,30 @@ import type {
   Plan,
   RedeemResult
 } from './accountTypes'
+import type { UpdateChannel } from './updaterTypes'
 
 export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8787'
+
+export type ApiAppChannel = UpdateChannel | 'web'
+
+let apiClientVersion =
+  typeof __APP_VERSION__ === 'string' && __APP_VERSION__.trim() ? __APP_VERSION__.trim() : '0.0.0'
+let apiClientChannel: ApiAppChannel =
+  typeof globalThis !== 'undefined' && 'window' in globalThis && globalThis.window ? 'web' : 'dev'
+
+/** Main process sets this from `app.getVersion()` + github/store/dev before API calls. */
+export function setApiClientIdentity(version: string, channel: ApiAppChannel): void {
+  const trimmed = version.trim()
+  if (trimmed) apiClientVersion = trimmed
+  if (channel) apiClientChannel = channel
+}
+
+function withClientHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init)
+  if (!headers.has('X-App-Version')) headers.set('X-App-Version', apiClientVersion)
+  if (!headers.has('X-App-Channel')) headers.set('X-App-Channel', apiClientChannel)
+  return headers
+}
 
 type ApiUserBody = {
   id?: unknown
@@ -111,7 +133,7 @@ async function request(
 ): Promise<{ response: Response; body: ApiMeBody } | { error: string }> {
   const url = `${baseUrl.replace(/\/$/, '')}${path}`
   try {
-    const response = await fetch(url, init)
+    const response = await fetch(url, { ...init, headers: withClientHeaders(init.headers) })
     const body = await readJson(response)
     return { response, body }
   } catch {
