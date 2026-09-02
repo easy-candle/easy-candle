@@ -4,6 +4,12 @@ import UserAvatar, { displayName } from '@/components/UserAvatar'
 import { useAccountStore } from '@/store/accountStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
+function formatValidUntil(periodEnd: string): string {
+  const date = new Date(periodEnd)
+  if (Number.isNaN(date.getTime())) return periodEnd
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
 function GoogleMark() {
   return (
     <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden>
@@ -33,6 +39,7 @@ export default function AccountDialog() {
   const signedIn = useAccountStore((s) => s.signedIn)
   const user = useAccountStore((s) => s.user)
   const plan = useAccountStore((s) => s.plan)
+  const periodEnd = useAccountStore((s) => s.periodEnd)
   const status = useAccountStore((s) => s.status)
   const error = useAccountStore((s) => s.error)
   const googleSignIn = useAccountStore((s) => s.googleSignIn)
@@ -103,6 +110,11 @@ export default function AccountDialog() {
                   <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-500">
                     {plan === 'pro' ? 'Pro' : 'Free'}
                   </p>
+                  {plan === 'pro' && periodEnd ? (
+                    <p className="mt-0.5 text-[11px] text-zinc-500">
+                      Valid until {formatValidUntil(periodEnd)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <button

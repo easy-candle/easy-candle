@@ -33,7 +33,7 @@ import type {
   UpdateErrorInfo,
   UpdateProgressInfo
 } from '@shared/updaterTypes'
-import { webAuthGoogleStart, webAuthLogout, webAuthRefresh, webAuthSession } from './webAuth'
+import { webAuthGoogleStart, webAuthLogout, webAuthRedeemCode, webAuthRefresh, webAuthSession } from './webAuth'
 import {
   idbDeleteImportDataset,
   idbGet,
@@ -478,7 +478,8 @@ export const webApi = {
   authSession: webAuthSession,
   authGoogleStart: webAuthGoogleStart,
   authLogout: webAuthLogout,
-  authRefresh: webAuthRefresh
+  authRefresh: webAuthRefresh,
+  authRedeemCode: webAuthRedeemCode
 } satisfies EasyCandleApi
 
 export const webElectron = {

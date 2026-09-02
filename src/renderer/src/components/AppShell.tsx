@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { Minimize2 } from 'lucide-react'
 import AboutDialog from '@/components/AboutDialog'
 import AccountDialog from '@/components/AccountDialog'
+import RedeemDialog from '@/components/RedeemDialog'
 import AppTour from '@/components/AppTour'
 import ChartSettingsDialog from '@/components/ChartSettingsDialog'
 import ChartTimezoneSelect from '@/components/ChartTimezoneSelect'
@@ -191,6 +192,7 @@ export default function AppShell({
       <KeyboardShortcutsDialog />
       <AboutDialog />
       <AccountDialog />
+      <RedeemDialog />
       <ChartSettingsDialog />
       <DrawingSettingsDialog />
       <SymbolManagerDialog />

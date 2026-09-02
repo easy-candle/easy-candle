@@ -5,7 +5,8 @@ import type {
   AuthResult,
   GooglePollResult,
   GoogleStartResult,
-  Plan
+  Plan,
+  RedeemResult
 } from './accountTypes'
 
 export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8787'
@@ -26,16 +27,28 @@ type ApiMeBody = {
   url?: unknown
   pollId?: unknown
   pending?: unknown
+  periodEnd?: unknown
+  expireDays?: unknown
+  subscription?: unknown
 }
 
 function parsePlan(value: unknown): Plan | null {
   return value === 'free' || value === 'pro' ? value : null
 }
 
+function parseExpireDays(value: unknown): 365 | 186 | 90 | null {
+  return value === 365 || value === 186 || value === 90 ? value : null
+}
+
 function optionalString(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+function parseSubscriptionPeriodEnd(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  return optionalString((value as { periodEnd?: unknown }).periodEnd)
 }
 
 function parseUser(value: ApiUserBody | undefined): AccountUser | null {
@@ -56,8 +69,25 @@ function sessionFromMe(body: ApiMeBody): AccountSession | null {
   return {
     signedIn: true,
     user,
-    plan
+    plan,
+    periodEnd: null
   }
+}
+
+async function withPeriodEnd(
+  baseUrl: string,
+  token: string,
+  session: AccountSession
+): Promise<AccountSession> {
+  if (!session.signedIn) return session
+  const result = await request(baseUrl, '/v1/billing/subscription', {
+    method: 'GET',
+    headers: authHeaders(token)
+  })
+  if ('error' in result) return { ...session, periodEnd: null }
+  const { response, body } = result
+  if (!response.ok || body.ok === false) return { ...session, periodEnd: null }
+  return { ...session, periodEnd: parseSubscriptionPeriodEnd(body.subscription) }
 }
 
 async function readJson(response: Response): Promise<ApiMeBody> {
@@ -127,7 +157,7 @@ export async function apiGooglePoll(baseUrl: string, pollId: string): Promise<Go
   const session = sessionFromMe(body)
   const token = typeof body.accessToken === 'string' ? body.accessToken : ''
   if (!session || !token) return fail('Sign-in returned an invalid response')
-  return { ok: true, pending: false, session, token }
+  return { ok: true, pending: false, session: await withPeriodEnd(baseUrl, token, session), token }
 }
 
 export async function apiFetchMe(baseUrl: string, token: string): Promise<AuthResult> {
@@ -145,7 +175,31 @@ export async function apiFetchMe(baseUrl: string, token: string): Promise<AuthRe
   }
   const session = sessionFromMe(body)
   if (!session) return fail('Session check returned an invalid response')
-  return { ok: true, session }
+  return { ok: true, session: await withPeriodEnd(baseUrl, token, session) }
+}
+
+export async function apiRedeemCode(
+  baseUrl: string,
+  token: string,
+  code: string
+): Promise<RedeemResult> {
+  const result = await request(baseUrl, '/v1/promo/redeem', {
+    method: 'POST',
+    headers: authHeaders(token, true),
+    body: JSON.stringify({ code })
+  })
+  if ('error' in result) return fail(result.error)
+  const { response, body } = result
+  if (!response.ok || body.ok === false) {
+    return fail(typeof body.error === 'string' ? body.error : `Redeem failed (${response.status})`)
+  }
+  const plan = parsePlan(body.plan)
+  const periodEnd = optionalString(body.periodEnd)
+  const expireDays = parseExpireDays(body.expireDays)
+  if (plan !== 'pro' || !periodEnd || !expireDays) {
+    return fail('Redeem returned an invalid response')
+  }
+  return { ok: true, plan, periodEnd, expireDays }
 }
 
 export async function apiLogout(baseUrl: string): Promise<void> {

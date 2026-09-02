@@ -2,9 +2,10 @@ import {
   apiFetchMe,
   apiGooglePoll,
   apiGoogleStart,
-  apiLogout
+  apiLogout,
+  apiRedeemCode
 } from '@shared/accountApi'
-import type { AccountSession, AuthResult } from '@shared/accountTypes'
+import type { AccountSession, AuthResult, RedeemResult } from '@shared/accountTypes'
 
 const TOKEN_KEY = 'easy-candle:account-token'
 const HASH_TOKEN = 'easy-candle-auth'
@@ -113,4 +114,10 @@ export async function webAuthRefresh(): Promise<AuthResult> {
   if (!result.ok) return result
   if (!result.session.signedIn) clearToken()
   return result
+}
+
+export async function webAuthRedeemCode(code: string): Promise<RedeemResult> {
+  const token = readToken()
+  if (!token) return { ok: false, error: 'Sign in to redeem a code.' }
+  return apiRedeemCode(apiBaseUrl(), token, code)
 }

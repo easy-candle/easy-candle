@@ -44,7 +44,8 @@ export const IPC_CHANNELS = {
   AUTH_SESSION: 'auth:session',
   AUTH_GOOGLE_START: 'auth:google-start',
   AUTH_LOGOUT: 'auth:logout',
-  AUTH_REFRESH: 'auth:refresh'
+  AUTH_REFRESH: 'auth:refresh',
+  AUTH_REDEEM: 'auth:redeem'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
