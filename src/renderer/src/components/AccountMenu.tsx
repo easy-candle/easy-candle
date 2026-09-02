@@ -11,6 +11,7 @@ export default function AccountMenu() {
   const status = useAccountStore((s) => s.status)
   const logout = useAccountStore((s) => s.logout)
   const setAccountDialogOpen = useUiLayoutStore((s) => s.setAccountDialogOpen)
+  const setRedeemDialogOpen = useUiLayoutStore((s) => s.setRedeemDialogOpen)
   const busy = status === 'loading'
 
   if (!signedIn || !user) {
@@ -70,6 +71,16 @@ export default function AccountMenu() {
               className="flex w-full px-2.5 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
             >
               Account
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                close()
+                setRedeemDialogOpen(true)
+              }}
+              className="flex w-full px-2.5 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            >
+              Early Adapters Redeem
             </button>
             <button
               type="button"

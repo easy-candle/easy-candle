@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, ipcMain, safeStorage, shell } from 'electron'
-import { apiFetchMe, apiGooglePoll, apiGoogleStart, apiLogout } from '@shared/accountApi'
-import type { AccountSession, AuthResult } from '@shared/accountTypes'
+import { apiFetchMe, apiGooglePoll, apiGoogleStart, apiLogout, apiRedeemCode } from '@shared/accountApi'
+import type { AccountSession, AuthResult, RedeemResult } from '@shared/accountTypes'
 import { IPC_CHANNELS } from '@shared/ipc/channels'
 
 const SIGNED_OUT: AccountSession = { signedIn: false }
@@ -98,5 +98,11 @@ export function registerAuthIpc(): void {
     if (!result.ok) return result
     if (!result.session.signedIn) clearStoredToken()
     return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.AUTH_REDEEM, async (_event, code: unknown): Promise<RedeemResult> => {
+    const token = readStoredToken()
+    if (!token) return { ok: false, error: 'Sign in to redeem a code.' }
+    return apiRedeemCode(apiBaseUrl(), token, typeof code === 'string' ? code : '')
   })
 }

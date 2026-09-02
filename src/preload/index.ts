@@ -20,7 +20,7 @@ import type {
   MtBridgeStatusResult,
   MtPreviewLoadResult
 } from '@shared/mtBridgeTypes'
-import type { AccountSession, AuthResult } from '@shared/accountTypes'
+import type { AccountSession, AuthResult, RedeemResult } from '@shared/accountTypes'
 import type {
   UpdateAvailableInfo,
   UpdateDownloadedInfo,
@@ -103,7 +103,9 @@ const api = {
   authSession: (): Promise<AccountSession> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_SESSION),
   authGoogleStart: (): Promise<AuthResult> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GOOGLE_START),
   authLogout: (): Promise<AuthResult> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT),
-  authRefresh: (): Promise<AuthResult> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_REFRESH)
+  authRefresh: (): Promise<AuthResult> => ipcRenderer.invoke(IPC_CHANNELS.AUTH_REFRESH),
+  authRedeemCode: (code: string): Promise<RedeemResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTH_REDEEM, code)
 }
 
 /**

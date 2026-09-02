@@ -13,9 +13,14 @@ export type AccountSession =
       signedIn: true
       user: AccountUser
       plan: Plan
+      periodEnd: string | null
     }
 
 export type AuthResult = { ok: true; session: AccountSession } | { ok: false; error: string }
+
+export type RedeemResult =
+  | { ok: true; plan: 'pro'; periodEnd: string; expireDays: 365 | 186 | 90 }
+  | { ok: false; error: string }
 
 export type AuthClient = 'desktop' | 'web'
 
