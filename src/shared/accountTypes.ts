@@ -5,6 +5,7 @@ export type AccountUser = {
   email: string
   name: string | null
   image: string | null
+  earlyAdapter: boolean
 }
 
 export type AccountSession =

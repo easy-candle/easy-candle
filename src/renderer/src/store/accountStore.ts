@@ -100,7 +100,11 @@ export const useAccountStore = create<AccountState>((set) => ({
     try {
       const result = await window.api.authRedeemCode(code)
       if (result.ok) {
-        set({ plan: result.plan, periodEnd: result.periodEnd })
+        set((state) => ({
+          plan: result.plan,
+          periodEnd: result.periodEnd,
+          user: state.user ? { ...state.user, earlyAdapter: true } : state.user
+        }))
       }
       return result
     } catch {

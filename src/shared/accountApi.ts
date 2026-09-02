@@ -16,6 +16,7 @@ type ApiUserBody = {
   email?: unknown
   name?: unknown
   image?: unknown
+  earlyAdapter?: unknown
 }
 
 type ApiMeBody = {
@@ -58,7 +59,8 @@ function parseUser(value: ApiUserBody | undefined): AccountUser | null {
     id: value.id,
     email: value.email,
     name: optionalString(value.name),
-    image: optionalString(value.image)
+    image: optionalString(value.image),
+    earlyAdapter: value.earlyAdapter === true
   }
 }
 
