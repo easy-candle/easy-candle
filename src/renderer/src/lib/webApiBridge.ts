@@ -29,11 +29,13 @@ import {
 } from '@shared/mtBridgeTypes'
 import type {
   UpdateAvailableInfo,
+  UpdateCheckResult,
   UpdateDownloadedInfo,
   UpdateErrorInfo,
   UpdateProgressInfo
 } from '@shared/updaterTypes'
 import { webAuthGoogleStart, webAuthLogout, webAuthRedeemCode, webAuthRefresh, webAuthSession } from './webAuth'
+import { setApiClientIdentity } from '@shared/accountApi'
 import {
   idbDeleteImportDataset,
   idbGet,
@@ -383,6 +385,8 @@ if (typeof document !== 'undefined') {
   })
 }
 
+setApiClientIdentity(__APP_VERSION__, 'web')
+
 export const webApi = {
   runtime: 'web' as const,
   fetchKlines: handleKlinesFetch,
@@ -464,13 +468,15 @@ export const webApi = {
   listImports: listImportDatasets,
   loadImport: loadImportDataset,
   deleteImport: deleteImportDataset,
-  checkForUpdates: async () => ({
+  checkForUpdates: async (): Promise<UpdateCheckResult> => ({
     ok: true,
     skipped: true,
     version: null
   }),
   downloadUpdate: async () => ({ ok: true }),
   installUpdate: async () => ({ ok: true }),
+  openStore: async () => ({ ok: true }),
+  openMicrosoftStore: async () => ({ ok: true }),
   onUpdateAvailable: (_cb: (info: UpdateAvailableInfo) => void) => () => {},
   onUpdateProgress: (_cb: (info: UpdateProgressInfo) => void) => () => {},
   onUpdateDownloaded: (_cb: (info: UpdateDownloadedInfo) => void) => () => {},

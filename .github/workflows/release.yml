@@ -108,6 +108,36 @@ jobs:
       - name: List release files
         run: ls -la dist
 
+      - name: Patch latest.yml with mandatory flag
+        env:
+          RELEASE_MANDATORY: ${{ vars.RELEASE_MANDATORY }}
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const raw = (process.env.RELEASE_MANDATORY || '').trim().toLowerCase();
+          const mandatory = raw === 'true';
+          const line = `mandatory: ${mandatory}`;
+
+          const files = ['latest.yml', 'latest-mac.yml', 'latest-linux.yml'];
+          for (const name of files) {
+            const file = path.join('dist', name);
+            if (!fs.existsSync(file)) {
+              console.log(`Skip missing ${file}`);
+              continue;
+            }
+            let content = fs.readFileSync(file, 'utf8');
+            if (/^mandatory:\s*(true|false)\s*$/m.test(content)) {
+              content = content.replace(/^mandatory:\s*(true|false)\s*$/m, line);
+            } else {
+              content = content.replace(/\s*$/, '') + '\n' + line + '\n';
+            }
+            fs.writeFileSync(file, content);
+            console.log(`Patched ${file} -> ${line}`);
+          }
+          EOF
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
