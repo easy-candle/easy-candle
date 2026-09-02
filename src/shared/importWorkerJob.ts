@@ -1,5 +1,6 @@
 import type { Candle } from './candleUtils'
 import { buildImportTimeframesWithProgress, type ImportBuildProgress } from './candleAggregate'
+import { forexNyCloseOffsetSeconds } from './forexSession'
 import type { ImportJobProgress } from './importJobProgress'
 import type { CsvParseProgress } from './mtCsvImport'
 import { parseMtCsvWithProgress } from './mtCsvImport'
@@ -22,9 +23,13 @@ export function buildImportTimeframesJob(
   candles1m: Candle[],
   onProgress?: (progress: ImportJobProgress) => void
 ): Record<string, Candle[]> {
-  return buildImportTimeframesWithProgress(candles1m, (buildProgress) => {
-    onProgress?.(mapBuildProgress(buildProgress))
-  })
+  return buildImportTimeframesWithProgress(
+    candles1m,
+    (buildProgress) => {
+      onProgress?.(mapBuildProgress(buildProgress))
+    },
+    forexNyCloseOffsetSeconds
+  )
 }
 
 function mapParseProgress(progress: CsvParseProgress): ImportJobProgress {

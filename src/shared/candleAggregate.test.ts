@@ -8,8 +8,13 @@ import {
   IMPORT_DERIVED_TIMEFRAMES
 } from './candleAggregate'
 import type { Candle } from './candleUtils'
+import { forexNyCloseOffsetSeconds } from './forexSession'
 import { hasNewerCandles } from './importTypes'
 import { TIMEFRAMES } from './timeframes'
+
+function utcSeconds(year: number, month: number, day: number, hour: number, minute = 0): number {
+  return Date.UTC(year, month, day, hour, minute, 0) / 1000
+}
 
 function series(count: number, stepSec: number, start = 1_700_000_000): Candle[] {
   const out: Candle[] = []
@@ -51,6 +56,43 @@ describe('aggregateCandles', () => {
     const candles = series(5, 60, bucket + 90)
     const agg = aggregateCandles(candles, 300)
     expect(agg[0].time).toBe(bucket)
+  })
+
+  it('matches the UTC floor when sessionOffset is 0', () => {
+    const start = 1_700_000_100
+    const candles = series(10, 60, start)
+    expect(aggregateCandles(candles, 300, undefined, 0)).toEqual(aggregateCandles(candles, 300))
+  })
+
+  it('buckets Aug 2020 4h/1d onto the NY-close session', () => {
+    const sessionOpen = utcSeconds(2020, 7, 27, 21)
+    const almostClose = utcSeconds(2020, 7, 28, 20, 59)
+    const nextOpen = utcSeconds(2020, 7, 28, 21)
+    const candles = [
+      { time: sessionOpen, open: 1, high: 1, low: 1, close: 1, volume: 1 },
+      { time: almostClose, open: 2, high: 2, low: 2, close: 2, volume: 1 },
+      { time: nextOpen, open: 3, high: 3, low: 3, close: 3, volume: 1 }
+    ]
+    const daily = aggregateCandles(
+      candles,
+      TIMEFRAMES['1d'].seconds,
+      undefined,
+      forexNyCloseOffsetSeconds
+    )
+    expect(daily.map((c) => c.time)).toEqual([sessionOpen, nextOpen])
+    expect(daily[0]).toMatchObject({ open: 1, high: 2, low: 1, close: 2 })
+
+    const fourHour = aggregateCandles(
+      candles,
+      TIMEFRAMES['4h'].seconds,
+      undefined,
+      forexNyCloseOffsetSeconds
+    )
+    expect(fourHour[0].time).toBe(sessionOpen)
+    expect(fourHour[fourHour.length - 1].time).toBe(nextOpen)
+    expect(aggregateCandles(candles, TIMEFRAMES['4h'].seconds)[0].time).toBe(
+      utcSeconds(2020, 7, 27, 20)
+    )
   })
 })
 
@@ -100,6 +142,24 @@ describe('buildImportTimeframes', () => {
       const direct = aggregateCandles(candles1m, TIMEFRAMES[id].seconds)
       expect(cascaded[id]).toEqual(direct)
     }
+  })
+
+  it('keeps 5m on the UTC 300s grid when a session offset is passed', () => {
+    const start = utcSeconds(2020, 7, 27, 21)
+    const candles1m = series(60, 60, start)
+    const map = buildImportTimeframes(candles1m, forexNyCloseOffsetSeconds)
+    expect(map['5m']).toEqual(aggregateCandles(candles1m, TIMEFRAMES['5m'].seconds))
+    expect(map['5m'].every((c) => c.time % 300 === 0)).toBe(true)
+    expect(map['15m']).toEqual(aggregateCandles(candles1m, TIMEFRAMES['15m'].seconds))
+    expect(map['1h']).toEqual(aggregateCandles(candles1m, TIMEFRAMES['1h'].seconds))
+    expect(map['4h']).toEqual(
+      aggregateCandles(candles1m, TIMEFRAMES['4h'].seconds, undefined, forexNyCloseOffsetSeconds)
+    )
+    expect(map['1d']).toEqual(
+      aggregateCandles(candles1m, TIMEFRAMES['1d'].seconds, undefined, forexNyCloseOffsetSeconds)
+    )
+    expect(map['4h'][0].time).toBe(start)
+    expect(map['1d'][0].time).toBe(start)
   })
 })
 

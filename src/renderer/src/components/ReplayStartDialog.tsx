@@ -17,13 +17,15 @@ import {
   type ReplayRangeMode
 } from '@/lib/randomReplayRange'
 import {
-  defaultUtcParts,
-  formatUtcCandleTime,
-  nowUtcSeconds,
-  parseUtcParts,
-  toUtcParts
-} from '@/lib/utcDateTime'
+  defaultSessionParts,
+  formatSessionCandleTime,
+  parseSessionParts,
+  sessionUtcOffsetLabel,
+  toSessionParts
+} from '@/lib/chartTimezone'
+import { nowUtcSeconds } from '@/lib/utcDateTime'
 import { TIMEFRAMES } from '@shared/timeframes'
+import { useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useReplayStore } from '@/store/replayStore'
 
 const TAB_STORAGE_KEY = 'easy-candle:replay-modal-tab'
@@ -54,11 +56,13 @@ export default function ReplayStartDialog() {
   const replayLoading = useReplayStore((s) => s.replayLoading)
   const startReplayAt = useReplayStore((s) => s.startReplayAt)
   const startImportedReplayAtTime = useReplayStore((s) => s.startImportedReplayAtTime)
+  const timezone = useChartSettingsStore((s) => s.timezone)
+  const offsetLabel = sessionUtcOffsetLabel(timezone)
 
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<ReplayRangeMode>(() => loadTab())
-  const [date, setDate] = useState(() => defaultUtcParts(0).date)
-  const [time, setTime] = useState(() => defaultUtcParts(0).time)
+  const [date, setDate] = useState(() => defaultSessionParts(0, timezone).date)
+  const [time, setTime] = useState(() => defaultSessionParts(0, timezone).time)
   const [rangeValue, setRangeValue] = useState(DEFAULT_RANGE.value)
   const [rangeUnit, setRangeUnit] = useState<RangeUnit>(DEFAULT_RANGE.unit)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -89,7 +93,7 @@ export default function ReplayStartDialog() {
   }, [open])
 
   function openModal(): void {
-    const parts = defaultUtcParts(0)
+    const parts = defaultSessionParts(0, timezone)
     setDate(parts.date)
     setTime(parts.time)
     setLocalError(null)
@@ -127,7 +131,7 @@ export default function ReplayStartDialog() {
         setLocalError('Not enough candles for a random range.')
         return false
       }
-      const message = `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${formatUtcCandleTime(startTime)}`
+      const message = `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${formatSessionCandleTime(startTime, timezone)}`
       await startImportedReplayAtTime(startTime, {
         message,
         forwardBars: Math.max(REPLAY_FORWARD_BARS, lengthCandles)
@@ -152,7 +156,7 @@ export default function ReplayStartDialog() {
 
     await startReplayAt(startSec, {
       forwardBars: Math.max(REPLAY_FORWARD_BARS, lengthCandles),
-      message: `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${formatUtcCandleTime(startSec)}`
+      message: `Random replay · ${value} ${RANGE_UNIT_LABELS[unit]} · start ${formatSessionCandleTime(startSec, timezone)}`
     })
     return true
   }
@@ -167,9 +171,9 @@ export default function ReplayStartDialog() {
       return
     }
 
-    const seconds = parseUtcParts(date, time)
+    const seconds = parseSessionParts(date, time, timezone)
     if (seconds == null) {
-      setLocalError('Enter a valid UTC date and time.')
+      setLocalError('Enter a valid date and time.')
       return
     }
 
@@ -182,7 +186,7 @@ export default function ReplayStartDialog() {
         setLocalError('Selected time is after the end of the imported data.')
         return
       }
-      const message = `Manual replay · start ${formatUtcCandleTime(seconds)}`
+      const message = `Manual replay · start ${formatSessionCandleTime(seconds, timezone)}`
       await startImportedReplayAtTime(seconds, { message })
       setOpen(false)
       return
@@ -202,13 +206,13 @@ export default function ReplayStartDialog() {
           localFirstTime,
           localLastTime - rangeToSeconds(preset.value, preset.unit)
         )
-        const parts = toUtcParts(seconds)
+        const parts = toSessionParts(seconds, timezone)
         setDate(parts.date)
         setTime(parts.time)
         return
       }
       const seconds = nowUtcSeconds() - rangeToSeconds(preset.value, preset.unit)
-      const parts = toUtcParts(seconds)
+      const parts = toSessionParts(seconds, timezone)
       setDate(parts.date)
       setTime(parts.time)
       return
@@ -258,8 +262,8 @@ export default function ReplayStartDialog() {
                 </h2>
                 <p className="mt-0.5 text-[11px] text-zinc-500">
                   {imported
-                    ? 'Imported data · UTC'
-                    : `${TIMEFRAMES[timeframe]?.label ?? timeframe} · UTC`}
+                    ? `Imported data · ${offsetLabel}`
+                    : `${TIMEFRAMES[timeframe]?.label ?? timeframe} · ${offsetLabel}`}
                 </p>
               </div>
               <button
@@ -295,14 +299,14 @@ export default function ReplayStartDialog() {
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block">
                       <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                        Start date (UTC)
+                        Start date ({offsetLabel})
                       </span>
                       <div className="mt-1 flex items-center gap-1.5">
                         <CalendarClock className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
                         <input
                           type="date"
                           value={date}
-                          aria-label="Replay start date UTC"
+                          aria-label={`Replay start date ${offsetLabel}`}
                           onChange={(e) => setDate(e.target.value)}
                           className="h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 outline-none focus:border-amber-500/60"
                         />
@@ -310,12 +314,12 @@ export default function ReplayStartDialog() {
                     </label>
                     <label className="block">
                       <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                        Start time (UTC)
+                        Start time ({offsetLabel})
                       </span>
                       <input
                         type="time"
                         value={time}
-                        aria-label="Replay start time UTC"
+                        aria-label={`Replay start time ${offsetLabel}`}
                         onChange={(e) => setTime(e.target.value)}
                         className="mt-1 h-8 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 outline-none focus:border-amber-500/60"
                       />

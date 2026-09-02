@@ -4,6 +4,7 @@ import { promises as fs } from 'fs'
 import { basename, join } from 'path'
 import { mergeCandlesByTime, type Candle } from '@shared/candleUtils'
 import { buildImportTimeframes, IMPORT_STORED_TIMEFRAMES } from '@shared/candleAggregate'
+import { forexNyCloseOffsetSeconds } from '@shared/forexSession'
 import { buildImportedDatasetMeta } from '@shared/importMeta'
 import { IMPORT_BUILD_UI_PERCENT, type ImportJobProgress } from '@shared/importJobProgress'
 import { clientParseResult } from '@shared/importWorkerJob'
@@ -418,7 +419,7 @@ async function persistMtMemory(id: string): Promise<ImportedDatasetMeta | null> 
   const memory = mtMemory.get(id)
   if (!memory || !memory.candles1m.length) return memory?.meta ?? null
 
-  const candlesByTimeframe = buildImportTimeframes(memory.candles1m)
+  const candlesByTimeframe = buildImportTimeframes(memory.candles1m, forexNyCloseOffsetSeconds)
   const meta = buildImportedDatasetMeta({
     id,
     symbol: memory.meta.symbol,

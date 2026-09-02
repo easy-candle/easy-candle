@@ -15,6 +15,11 @@ import {
   tailRange
 } from '@/lib/importWindow'
 import { aggregateCandles, overlayFormingHigherTf } from '@shared/candleAggregate'
+import {
+  floorToInterval,
+  forexNyCloseOffsetSeconds,
+  importedForexSessionOffset
+} from '@shared/forexSession'
 import { dedupeCandlesByTime, findIndexAtOrBefore, type Candle } from '@shared/candleUtils'
 import {
   isBinanceDataSource,
@@ -335,7 +340,11 @@ export function selectPriceFollowCandle(s: {
 function displayedFromSource(source1m: Candle[], timeframe: string): Candle[] {
   if (!source1m.length) return []
   if (timeframe === '1m') return source1m
-  return aggregateCandles(source1m, intervalSecondsFor(timeframe))
+  const seconds = intervalSecondsFor(timeframe)
+  if (timeframe === '4h' || timeframe === '1d') {
+    return aggregateCandles(source1m, seconds, undefined, forexNyCloseOffsetSeconds)
+  }
+  return aggregateCandles(source1m, seconds)
 }
 
 /** Patch a coarser pane's current bar from the finer pane's playhead (live-style). */
@@ -355,7 +364,9 @@ function overlayCoarserIfSplit(
 
   const finerVisible =
     which === 'primary' ? secondaryEngine.getVisibleCandles() : engine.getVisibleCandles()
-  const next = overlayFormingHigherTf(visible, finerVisible, thisSec)
+  const paneTf = which === 'primary' ? s.timeframe : s.secondaryTimeframe
+  const sessionOffset = s.dataSource === 'imported' ? importedForexSessionOffset(paneTf) : undefined
+  const next = overlayFormingHigherTf(visible, finerVisible, thisSec, sessionOffset)
   return { visible: next, current: next[next.length - 1] ?? current }
 }
 
@@ -2239,7 +2250,11 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
 
     const previousTimeframe = get().timeframe
     const nextIntervalSec = intervalSecondsFor(nextTimeframe)
-    const seekTime = alignTimeToInterval(anchorOpen, nextIntervalSec)
+    const importedOffset =
+      get().dataSource === 'imported' ? importedForexSessionOffset(nextTimeframe) : undefined
+    const seekTime = importedOffset
+      ? floorToInterval(anchorOpen, nextIntervalSec, importedOffset(anchorOpen))
+      : alignTimeToInterval(anchorOpen, nextIntervalSec)
 
     if (get().dataSource === 'imported') {
       const meta = get().importMeta

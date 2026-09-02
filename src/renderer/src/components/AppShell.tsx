@@ -4,6 +4,7 @@ import AboutDialog from '@/components/AboutDialog'
 import AccountDialog from '@/components/AccountDialog'
 import AppTour from '@/components/AppTour'
 import ChartSettingsDialog from '@/components/ChartSettingsDialog'
+import ChartTimezoneSelect from '@/components/ChartTimezoneSelect'
 import DrawingToolbar from '@/components/DrawingToolbar'
 import DrawingSettingsDialog from '@/components/DrawingSettingsDialog'
 import FloatingReplayBar from '@/components/FloatingReplayBar'
@@ -101,7 +102,7 @@ export default function AppShell({
         <div className="shrink-0 border-b border-amber-900/40 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-200/90 sm:px-4">
           {imported
             ? 'Replay reached the end of the imported file. Step back, jump within the file, or exit replay.'
-            : 'Replay reached the end of the loaded buffer. Jump to another UTC time, step back, or exit to live.'}
+            : 'Replay reached the end of the loaded buffer. Jump to another time, step back, or exit to live.'}
         </div>
       )}
 
@@ -118,6 +119,17 @@ export default function AppShell({
           {showDrawingToolbar && <DrawingToolbar />}
           <div className="relative h-full min-h-0 min-w-0 flex-1 rounded-sm border border-zinc-800">
             {children}
+            <div
+              className="pointer-events-none absolute z-20"
+              style={{
+                right: Math.max(priceScaleWidth, 0) + 6,
+                bottom: 4
+              }}
+            >
+              <div className="pointer-events-auto">
+                <ChartTimezoneSelect />
+              </div>
+            </div>
             {showReplayControls && inReplay && <FloatingReplayBar />}
             {chartFullscreen && inReplay && <FloatingTradeBar />}
             {chartFullscreen && (

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { BadgeInfo, Circle, LoaderCircle } from 'lucide-react'
-import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import { formatSessionCandleTime } from '@/lib/chartTimezone'
 import type { ReplayStatus } from '@/lib/replayEngine'
+import { useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useReplayStore } from '@/store/replayStore'
 import { isMetatraderImport } from '@shared/importTypes'
 import Tooltip from '@/components/Tooltip'
@@ -97,6 +98,7 @@ function ReplayStatus() {
   const replayMessage = useReplayStore((s) => s.replayMessage)
   const dataSource = useReplayStore((s) => s.dataSource)
   const importMeta = useReplayStore((s) => s.importMeta)
+  const timezone = useChartSettingsStore((s) => s.timezone)
   const imported = dataSource === 'imported'
   const mtFeed = dataSource === 'mtbridge' || isMetatraderImport(importMeta)
 
@@ -106,7 +108,7 @@ function ReplayStatus() {
   const details = compact([
     imported ? (mtFeed ? 'MetaTrader' : 'Imported') : null,
     isPlaying ? `${speed}x` : null,
-    formatUtcCandleTime(currentCandle?.time),
+    formatSessionCandleTime(currentCandle?.time, timezone),
     bufferLength > 0 ? `${replayIndex + 1}/${bufferLength}` : '0/0'
   ])
   const { mode, text } = splitMessage(replayMessage)

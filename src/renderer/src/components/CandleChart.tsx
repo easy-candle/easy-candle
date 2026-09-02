@@ -14,6 +14,7 @@ import {
   type LogicalRange,
   type SeriesMarker,
   type SeriesType,
+  type TickMarkType,
   type Time
 } from 'lightweight-charts'
 import DrawingOverlay from '@/components/DrawingOverlay'
@@ -38,12 +39,38 @@ import {
 import type { Candle } from '@shared/candleUtils'
 import { resolvePricePrecision, toChartPriceFormat } from '@shared/pricePrecision'
 import { TIMEFRAMES } from '@shared/timeframes'
+import {
+  formatSessionCandleTime,
+  tickMarkLabel,
+  unixSecondsFromChartTime
+} from '@/lib/chartTimezone'
 import { type ChartPalette } from '@/lib/theme'
 import { resolveChartPalette, useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
 
 const DEFAULT_VISIBLE_BARS = 50
+
+function chartLocalization(
+  timezone: string,
+  secondsVisible: boolean
+): {
+  timeFormatter: (time: Time) => string
+  tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) => string
+} {
+  return {
+    timeFormatter: (time) =>
+      formatSessionCandleTime(unixSecondsFromChartTime(time), timezone, {
+        seconds: secondsVisible,
+        offset: false
+      }),
+    tickMarkFormatter: (time, tickMarkType) => {
+      const seconds = unixSecondsFromChartTime(time)
+      if (seconds == null) return ''
+      return tickMarkLabel(seconds, tickMarkType, timezone)
+    }
+  }
+}
 
 function chartThemeOptions(palette: ChartPalette): {
   layout: {
@@ -337,7 +364,8 @@ export default function CandleChart({
         borderColor: palette.scaleBorder,
         timeVisible: settings.timeScale.timeVisible,
         secondsVisible: settings.timeScale.secondsVisible
-      }
+      },
+      localization: chartLocalization(settings.timezone, settings.timeScale.secondsVisible)
     })
 
     const series = addSeries(chart, chartType, pricePrecisionRef.current, palette)
@@ -534,6 +562,7 @@ export default function CandleChart({
         timeVisible: settings.timeScale.timeVisible,
         secondsVisible: settings.timeScale.secondsVisible
       },
+      localization: chartLocalization(settings.timezone, settings.timeScale.secondsVisible),
       crosshair: {
         mode: settings.crosshair.mode,
         vertLine: {

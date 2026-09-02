@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { CrosshairMode, LineStyle, PriceScaleMode, type LineWidth } from 'lightweight-charts'
+import { DEFAULT_CHART_TIMEZONE, sanitizeTimezone } from '@/lib/chartTimezone'
 import { CHART_PALETTES, type ChartPalette, type Theme } from '@/lib/theme'
 
 const STORAGE_KEY = 'easy-candle:chart-settings'
@@ -66,6 +67,7 @@ export type ChartSettingsSnapshot = {
   crosshair: CrosshairSettings
   priceScale: PriceScaleSettings
   timeScale: TimeScaleSettings
+  timezone: string
 }
 
 export type ChartSettingsPreset = ChartSettingsSnapshot & {
@@ -83,6 +85,7 @@ type ChartSettingsState = PersistedChartSettings & {
   setCrosshair: (patch: Partial<CrosshairSettings>) => void
   setPriceScale: (patch: Partial<PriceScaleSettings>) => void
   setTimeScale: (patch: Partial<TimeScaleSettings>) => void
+  setTimezone: (timezone: string) => void
   toggleInvertScale: () => void
   savePreset: (name: string) => boolean
   restorePreset: (id: string) => boolean
@@ -193,7 +196,8 @@ function sanitizeSnapshot(raw: unknown): ChartSettingsSnapshot {
     colors: sanitizeColors(source.colors),
     crosshair: sanitizeCrosshair(source.crosshair),
     priceScale: sanitizePriceScale(source.priceScale),
-    timeScale: sanitizeTimeScale(source.timeScale)
+    timeScale: sanitizeTimeScale(source.timeScale),
+    timezone: sanitizeTimezone(source.timezone)
   }
 }
 
@@ -202,7 +206,8 @@ function cloneSnapshot(snapshot: ChartSettingsSnapshot): ChartSettingsSnapshot {
     colors: { ...snapshot.colors },
     crosshair: { ...snapshot.crosshair },
     priceScale: { ...snapshot.priceScale },
-    timeScale: { ...snapshot.timeScale }
+    timeScale: { ...snapshot.timeScale },
+    timezone: snapshot.timezone
   }
 }
 
@@ -236,6 +241,7 @@ const EMPTY_SETTINGS: PersistedChartSettings = {
   crosshair: DEFAULT_CROSSHAIR,
   priceScale: DEFAULT_PRICE_SCALE,
   timeScale: DEFAULT_TIME_SCALE,
+  timezone: DEFAULT_CHART_TIMEZONE,
   presets: []
 }
 
@@ -270,6 +276,7 @@ function persistLive(get: () => ChartSettingsState): void {
     crosshair: get().crosshair,
     priceScale: get().priceScale,
     timeScale: get().timeScale,
+    timezone: get().timezone,
     presets: get().presets
   })
 }
@@ -281,6 +288,7 @@ export const useChartSettingsStore = create<ChartSettingsState>((set, get) => ({
   crosshair: initial.crosshair,
   priceScale: initial.priceScale,
   timeScale: initial.timeScale,
+  timezone: initial.timezone,
   presets: initial.presets,
 
   setColors: (patch) => {
@@ -304,6 +312,13 @@ export const useChartSettingsStore = create<ChartSettingsState>((set, get) => ({
   setTimeScale: (patch) => {
     const timeScale = { ...get().timeScale, ...patch }
     set({ timeScale })
+    persistLive(get)
+  },
+
+  setTimezone: (timezone) => {
+    const next = sanitizeTimezone(timezone)
+    if (next === get().timezone) return
+    set({ timezone: next })
     persistLive(get)
   },
 
@@ -352,7 +367,8 @@ export const useChartSettingsStore = create<ChartSettingsState>((set, get) => ({
       colors: {},
       crosshair: DEFAULT_CROSSHAIR,
       priceScale: DEFAULT_PRICE_SCALE,
-      timeScale: DEFAULT_TIME_SCALE
+      timeScale: DEFAULT_TIME_SCALE,
+      timezone: DEFAULT_CHART_TIMEZONE
     })
     persistLive(get)
   }

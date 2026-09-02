@@ -8,10 +8,11 @@ import type {
   SeriesType,
   Time
 } from 'lightweight-charts'
-import { formatUtcCandleTime } from '@/lib/utcDateTime'
+import { formatSessionCandleTime } from '@/lib/chartTimezone'
 import { isLineData, sameBar, type LegendBar } from '@/lib/ohlcLegendBar'
 import type { Candle } from '@shared/candleUtils'
 import { formatAssetPrice } from '@shared/pricePrecision'
+import { useChartSettingsStore } from '@/store/chartSettingsStore'
 
 const UP_COLOR = '#22c55e'
 const DOWN_COLOR = '#ef4444'
@@ -67,6 +68,7 @@ export default memo(function OhlcLegend({
   candles,
   pricePrecision
 }: OhlcLegendProps): ReactNode {
+  const timezone = useChartSettingsStore((s) => s.timezone)
   const [bar, setBar] = useState<LegendBar | null>(null)
   const pinnedTimeRef = useRef<number | null>(null)
   const candlesRef = useRef(candles)
@@ -121,7 +123,7 @@ export default memo(function OhlcLegend({
 
   return (
     <div className="flex select-none items-center gap-2.5 rounded border border-zinc-800/80 bg-zinc-950/80 px-2.5 py-1 text-[11px] font-medium tabular-nums backdrop-blur-sm">
-      <span className="text-zinc-500">{formatUtcCandleTime(time)}</span>
+      <span className="text-zinc-500">{formatSessionCandleTime(time, timezone)}</span>
       {line ? (
         <span className="flex items-center gap-1">
           <span className="text-zinc-500">Price</span>

@@ -65,5 +65,10 @@ describe('importWorkerJob', () => {
     expect(map['5m']?.length).toBeGreaterThan(0)
     expect(map['1d']?.length).toBeGreaterThan(0)
     expect(percents[percents.length - 1]).toBe(63)
+
+    const dailyHours = map['1d'].map((c) => new Date(c.time * 1000).getUTCHours())
+    expect(dailyHours.every((hour) => hour === 21 || hour === 22)).toBe(true)
+    expect(dailyHours).not.toContain(0)
+    expect(dailyHours[0]).toBe(22)
   })
 })

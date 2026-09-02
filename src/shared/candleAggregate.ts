@@ -1,10 +1,22 @@
 import type { Candle } from './candleUtils'
+import { floorToInterval, importedForexSessionOffset } from './forexSession'
 import {
   IMPORT_BUILD_STAGE_PERCENT,
   IMPORT_BUILD_UI_PERCENT,
   IMPORT_WORKER_PROGRESS_EVERY
 } from './importJobProgress'
 import { TIMEFRAMES } from './timeframes'
+
+type SessionOffset = number | ((timeSeconds: number) => number)
+
+function resolveSessionOffset(
+  sessionOffset: SessionOffset | undefined,
+  timeSeconds: number
+): number {
+  if (typeof sessionOffset === 'function') return sessionOffset(timeSeconds)
+  const off = Number(sessionOffset)
+  return Number.isFinite(off) ? off : 0
+}
 
 /** Timeframes derived from an imported 1m series (excludes source 1m). */
 export const IMPORT_DERIVED_TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d'] as const
@@ -21,12 +33,14 @@ export type ImportBuildProgress = {
 
 /**
  * Aggregate lower-timeframe candles into a higher interval in one linear pass.
- * Open time is floored to `intervalSeconds` (UTC). Incomplete final buckets are kept.
+ * Open time is floored to `intervalSeconds` (UTC when `sessionOffset` is omitted).
+ * Incomplete final buckets are kept.
  */
 export function aggregateCandles(
   candles: Candle[],
   intervalSeconds: number,
-  onChunk?: (processed: number, total: number) => void
+  onChunk?: (processed: number, total: number) => void,
+  sessionOffset?: SessionOffset
 ): Candle[] {
   const step = Math.max(1, Math.floor(intervalSeconds) || 1)
   if (!Array.isArray(candles) || candles.length === 0) return []
@@ -52,7 +66,7 @@ export function aggregateCandles(
     const candle = candles[i]
     const t = Math.floor(Number(candle.time))
     if (!Number.isFinite(t)) continue
-    const openTime = Math.floor(t / step) * step
+    const openTime = floorToInterval(t, step, resolveSessionOffset(sessionOffset, t))
 
     if (openTime !== bucketOpen) {
       flush()
@@ -90,14 +104,15 @@ export function aggregateCandles(
  */
 export function formingHigherTfCandle(
   finerCandles: Candle[],
-  coarserIntervalSeconds: number
+  coarserIntervalSeconds: number,
+  sessionOffset?: SessionOffset
 ): Candle | null {
   if (!Array.isArray(finerCandles) || finerCandles.length === 0) return null
   const step = Math.max(1, Math.floor(Number(coarserIntervalSeconds)) || 1)
   const last = finerCandles[finerCandles.length - 1]
   const lastTime = Math.floor(Number(last?.time))
   if (!Number.isFinite(lastTime)) return null
-  const bucketOpen = Math.floor(lastTime / step) * step
+  const bucketOpen = floorToInterval(lastTime, step, resolveSessionOffset(sessionOffset, lastTime))
 
   const bucket: Candle[] = []
   for (let i = finerCandles.length - 1; i >= 0; i -= 1) {
@@ -107,7 +122,7 @@ export function formingHigherTfCandle(
     bucket.push(candle)
   }
   bucket.reverse()
-  return aggregateCandles(bucket, step)[0] ?? null
+  return aggregateCandles(bucket, step, undefined, sessionOffset)[0] ?? null
 }
 
 function sameOhlc(a: Candle, b: Candle): boolean {
@@ -128,10 +143,11 @@ function sameOhlc(a: Candle, b: Candle): boolean {
 export function overlayFormingHigherTf(
   coarserCandles: Candle[],
   finerCandles: Candle[],
-  coarserIntervalSeconds: number
+  coarserIntervalSeconds: number,
+  sessionOffset?: SessionOffset
 ): Candle[] {
   const series = Array.isArray(coarserCandles) ? coarserCandles : []
-  const forming = formingHigherTfCandle(finerCandles, coarserIntervalSeconds)
+  const forming = formingHigherTfCandle(finerCandles, coarserIntervalSeconds, sessionOffset)
   if (!forming) return series
 
   if (series.length === 0) return [forming]
@@ -157,7 +173,8 @@ function cascadeSourceId(derivedIndex: number): string {
 
 function buildDerivedTimeframes(
   candles1m: Candle[],
-  onProgress?: (progress: ImportBuildProgress) => void
+  onProgress?: (progress: ImportBuildProgress) => void,
+  sessionOffset?: SessionOffset
 ): Record<string, Candle[]> {
   const result: Record<string, Candle[]> = {
     '1m': candles1m
@@ -172,6 +189,7 @@ function buildDerivedTimeframes(
     const stageEnd = IMPORT_BUILD_STAGE_PERCENT[id] ?? IMPORT_BUILD_UI_PERCENT.ready
     const stageStart = i === 0 ? IMPORT_BUILD_UI_PERCENT.tf5mStart : stageEnd
     onProgress?.({ phase: `Building ${id}…`, percent: stageStart })
+    const tfOffset = importedForexSessionOffset(id) ? sessionOffset : undefined
 
     result[id] = aggregateCandles(
       source,
@@ -185,7 +203,8 @@ function buildDerivedTimeframes(
                 Math.round((processed / Math.max(count, 1)) * IMPORT_BUILD_UI_PERCENT.tf5mEnd)
             })
           }
-        : undefined
+        : undefined,
+      tfOffset
     )
 
     if (i > 0) {
@@ -198,22 +217,27 @@ function buildDerivedTimeframes(
 }
 
 /** Build 1m + derived TF maps from a validated 1-minute series. */
-export function buildImportTimeframes(candles1m: Candle[]): Record<string, Candle[]> {
-  return buildDerivedTimeframes(candles1m)
+export function buildImportTimeframes(
+  candles1m: Candle[],
+  sessionOffset?: SessionOffset
+): Record<string, Candle[]> {
+  return buildDerivedTimeframes(candles1m, undefined, sessionOffset)
 }
 
 /** Same as `buildImportTimeframes`, with UI-mapped progress (0–63). */
 export function buildImportTimeframesWithProgress(
   candles1m: Candle[],
-  onProgress?: (progress: ImportBuildProgress) => void
+  onProgress?: (progress: ImportBuildProgress) => void,
+  sessionOffset?: SessionOffset
 ): Record<string, Candle[]> {
-  return buildDerivedTimeframes(candles1m, onProgress)
+  return buildDerivedTimeframes(candles1m, onProgress, sessionOffset)
 }
 
 /** Async alias so existing callers/tests can await the same linear builder. */
 export async function buildImportTimeframesAsync(
   candles1m: Candle[],
-  onProgress?: (progress: ImportBuildProgress) => void
+  onProgress?: (progress: ImportBuildProgress) => void,
+  sessionOffset?: SessionOffset
 ): Promise<Record<string, Candle[]>> {
-  return buildImportTimeframesWithProgress(candles1m, onProgress)
+  return buildImportTimeframesWithProgress(candles1m, onProgress, sessionOffset)
 }

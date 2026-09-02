@@ -4,6 +4,7 @@ type DropdownProps = {
   trigger: (props: { open: boolean; toggle: () => void }) => ReactNode
   children: ReactNode | ((props: { close: () => void }) => ReactNode)
   align?: 'start' | 'end'
+  placement?: 'bottom' | 'top'
   menuClassName?: string
 }
 
@@ -11,6 +12,7 @@ export default memo(function Dropdown({
   trigger,
   children,
   align = 'start',
+  placement = 'bottom',
   menuClassName = ''
 }: DropdownProps) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -47,9 +49,9 @@ export default memo(function Dropdown({
       {open && (
         <div
           role="menu"
-          className={`absolute top-full z-50 mt-1 min-w-[8rem] overflow-hidden rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl shadow-black/10 ${
-            align === 'end' ? 'right-0' : 'left-0'
-          } ${menuClassName}`}
+          className={`absolute z-50 min-w-[8rem] overflow-hidden rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl shadow-black/10 ${
+            placement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
+          } ${align === 'end' ? 'right-0' : 'left-0'} ${menuClassName}`}
         >
           {typeof children === 'function' ? children({ close: () => setOpen(false) }) : children}
         </div>

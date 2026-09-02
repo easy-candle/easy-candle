@@ -12,9 +12,15 @@ import {
 import Dropdown from '@/components/Dropdown'
 import IconButton from '@/components/IconButton'
 import Tooltip from '@/components/Tooltip'
+import {
+  defaultSessionParts,
+  parseSessionParts,
+  sessionUtcOffsetLabel,
+  toSessionParts
+} from '@/lib/chartTimezone'
 import { REPLAY_SPEEDS } from '@/lib/replayEngine'
-import { defaultUtcParts, parseUtcParts, toUtcParts } from '@/lib/utcDateTime'
 import { TIMEFRAMES } from '@shared/timeframes'
+import { useChartSettingsStore } from '@/store/chartSettingsStore'
 import { useReplayStore } from '@/store/replayStore'
 
 export default function ReplayControls() {
@@ -40,24 +46,27 @@ export default function ReplayControls() {
   const exitReplay = useReplayStore((s) => s.exitReplay)
   const pauseOnTpSl = useReplayStore((s) => s.pauseOnTpSl)
   const setPauseOnTpSl = useReplayStore((s) => s.setPauseOnTpSl)
+  const timezone = useChartSettingsStore((s) => s.timezone)
+  const offsetLabel = sessionUtcOffsetLabel(timezone)
 
-  const seed = currentCandle ? toUtcParts(currentCandle.time) : defaultUtcParts(7)
+  const seed = currentCandle
+    ? toSessionParts(currentCandle.time, timezone)
+    : defaultSessionParts(7, timezone)
   const [jumpDate, setJumpDate] = useState(seed.date)
   const [jumpTime, setJumpTime] = useState(seed.time)
   const [jumpError, setJumpError] = useState<string | null>(null)
 
   const busy = replayLoading || secondaryLoading
   const ended = replayStatus === 'ended'
-  const driverIndex =
-    chartSplit && driverPane === 'secondary' ? secondaryReplayIndex : replayIndex
+  const driverIndex = chartSplit && driverPane === 'secondary' ? secondaryReplayIndex : replayIndex
 
   async function onJump(event: FormEvent): Promise<void> {
     event.preventDefault()
     setJumpError(null)
 
-    const seconds = parseUtcParts(jumpDate, jumpTime)
+    const seconds = parseSessionParts(jumpDate, jumpTime, timezone)
     if (seconds == null) {
-      setJumpError('Enter a valid UTC date and time.')
+      setJumpError('Enter a valid date and time.')
       return
     }
 
@@ -172,7 +181,7 @@ export default function ReplayControls() {
         align="end"
         trigger={({ open, toggle }) => (
           <IconButton
-            tooltip="Jump to UTC time"
+            tooltip={`Jump to ${offsetLabel} time`}
             active={open}
             tooltipSide="top"
             disabled={busy}
@@ -187,12 +196,12 @@ export default function ReplayControls() {
       >
         <form onSubmit={onJump} className="flex items-center gap-1 p-2">
           <SkipForward className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
-          <span className="sr-only">Jump UTC</span>
+          <span className="sr-only">Jump {offsetLabel}</span>
           <input
             type="date"
             value={jumpDate}
             disabled={busy}
-            aria-label="Jump date UTC"
+            aria-label={`Jump date ${offsetLabel}`}
             onChange={(e) => setJumpDate(e.target.value)}
             className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
           />
@@ -200,7 +209,7 @@ export default function ReplayControls() {
             type="time"
             value={jumpTime}
             disabled={busy}
-            aria-label="Jump time UTC"
+            aria-label={`Jump time ${offsetLabel}`}
             onChange={(e) => setJumpTime(e.target.value)}
             className="h-8 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-300 disabled:opacity-60"
           />
