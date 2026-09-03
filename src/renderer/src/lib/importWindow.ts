@@ -15,6 +15,12 @@ export const IMPORT_REPLAY_FORWARD_BARS = 1000
 /** Batch size when extending an imported replay buffer during play. */
 export const IMPORT_PREFETCH_BATCH_BARS = 1000
 
+/**
+ * Ceiling on bars pulled in to reach a focus target. Imported series come from
+ * disk, so this is generous — it only guards against a pathological request.
+ */
+export const IMPORT_FOCUS_MAX_BARS = 20000
+
 function positiveInt(value: unknown, fallback: number): number {
   const n = Math.floor(Number(value))
   return Number.isFinite(n) && n > 0 ? n : fallback
@@ -49,6 +55,28 @@ export function forwardRange(
   return {
     startTime: Number.isFinite(newest) ? newest + 1 : 0,
     limit: positiveInt(limit, IMPORT_PREFETCH_BATCH_BARS)
+  }
+}
+
+/**
+ * Every bar between a focus target (minus `lookbackBars` of context) and the
+ * oldest bar already loaded, so the gap closes in one read instead of paging.
+ */
+export function focusHistoryRange(
+  targetTimeSeconds: number,
+  oldestLoadedTime: number,
+  intervalSeconds: number,
+  opts: { lookbackBars?: number; limit?: number } = {}
+): ImportLoadRange {
+  const target = Math.floor(Number(targetTimeSeconds))
+  const oldest = Math.floor(Number(oldestLoadedTime))
+  const interval = positiveInt(intervalSeconds, 60)
+  const lookback = Math.max(0, Math.floor(opts.lookbackBars ?? 0))
+
+  return {
+    startTime: Math.max(0, (Number.isFinite(target) ? target : 0) - lookback * interval),
+    endTime: Number.isFinite(oldest) ? oldest - 1 : 0,
+    limit: positiveInt(opts.limit, IMPORT_FOCUS_MAX_BARS)
   }
 }
 
