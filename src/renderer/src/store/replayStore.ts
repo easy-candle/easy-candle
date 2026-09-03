@@ -3,12 +3,15 @@ import {
   buildReplayWindowMs,
   fetchCandles,
   fetchCandlesRange,
+  MAX_RANGE_BARS,
   prefetchForward,
   PREFETCH_BATCH_SIZE
 } from '@/lib/binance'
 import {
+  focusHistoryRange,
   forwardRange,
   historyRange,
+  IMPORT_FOCUS_MAX_BARS,
   IMPORT_PREFETCH_BATCH_BARS,
   mergeLoadedWindow,
   replayRange,
@@ -108,6 +111,8 @@ const EMPTY_WORKING_TRADES = {
 
 import { createReplayEngine, type ReplayStatus } from '@/lib/replayEngine'
 import { isChartType, type ChartType } from '@/lib/chart/chartTypes'
+import { isTimeInSeriesRange } from '@/lib/chart/drawingTimeScale'
+import { focusHistoryBars, FOCUS_LOOKBACK_BARS } from '@/lib/chart/focusRange'
 import {
   cloneDrawing as cloneDrawingGeom,
   drawingToolType,
@@ -188,9 +193,23 @@ export type {
   TrendPoint
 } from '@/lib/chart/drawingGeometry'
 
+/** Shown when a focus target cannot be brought onto the chart. */
+export const FOCUS_OUT_OF_RANGE_MESSAGE =
+  'Could not load that time — it is outside the available candles.'
+
 export type ChartSync = {
   kind: ChartSyncKind
   fitContent: boolean
+  revision: number
+}
+
+/**
+ * One-shot "scroll the viewport here" command. Unlike `ChartSync` it never
+ * touches the series or the playhead — panes only move their visible range.
+ */
+export type ChartFocus = {
+  /** UTC seconds to bring into view. */
+  time: number
   revision: number
 }
 
@@ -305,6 +324,8 @@ let replayRequestId = 0
 let secondaryLoadGeneration = 0
 let prefetchInFlight = false
 let secondaryPrefetchInFlight = false
+/** Guards `focusChartTime` so repeated clicks cannot stack history fetches. */
+let focusInFlight = false
 
 function clearClock(): void {
   if (clockTimer != null) {
@@ -483,6 +504,8 @@ type ReplayStore = {
   visibleCandles: Candle[]
   currentCandle: Candle | null
   chartSync: ChartSync
+  /** One-shot viewport focus request for the panes (see `focusChartTime`). */
+  chartFocus: ChartFocus | null
   isPrefetching: boolean
   replayLoading: boolean
   replayMessage: string | null
@@ -609,6 +632,11 @@ type ReplayStore = {
   setSpeed: (speed: number) => void
   seekToIndex: (index: number) => void
   seekToTime: (timeSeconds: number) => void
+  /**
+   * Scroll both panes so a UTC time is visible, without moving the playhead.
+   * Pages older candles in first when the target is not loaded yet.
+   */
+  focusChartTime: (timeSeconds: number) => Promise<void>
 }
 
 export const useReplayStore = create<ReplayStore>((set, get) => {
@@ -1752,6 +1780,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       isPrefetching: false,
       replayLoading: false,
       replayMessage: null,
+      chartFocus: null,
       ...(opts.keepDrawings ? {} : emptyDrawingState()),
       ...EMPTY_TICKET_LEVELS,
       ticketOrderType: 'market' as TicketOrderType,
@@ -2230,6 +2259,94 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     }
   }
 
+  /**
+   * Prepend older bars so `target` lands on the primary series, without moving
+   * the playhead or disturbing trades. Returns false when the target cannot be
+   * reached — the source has no such history, or the gap is too large to fetch.
+   */
+  async function loadHistoryForFocus(target: number): Promise<boolean> {
+    const replaying = get().mode === 'replay'
+    const existing = replaying ? engine.getState().candles : get().candles
+    if (!existing.length) return false
+
+    const intervalSec = intervalSecondsFor(get().timeframe)
+    if (target >= existing[0].time) return true
+
+    const missing = focusHistoryBars(target, existing[0].time, intervalSec, FOCUS_LOOKBACK_BARS)
+    if (missing <= 0) return true
+
+    /** Merge older bars in, keeping the playhead anchored by time. */
+    function prepend(older: Candle[], extra: Partial<ReplayStore> = {}): boolean {
+      if (!older.length) return false
+      const merged = dedupeCandlesByTime(older.concat(existing))
+      if (merged.length === existing.length) return false
+
+      if (replaying) {
+        // Prepending shifts every index, so re-seek by time to keep the playhead.
+        const anchor = engine.getCurrentCandle()?.time ?? null
+        const keptSpeed = engine.getState().speed
+        engine.load(merged)
+        engine.setSpeed(keptSpeed)
+        if (anchor != null) engine.seekToTime(anchor)
+        if (Object.keys(extra).length) set(extra)
+        publishReplay('replace', { fitContent: false })
+        return true
+      }
+
+      set((s) => ({
+        ...extra,
+        candles: merged,
+        chartSync: {
+          kind: 'replace' as const,
+          fitContent: false,
+          revision: s.chartSync.revision + 1
+        }
+      }))
+      return true
+    }
+
+    if (get().dataSource === 'imported') {
+      const meta = get().importMeta
+      if (!meta) return false
+      // MT imports hold the full 1m series in memory — nothing left to page.
+      if (isMetatraderImport(meta) && get().importedSourceCandles.length) return false
+
+      const stats = meta.timeframes?.[get().timeframe]
+      if (stats && target < stats.firstTime) return false
+      if (missing > IMPORT_FOCUS_MAX_BARS) return false
+
+      const loaded = await loadImportedSeries(
+        meta.id,
+        get().timeframe,
+        focusHistoryRange(target, existing[0].time, intervalSec, {
+          lookbackBars: FOCUS_LOOKBACK_BARS
+        })
+      )
+      if (!loaded?.candles.length) return false
+
+      const nextWindow = loaded.window
+        ? mergeLoadedWindow(get().importWindow, loaded.window)
+        : get().importWindow
+      const patch: Partial<ReplayStore> = { importWindow: nextWindow }
+      if (!replaying) patch.importedCandles = dedupeCandlesByTime(loaded.candles.concat(existing))
+
+      return prepend(loaded.candles, patch)
+    }
+
+    if (!isBinanceDataSource(get().dataSource)) return false
+    // One range call is capped; a wider gap would silently load a partial window.
+    if (missing > MAX_RANGE_BARS) return false
+
+    const older = await fetchCandlesRange({
+      symbol: get().symbol,
+      interval: get().timeframe,
+      startTime: Math.max(0, (target - FOCUS_LOOKBACK_BARS * intervalSec) * 1000),
+      endTime: existing[0].time * 1000 - 1
+    })
+
+    return prepend(older)
+  }
+
   async function switchReplayTimeframe(nextTimeframe: string): Promise<void> {
     if (!TIMEFRAMES[nextTimeframe]) return
     if (nextTimeframe === get().timeframe) return
@@ -2410,6 +2527,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
     visibleCandles: [],
     currentCandle: null,
     chartSync: { kind: 'replace', fitContent: true, revision: 0 },
+    chartFocus: null,
     isPrefetching: false,
     replayLoading: false,
     replayMessage: null,
@@ -3624,6 +3742,58 @@ export const useReplayStore = create<ReplayStore>((set, get) => {
       engine.seekToTime(timeSeconds)
       publishReplay('replace', { fitContent: false })
       syncSecondaryToPrimaryCover({ fitContent: false })
+    },
+
+    async focusChartTime(timeSeconds) {
+      const target = Math.floor(Number(timeSeconds))
+      if (!Number.isFinite(target)) return
+
+      function plottedSeries(): Candle[] {
+        return get().mode === 'replay' ? get().visibleCandles : get().candles
+      }
+
+      function onSeries(): boolean {
+        return isTimeInSeriesRange(target, plottedSeries(), intervalSecondsFor(get().timeframe))
+      }
+
+      function emit(): void {
+        set((s) => ({
+          replayMessage: s.replayMessage === FOCUS_OUT_OF_RANGE_MESSAGE ? null : s.replayMessage,
+          chartFocus: { time: target, revision: (s.chartFocus?.revision ?? 0) + 1 }
+        }))
+      }
+
+      if (onSeries()) {
+        emit()
+        return
+      }
+
+      // A target newer than the playhead is not history — replay has to reach it.
+      const plotted = plottedSeries()
+      if (plotted.length && target > plotted[plotted.length - 1].time) {
+        set({ replayMessage: FOCUS_OUT_OF_RANGE_MESSAGE })
+        return
+      }
+
+      if (focusInFlight) return
+      focusInFlight = true
+      set({ isPrefetching: true })
+
+      try {
+        const loaded = await loadHistoryForFocus(target)
+        if (!loaded || !onSeries()) {
+          set({ replayMessage: FOCUS_OUT_OF_RANGE_MESSAGE })
+          return
+        }
+        emit()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : FOCUS_OUT_OF_RANGE_MESSAGE
+        set({ replayMessage: message })
+      } finally {
+        focusInFlight = false
+        // A concurrent prefetch owns the spinner until its own finally runs.
+        if (!prefetchInFlight) set({ isPrefetching: false })
+      }
     },
 
     resetReplayState
