@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight } from 'lucide-react'
-import { openFeedbackWidget } from '@/components/GiveFeedback'
+// import { openFeedbackWidget } from '@/components/GiveFeedback'
 import { useReplayStore } from '@/store/replayStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiLayoutStore } from '@/store/uiLayoutStore'
@@ -210,11 +210,6 @@ export default function MenuBar() {
         },
         {
           type: 'item',
-          label: 'Send Feedback',
-          onSelect: openFeedbackWidget
-        },
-        {
-          type: 'item',
           label: 'About',
           onSelect: () => setAboutDialogOpen(true)
         },
@@ -224,6 +219,18 @@ export default function MenuBar() {
           label: 'Check for Update',
           onSelect: () => {
             void checkForUpdates()
+          }
+        }
+      ]
+    },
+    {
+      label: 'PRO version',
+      entries: [
+        {
+          type: 'item',
+          label: 'View PRO version',
+          onSelect: () => {
+            window.open('https://easycandle.app/download', '_blank')
           }
         }
       ]
@@ -302,11 +309,16 @@ export default function MenuBar() {
               onMouseEnter={() => {
                 if (openIndex !== null) setOpenIndex(index)
               }}
-              className={`h-full px-2.5 text-xs transition-colors ${
-                open
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-300 hover:bg-zinc-800/60 hover:text-zinc-100'
-              }`}
+              className={`h-full px-2.5 text-xs transition-colors 
+                ${
+                  open
+                    ? index === 3
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-zinc-800 text-zinc-100'
+                    : index === 3
+                      ? 'text-white bg-amber-500 hover:bg-amber-800/60 hover:text-white'
+                      : 'text-zinc-300 hover:bg-zinc-800/60 hover:text-zinc-100'
+                }`}
             >
               {group.label}
             </button>

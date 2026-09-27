@@ -143,20 +143,22 @@ export default function AccountDialog() {
             />
           ) : (
             <div>
-              <h2 id="account-title" className="text-[15px] font-semibold tracking-tight text-zinc-100">
+              <h2
+                id="account-title"
+                className="text-[15px] font-semibold tracking-tight text-zinc-100"
+              >
                 Sign in
               </h2>
               <p className="mt-1 text-[13px] leading-relaxed text-zinc-400">
-                Continue with Google. If you&apos;re new, we&apos;ll create your account.
+                Download free PRO version to get full access to all features.
               </p>
+
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void onGoogle()}
+                onClick={() => window.open('https://easycandle.app/download', '_blank')}
                 className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-medium text-amber-300 hover:border-amber-400/70 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <GoogleMark />
-                {busy ? 'Waiting for Google…' : 'Continue with Google'}
+                Download PRO version
               </button>
               {error ? <p className="mt-3 text-xs text-red-300">{error}</p> : null}
             </div>
@@ -266,7 +268,9 @@ function SubscriptionCard({
           <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
             Subscription
           </p>
-          <p className={`mt-0.5 text-base font-semibold ${isPro ? 'text-amber-200' : 'text-zinc-100'}`}>
+          <p
+            className={`mt-0.5 text-base font-semibold ${isPro ? 'text-amber-200' : 'text-zinc-100'}`}
+          >
             {isPro ? 'Pro' : 'Free'}
           </p>
         </div>
@@ -277,7 +281,9 @@ function SubscriptionCard({
         </span>
       </div>
 
-      <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-400">{statusCopy(status, earlyAdapter)}</p>
+      <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-400">
+        {statusCopy(status, earlyAdapter)}
+      </p>
 
       {earlyAdapter && isPro ? (
         <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-sky-300">
@@ -319,10 +325,16 @@ function SubscriptionCard({
 
 function statusPill(status: SubStatus): { label: string; className: string } {
   if (status === 'active') {
-    return { label: 'Active', className: 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30' }
+    return {
+      label: 'Active',
+      className: 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
+    }
   }
   if (status === 'expiring') {
-    return { label: 'Expiring', className: 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30' }
+    return {
+      label: 'Expiring',
+      className: 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
+    }
   }
   if (status === 'expired') {
     return { label: 'Expired', className: 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30' }
