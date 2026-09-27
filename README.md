@@ -20,6 +20,13 @@ Easy Candle is a desktop app for learning to read the market and practicing trad
 ## Download
 
 <div align=left>
+<p>
+ For advanced features, download the free PRO version.
+</p>
+
+<a href="https://easycandle.app/download">
+    <img src="https://img.shields.io/badge/Download-PRO version-blue.svg?logo=easycandle">
+</a>
     <table>
         <thead align="left">
             <tr>
